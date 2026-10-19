@@ -1,6 +1,6 @@
 /**
  * games/drawpad/web/src/main.tsx, without the JSX. boot.ts, auth/*, config.ts, ProfileName.tsx, AdminUsers.tsx
- * and TopBar's sign-out are deleted; the shell owns them. In the real file the import is '/shell/v1.js'.
+ * and TopBar's sign-out are deleted; the shell owns them. In the real file the import is '/shell/v1/index.js'.
  */
 import { enter } from '../../shell';
 import type { RoleOf } from '../../manifest';

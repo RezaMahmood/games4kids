@@ -17,5 +17,6 @@ export default defineGame({
 	},
 	settings: { FOUNDRY_ENDPOINT: { kind: 'url' } },
 	services: ['cognitiveServices'],
+	hosting: { maxInstances: 1 },
 	csp: { 'img-src': ['blob:'], 'worker-src': ["'self'"] },
 });

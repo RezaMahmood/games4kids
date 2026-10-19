@@ -1,9 +1,9 @@
 /**
  * packages/sdk/src/manifest.ts, part of @g4k/sdk, the only package a game may import.
  *
- * games/<id>/manifest.ts default-exports `defineGame({...})`. It is data only, so tools/gen.mjs,
- * the host and the conformance suite can load it without loading any game code. It is the single
- * list of everything the portal knows about a game. Nothing else in the repo names a game by hand.
+ * games/<id>/manifest.ts default-exports `defineGame({...})`. It is data only, so tools/gen.mjs, the game's
+ * Bicep parameters, its catalog entry and the conformance suite can load it without loading any game code. It is
+ * the single list of everything the portal knows about a game. Nothing else in the repo names a game by hand.
  */
 
 declare const brand: unique symbol;
@@ -11,9 +11,10 @@ export type Brand<T, Name extends string> = T & { readonly [brand]: Name };
 
 /**
  * `^[a-z][a-z0-9]{2,15}$`, equal to the folder name, not reserved. One string serves as the URL segment
- * (/g/<id>/, /api/g/<id>/), the storage account (g4k<id><suffix>, at most 24 characters), the `game` tag on the
- * game's Azure resources and the `game` value on its telemetry. No underscore, so a function name
- * <id>_<route> parses back. Minted only by `parseGameId` in tools/gen.mjs; a manifest writes a plain literal.
+ * (/g/<id>/, /api/g/<id>/), the Function app (func-g4k-<id>), the storage account (g4k<id><suffix>, at most 24
+ * characters), the Bicep deployment (game-<id>), the release pins (pins/<id>/), the `game` tag on the game's Azure
+ * resources and the `game` value on its telemetry. No underscore, so a function name <id>_<route> parses back.
+ * Minted only by `parseGameId` in tools/gen.mjs; a manifest writes a plain literal.
  */
 export type GameId = Brand<string, 'GameId'>;
 
@@ -46,6 +47,12 @@ export type WebBuild =
 	| { readonly kind: 'static' };
 
 /**
+ * The game's own Function app. drawpad sets maxInstances 1, so its Foundry worker runs one job at a time. The
+ * defaults are the platform's: 2048 MB and 100 instances.
+ */
+export type Hosting = { readonly maxInstances?: number; readonly memoryMb?: 512 | 2048 | 4096 };
+
+/**
  * The door for cross-game features such as a joint scoreboard. A game would export a named read here and a
  * portal hub would call it; no game ever reads another game's storage. No hub exists yet, so the type admits
  * only an empty object and tools/gen.mjs rejects a non-empty one as well.
@@ -75,6 +82,7 @@ export type GameManifest = {
 	};
 	readonly settings: Readonly<Record<string, SettingSpec>>;
 	readonly services: readonly AzureService[];
+	readonly hosting?: Hosting;
 	readonly csp?: CspExtension;
 	readonly exports?: ReservedExports;
 };
@@ -101,7 +109,7 @@ export function parseGameId(raw: string): GameId | { readonly problem: string } 
 	throw new Error('not implemented');
 }
 
-/** Rank on the game's own ladder. The host's access check and the shell's `requires` both use this. */
+/** Rank on the game's own ladder. The game app's access check and the shell's `requires` both use this. */
 export function atLeast<M extends GameManifest>(manifest: M, held: RoleOf<M>, needed: RoleOf<M>): boolean {
 	throw new Error('not implemented');
 }

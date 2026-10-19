@@ -1,24 +1,29 @@
 /**
- * shell/ builds one ESM file, dist/site/shell/v1.js, with MSAL vendored inside, plus /shell/theme.css. Every page
- * on the site imports it by URL: `import { enter } from '/shell/v1.js'`. A static game needs no bundler. A Vite
- * game marks the URL external and gets these types from @g4k/sdk, which declares the '/shell/v1.js' module.
+ * shell/ builds the shell artifact for one contract major: /shell/v1/index.js, with MSAL vendored inside, and
+ * /shell/v1/theme.css. Every page imports the major it was built against by URL:
+ * `import { enter } from '/shell/v1/index.js'`. A static game needs no bundler. A Vite game marks the URL external
+ * and gets these types from @g4k/sdk, which declares the '/shell/v1/index.js' module. A minor release replaces
+ * v1 in place and only adds; a breaking change ships as /shell/v2/ beside v1 (release.ts, `compatible`). The files
+ * are served with no-cache and an ETag, so a page picks up a new minor on its next load.
  *
  * Pages are separate documents on one origin. MSAL caches in sessionStorage, which every path in a tab shares, so
  * moving from / to /g/letterjoin/ gets a token silently. The registration needs https://<site>/ and
- * https://<site>/redirect.html as redirect URIs, for every game.
+ * https://<site>/redirect.html as redirect URIs, for every game, so a new game changes nothing in Entra.
  *
- * v1.js also vendors the Application Insights browser SDK at 100 percent sampling. A telemetry initializer stamps
+ * The shell also vendors the Application Insights browser SDK at 100 percent sampling. A telemetry initializer stamps
  * every page view with `game` (the id passed to enter, or 'portal') and the PortalUserId, and while a game page
  * is visible enter() sends a ShellEvent 'game_session' every 60 seconds (telemetry.ts). Games add nothing.
  */
 
-import type { Catalog } from './registry';
+import type { Refusal } from './host';
+import type { Catalog, CatalogEntry } from './registry';
 import type { Me, PortalRole, PortalUserId, Profile } from './identity';
 
 export type EnterOptions<Role extends string = string> = {
 	/**
-	 * Binds `api` to /api/g/<id>/. null on portal pages binds it to /api/portal/. 'admin', a reserved id, binds it
-	 * to the admin Function app's /api/admin/ and requires portal admin; only the /admin/ pages pass it.
+	 * Binds `api` to `${apiBaseUrl}/api/g/<id>/`, with apiBaseUrl from this game's catalog entry. null on portal pages
+	 * binds it to the portal app's /api/portal/. 'admin', a reserved id, binds it to the admin app's /api/admin/ and
+	 * requires portal admin; only the /admin/ pages pass it.
 	 */
 	readonly game: string | null;
 	/** A rung on the game's ladder, read from catalog.json. Below it, enter() draws "Only admins can open this page". */
@@ -40,6 +45,7 @@ export type Session<Role extends string = string> = {
 };
 
 /**
+ * Calls the portal app's GET /api/portal/me first, which claims a first sign-in, then reads catalog.json.
  * Resolves only with an active session for this game. Every other state is a screen the shell draws, or a
  * redirect, and the promise never resolves:
  *   signed out        loginRedirect in the top window, back to this page
@@ -64,7 +70,19 @@ export class ApiFailure extends Error {
 	}
 }
 
-/** Bearer handling, one retry on 401 with a forced token refresh, then re-authentication. drawpad's transport.ts. */
+/**
+ * What the ApiClient does with each Refusal a game app sends. A switch with a `never` default, so a new Refusal
+ * fails the shell's build until it is handled.
+ *   unauthenticated, invalid_token   one forced token refresh and retry, then loginRedirect
+ *   not_claimed                      GET /api/portal/me, which claims, then one retry
+ *   not_invited, no_profile,         the same screens enter() draws
+ *   not_entitled, forbidden
+ */
+export function onRefusal(code: Refusal): 'retry-after-refresh' | 'retry-after-claim' | 'screen' {
+	throw new Error('not implemented');
+}
+
+/** Bearer handling and Refusal routing, from drawpad's transport.ts. A game's own error codes come back as ApiFailure. */
 export type ApiClient = {
 	get<T>(path: string, query?: Readonly<Record<string, string>>): Promise<T>;
 	post<T>(path: string, body: unknown): Promise<T>;
@@ -76,12 +94,12 @@ export type ApiClient = {
 	objectUrl(path: string): Promise<string>;
 };
 
-/** /config.json, written at deploy. Parsed once by the shell. Games never read it. */
+/** /config.json, written by web-release from the pins. Parsed once by the shell. Games never read it. Game app origins live in catalog.json. */
 export type SiteConfig = {
 	readonly authorities: readonly { readonly issuer: string; readonly authority: string; readonly clientId: string }[];
-	/** The host Function app. */
-	readonly apiOrigin: string;
-	/** The admin Function app, called only by the /admin/ pages. */
+	/** func-g4k-portal. */
+	readonly portalApiOrigin: string;
+	/** func-g4k-admin, called only by the /admin/ pages. */
 	readonly adminApiOrigin: string;
 	/** Application Insights connection string. Its ingestion endpoint is the one telemetry entry in connect-src. */
 	readonly telemetryConnectionString: string;
@@ -99,7 +117,12 @@ export declare class PortalBar extends HTMLElement {
 	session: Session | null;
 }
 
-/** Home cards from catalog.json, filtered to the games in `me.games`, which holds only granted games. */
+/** The catalog entries whose effectiveRole for this member is not 'none', with that role. Home and <portal-bar> use it. */
+export function visibleGames(catalog: Catalog, me: Extract<Me, { state: 'active' }>): readonly { readonly entry: CatalogEntry; readonly role: string }[] {
+	throw new Error('not implemented');
+}
+
+/** Home cards for visibleGames. A game without a grant has no card, even for a child who guesses its URL. */
 export function mountCatalog(root: HTMLElement, catalog: Catalog, me: Extract<Me, { state: 'active' }>): void {
 	throw new Error('not implemented');
 }

@@ -1,16 +1,22 @@
 /**
  * The game-facing half (Route, Platform, defineGameApi, HttpError) is packages/sdk/src/api.ts in @g4k/sdk.
- * The rest is host/src: one Azure Functions app that mounts /api/portal/* and every game's /api/g/<id>/*.
+ * The rest is packages/host, @g4k/host: the code that turns one game's api into one Azure Functions app,
+ * func-g4k-<id>, and the portal routes into func-g4k-portal. Each app bundles the @g4k/host version in its game's
+ * package.json, so a host change reaches a game only when that game next ships.
  *
  * A game receives a Platform<typeof manifest>: handles typed from the names it declared, parsed settings,
  * tokens for declared services, a read-only roster. It never receives a credential, a storage client, the
  * environment or @azure/functions. Lint (no @azure/*, jose or process.env in games/x/api) and TS project
- * references (a game project includes only its own folder and references only @g4k/sdk) close the rest.
+ * references (a game project includes only its own folder and references only @g4k/sdk) close the rest. Since
+ * each app's identity can reach only its own game's account, a game that got past both would still find no
+ * other game's data.
  */
 
 import type { AzureService, ContainerOf, GameId, GameManifest, QueueOf, RoleOf, ServiceOf, SettingSpec, TableOf } from './manifest';
-import type { HostStore, Member, PortalUserId, TrustedIssuer } from './identity';
-import type { Telemetry } from './telemetry';
+import type { Member, PortalReader, PortalStore, PortalUserId, TrustedIssuer } from './identity';
+import type { Catalog } from './registry';
+import type { ContractVersion, GitSha } from './release';
+import type { Telemetry, TelemetryOwner } from './telemetry';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -33,7 +39,7 @@ export type RouteCtx<M extends GameManifest, Body> = {
 	readonly query: URLSearchParams;
 	readonly body: Body;
 	readonly now: Date;
-	/** A line only. The host already holds this call's GameTelemetry, so a game cannot choose its own `game`. */
+	/** A line only. The app already holds this call's GameTelemetry, so a game cannot choose its own `game`. */
 	readonly log: (line: string) => void;
 };
 
@@ -48,11 +54,11 @@ type RouteBase<M extends GameManifest> = {
 	readonly method: Method;
 	/** Relative, Functions template syntax: 'activities/{id}/result' mounts at /api/g/<id>/activities/{id}/result. */
 	readonly path: string;
-	/** A rung on this game's ladder. The host refuses the call before `run` when the caller's role is lower. */
+	/** A rung on this game's ladder. The app refuses the call before `run` when the caller's role is lower. */
 	readonly access: RoleOf<M>;
 };
 
-/** `body` picks how the host parses the request: 415, 413 and 400 come back in the one error shape before `run`. */
+/** `body` picks how the app parses the request: 415, 413 and 400 come back in the one error shape before `run`. */
 export type Route<M extends GameManifest> =
 	| (RouteBase<M> & { readonly body: 'none'; run(ctx: RouteCtx<M, undefined>): Promise<Reply> })
 	| (RouteBase<M> & { readonly body: 'json'; run(ctx: RouteCtx<M, unknown>): Promise<Reply> })
@@ -66,7 +72,7 @@ export type GameApi<M extends GameManifest> = {
 	readonly workers?: readonly { readonly queue: QueueOf<M>; readonly run: Worker }[];
 };
 
-/** What `defineGameApi` returns and the generated registry imports as `createGameApi`. Called once at startup. */
+/** What `defineGameApi` returns and the game's generated app entry imports as `createGameApi`. Called once at startup. */
 export type CreateGameApi<M extends GameManifest> = (platform: Platform<M>) => GameApi<M>;
 
 /** Binds the manifest so routes, workers and platform names are checked against it without annotations. */
@@ -76,6 +82,13 @@ export function defineGameApi<const M extends GameManifest>(manifest: M, create:
 
 /** The one error shape on the wire: `{ error, message, problems? }`. drawpad switches on `error`, letterjoin shows `message`. */
 export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[] };
+
+/**
+ * The codes an app sends before `run`, in check order. The shell switches on these exhaustively (shell.ts): it
+ * signs in again on the first two, claims through the portal app and retries once on not_claimed, and draws a
+ * screen for the rest. A game's own HttpError codes are game data and reach the page untouched.
+ */
+export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_claimed' | 'not_invited' | 'no_profile' | 'not_entitled' | 'forbidden';
 
 export class HttpError extends Error {
 	constructor(
@@ -146,31 +159,17 @@ export type PortalRoute = {
 	run(ctx: { readonly member: Member | null; readonly params: Readonly<Record<string, string>>; readonly body: unknown; readonly now: Date }): Promise<Reply>;
 };
 
-/** A game after startup. `unavailable` games answer every /api/g/<id>/* call with 503 game_unavailable. */
-export type Mounted =
-	| { readonly state: 'ok'; readonly manifest: GameManifest; readonly api: GameApi<GameManifest> }
-	| { readonly state: 'unavailable'; readonly manifest: GameManifest; readonly reason: string };
+/** GET <app>/api/g/<id>/health, /api/portal/health and /api/admin/health. The app's pipeline waits for its own sha here. */
+export type AppHealth = { readonly owner: TelemetryOwner | 'admin'; readonly version: GitSha; readonly contract: ContractVersion };
 
-/** GET /api/portal/health. tools/deploy.mjs verify fails the deploy unless every game is ok and the version matches. */
-export type Health = {
-	readonly version: string;
-	readonly games: readonly { readonly id: GameId; readonly state: 'ok' | 'unavailable'; readonly reason?: string }[];
-};
+/** What the portal app's health adds: each catalog game's own health, fetched with a 3 second timeout. For /admin/. */
+export type GameHealth =
+	| { readonly id: GameId; readonly state: 'ok'; readonly health: AppHealth }
+	| { readonly id: GameId; readonly state: 'down'; readonly reason: string };
 
-export type HostDeps = {
-	readonly issuers: readonly TrustedIssuer[];
-	readonly identities: HostStore;
-	readonly games: readonly Mounted[];
-	readonly portal: readonly PortalRoute[];
-	/** handle and every worker run inside telemetry.within({ game, route, user }); portal routes use game 'portal'. */
-	readonly telemetry: Telemetry;
-	/** The SWA origin. The only Access-Control-Allow-Origin the host ever sends. */
-	readonly appOrigin: string;
-	readonly version: string;
-	readonly now?: () => Date;
-};
+export type PortalHealth = AppHealth & { readonly games: readonly GameHealth[] };
 
-/** Transport-neutral, so one host runs under Functions, under the dev node server, and in tests. */
+/** Transport-neutral, so one app runs under Functions, under the dev node server, and in tests. */
 export type HostRequest = {
 	readonly method: string;
 	readonly path: string;
@@ -182,36 +181,80 @@ export type HostRequest = {
 
 export type HostReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array | string | null };
 
-export type Host = {
-	/**
-	 * Fixed order, the only auth path in the repo. Once the route matches, the rest runs inside
-	 * telemetry.within({ game, route, user: null }), and from admission on inside a nested within with the user:
-	 *   match route (404) -> verifyToken (401) -> find + decide, claim if planned (403 not_invited)
-	 *   -> profile present (403 no_profile) -> effectiveRole not 'none' (403 not_entitled) -> atLeast access (403 forbidden)
-	 *   -> parse body (400, 413, 415) -> run -> HttpError to its status, anything else 500 server_error
-	 *   -> CORS for appOrigin, cache-control no-store unless a bytes reply set one.
-	 * An unmatched path has no owner, so its 404 is logged with game 'portal'.
-	 */
+/** What every app built from @g4k/host exposes to its adapters. */
+export type App = {
+	/** Under the node adapter, which serves several apps on one port, the app whose prefix matches answers. */
+	readonly prefix: `/api/${string}/`;
 	handle(request: HostRequest): Promise<HostReply>;
-	readonly health: Health;
 	/**
 	 * Flat list for the Functions adapter: one app.http per route, one app.storageQueue per worker, each registered
 	 * under functionName(owner, name), so the request row the Functions host writes carries the owner.
 	 */
 	readonly routes: readonly { readonly functionName: string; readonly absolutePath: string; readonly method: Method }[];
-	readonly workers: readonly { readonly functionName: string; readonly game: GameId; readonly queueName: string; readonly run: Worker }[];
+	readonly workers: readonly { readonly functionName: string; readonly queueName: string; readonly run: Worker }[];
 };
 
-export function createHost(deps: HostDeps): Host {
+/** Settings every app reads from its own environment, parsed once at startup. */
+export type AppEnv = {
+	readonly issuers: readonly TrustedIssuer[];
+	readonly telemetry: Telemetry;
+	/** The SWA origin. The only Access-Control-Allow-Origin the app ever sends. */
+	readonly appOrigin: string;
+	readonly version: GitSha;
+	readonly contract: ContractVersion;
+	readonly now?: () => Date;
+};
+
+export type GameAppDeps<M extends GameManifest> = AppEnv & {
+	readonly id: GameId;
+	readonly manifest: M;
+	readonly create: CreateGameApi<M>;
+	/** Read only. A game app cannot claim an identity or write a profile, member or grant. */
+	readonly portal: PortalReader;
+	readonly storage: StorageConfig;
+	readonly env: Readonly<Record<string, string | undefined>>;
+};
+
+/**
+ * One game's Function app, func-g4k-<id>, serving /api/g/<id>/*. Startup runs platformFor and create; a throw
+ * fails this app's start, so its own pipeline's health check fails and redeploys the pinned package. No other
+ * game shares the process, so nothing needs containing.
+ *
+ * handle, the only auth path in the app, in fixed order. Once the route matches, the rest runs inside
+ * telemetry.within({ game: id, route, user: null }), and from admission on inside a nested within with the user:
+ *   match route (404) -> verifyToken (401 unauthenticated or invalid_token) -> portal.known (403 not_claimed)
+ *   -> active member (403 not_invited) -> profile present (403 no_profile) -> effectiveRole not 'none'
+ *   (403 not_entitled) -> atLeast access (403 forbidden) -> parse body (400, 413, 415) -> run
+ *   -> HttpError to its status, anything else 500 server_error -> CORS for appOrigin, cache-control no-store
+ *   unless a bytes reply set one.
+ * GET health needs no token and answers AppHealth.
+ */
+export function createGameApp<M extends GameManifest>(deps: GameAppDeps<M>): App {
 	throw new Error('not implemented');
 }
 
-/** The owner of one storage account. Each game has its own, and the portal has one for its tables and deploy packages. */
+export type PortalAppDeps = AppEnv & {
+	readonly portal: PortalStore;
+	/** The live catalog.json from appOrigin, cached for a minute, so a new game needs no portal deploy. */
+	readonly catalog: () => Promise<Catalog>;
+	readonly fetchHealth: (url: string, timeoutMs: number) => Promise<AppHealth>;
+};
+
+/**
+ * func-g4k-portal, serving /api/portal/*: me (which claims on a first sign-in), profile, and health. It knows no
+ * game at build time and runs no game code. No route reads or changes Entra, and its identity holds no Graph
+ * permission. Same fixed order as a game app, with PortalAccess in place of a ladder and game 'portal' on telemetry.
+ */
+export function createPortalApp(deps: PortalAppDeps): App {
+	throw new Error('not implemented');
+}
+
+/** The owner of one storage account. Each game has its own, and the portal has one for its tables and the releases container. */
 export type StorageOwner = GameId | 'portal';
 
 /**
  * 'azure' and 'azurite' address one account per owner, accountName(owner, suffix). tools/dev.mjs writes Azurite's
- * AZURITE_ACCOUNTS from the registry. 'memory' keys its maps by account too, so conformance can see which one a game used.
+ * AZURITE_ACCOUNTS from the dev registry. 'memory' keys its maps by account too, so conformance can see which one a game used.
  */
 export type StorageConfig =
 	| { readonly kind: 'azure'; readonly suffix: string }
@@ -228,37 +271,23 @@ export function accountName(owner: StorageOwner, suffix: string): string {
 }
 
 /**
- * The only function that holds a storage credential. Builds handles against this game's own account only,
- * under the declared names, and parses settings from the environment; a missing required setting throws, which
- * mountGames contains. The host identity holds data roles on every game account, so this, not RBAC, keeps games apart.
+ * The only function that holds a storage credential. Builds handles against this game's own account only, under the
+ * declared names, and parses settings from the environment; a missing required setting throws, so the app does not
+ * start. The app's identity holds data roles on this account only, so RBAC agrees with the types.
  */
-export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, identities: HostStore): Platform<M> {
+export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, portal: PortalReader): Platform<M> {
+	throw new Error('not implemented');
+}
+
+/** packages/host/src/adapters/functions.ts, the only importer of @azure/functions. Route prefix '', authLevel anonymous. */
+export function registerWithFunctions(app: App): void {
 	throw new Error('not implemented');
 }
 
 /**
- * Startup containment. For each registry entry: platformFor, then createGameApi, inside one try/catch. A throw
- * marks that game unavailable and the others mount. Module evaluation is not covered: registry imports are
- * static, so a game whose module throws on import fails the whole app, and CI catches that before deploy.
+ * packages/host/src/adapters/node.ts. Dev and tests only: tools/dev.mjs serves the portal app and every game app
+ * from the dev registry on one port, each answering its own prefix, with the real verifyToken against the fake IdP.
  */
-export function mountGames(entries: readonly import('./registry').RegistryEntry[], build: (manifest: GameManifest, id: GameId) => Platform<GameManifest>): readonly Mounted[] {
-	throw new Error('not implemented');
-}
-
-/** host/src/adapters/functions.ts, the only importer of @azure/functions. Route prefix '', authLevel anonymous. */
-export function registerWithFunctions(host: Host): void {
-	throw new Error('not implemented');
-}
-
-/** host/src/adapters/node.ts. The same host behind node:http, for tools/dev.mjs and Playwright. */
-export function serveWithNode(host: Host, port: number): Promise<{ readonly origin: string; close(): Promise<void> }> {
-	throw new Error('not implemented');
-}
-
-/**
- * Portal routes: me, profile and health. Invites, grants, revokes and drift live in the admin Function app
- * (admin.ts). No route here reads or changes Entra, and the host's identity holds no Graph permission.
- */
-export function portalRoutes(identities: HostStore, manifests: readonly GameManifest[], health: () => Health): readonly PortalRoute[] {
+export function serveWithNode(apps: readonly App[], port: number): Promise<{ readonly origin: string; close(): Promise<void> }> {
 	throw new Error('not implemented');
 }

@@ -1,7 +1,7 @@
 /**
  * games/letterjoin/web/app.js and admin.js. gate.js, auth.js, redirect.html and vendor/msal are deleted. The
  * header in index.html becomes <portal-bar title="Letter Tracing" back="/"> with the practice pill and the
- * score chip in its center slot. In the real files the import is '/shell/v1.js'.
+ * score chip in its center slot. In the real files the import is '/shell/v1/index.js'.
  */
 import { enter } from '../../shell';
 

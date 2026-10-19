@@ -1,8 +1,9 @@
 /**
  * admin/src: the admin Function app, func-g4k-admin. It serves only /api/admin/*, for the /admin/ pages, and runs
- * no game code: it imports identity.ts, storage naming and the generated catalog.json, never host/generated/games.ts
- * or games/*. admin/src/graph.ts is the only file that calls Graph. Its user-assigned identity, id-g4k-graph, holds
- * the portal's only Entra rights, both granted by tools/bootstrap.mjs on the Mac:
+ * no game code: it imports identity.ts and storage naming from @g4k/host, never games/*, and reads the live
+ * catalog.json, so a new game appears in the invite form without an admin deploy. admin/src/graph.ts is the only
+ * file that calls Graph. Its user-assigned identity, id-g4k-graph, holds the portal's only Entra rights, both
+ * granted by tools/bootstrap.mjs on the Mac:
  *   User.Invite.All                         create guests
  *   Cloud Application Administrator,        add and remove the games4kids enterprise app's assignments; it cannot
  *   scoped to the games4kids service        reach drawpad's or letterjoin's registrations, as a tenant-wide
@@ -24,7 +25,7 @@ export type AssignmentId = Brand<string, 'AssignmentId'>;
 /** One user's assignment to games4kids with the default access role (the app defines no app roles). */
 export type Assignment = { readonly objectId: EntraObjectId; readonly assignmentId: AssignmentId };
 
-/** Graph as id-g4k-graph. The host's identity holds no Entra right. */
+/** Graph as id-g4k-graph. No other app's identity holds an Entra right. */
 export type GraphAsApp = {
 	/**
 	 * POST /invitations with sendInvitationMessage and a redirect to https://<site>/. A repeat for the same email
@@ -48,7 +49,7 @@ export type MemberView = { readonly member: Member; readonly profile: Profile | 
 
 /** The admin app's view of the portal tables. It writes members and emails and reads the rest. */
 export type AdminStore = {
-	/** The caller's member row, through the identity row the host wrote at first sign-in. */
+	/** The caller's member row, through the identity row the portal app wrote at first sign-in. */
 	memberFor(identity: Identity): Promise<Member | undefined>;
 	/** emails insert if absent with a fresh UUID; on conflict the existing one, so a re-invite keeps the PortalUserId. */
 	userIdFor(email: Email): Promise<PortalUserId>;
@@ -91,7 +92,7 @@ export function setAccess(userId: PortalUserId, access: Omit<InviteRequest, 'ema
 }
 
 /**
- * POST /api/admin/members/{userId}/revoke. 1. state 'revoked', so the host refuses the next request. 2. unassign,
+ * POST /api/admin/members/{userId}/revoke. 1. state 'revoked', so every app refuses the next request. 2. unassign,
  * so Entra issues no new token. A crash between them leaves drift 'assigned-without-member'.
  */
 export function revoke(userId: PortalUserId, actor: Member, store: AdminStore, graph: GraphAsApp): Promise<void> {
@@ -140,7 +141,8 @@ export type AdminDeps = {
 	readonly issuers: readonly TrustedIssuer[];
 	readonly store: AdminStore;
 	readonly graph: GraphAsApp;
-	readonly catalog: Catalog;
+	/** The live catalog.json from appOrigin, cached for a minute. */
+	readonly catalog: () => Promise<Catalog>;
 	/** Every call runs inside telemetry.within({ game: 'portal', route, user }). */
 	readonly telemetry: Telemetry;
 	/** The SWA origin, the only CORS origin, and the invitation redirect. */

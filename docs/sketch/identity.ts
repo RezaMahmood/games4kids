@@ -1,27 +1,31 @@
 /**
- * host/src/identity.ts. Who may enter the portal, and what they are in each game. The host Function app and the
- * admin Function app both import it. Games see a `Caller`; the shell sees a `Me`.
+ * @g4k/host's identity module. Who may enter the portal, and what they are in each game. Every game app, the
+ * portal app and the admin app import it. Games see a `Caller`; the shell sees a `Me`.
  *
- * Portal tables, in the portal storage account g4kportal<suffix>, which no game's Platform reaches. One writer each.
+ * Portal tables, in the portal storage account g4kportal<suffix>. One writer each, enforced by RBAC per app:
  *   members     PK 'member'    RK PortalUserId               -> Member      admin app (admin.ts)
  *   emails      PK 'email'     RK Email                      -> { userId }  admin app (admin.ts)
- *   identities  PK 'identity'  RK `${IssuerKey}|${subject}`  -> { userId }  host, on the first sign-in
- *   profiles    PK 'profile'   RK PortalUserId               -> Profile     host, on /welcome/
- *   names       PK 'name'      RK lowercased display name    -> { userId }  host, on /welcome/
- * The admin app's identity holds table-scoped RBAC that enforces its half: write on the first two, read on the
- * rest. The host's half is enforced by HostStore, which has no member or email writer.
+ *   identities  PK 'identity'  RK `${IssuerKey}|${subject}`  -> { userId }  portal app, on the first sign-in
+ *   profiles    PK 'profile'   RK PortalUserId               -> Profile     portal app, on /welcome/
+ *   names       PK 'name'      RK lowercased display name    -> { userId }  portal app, on /welcome/
+ * Each game app's identity holds Storage Table Data Reader on members, identities and profiles only, and no write
+ * on any portal table. Its code gets a PortalReader, which has no writer, so a first sign-in that reaches a game
+ * app before the portal app gets 403 not_claimed, and the shell claims through the portal app and retries.
  *
  * Two gates, both required. Entra "assignment required" is on, and each invited account holds its own assignment
  * to the games4kids enterprise app (default access role), so Entra issues no token to anyone else. A group would
- * need Entra ID P1, which the tenant lacks. Then the host admits only an active member row. The admin app writes
+ * need Entra ID P1, which the tenant lacks. Then every app admits only an active member row. The admin app writes
  * both lists, holding Cloud Application Administrator scoped to the games4kids service principal (admin.ts).
+ *
+ * Rows change additively within a contract major (release.ts). An app parses each row at the boundary, and a state
+ * it does not know is refused, so a game app built against an older minor fails closed, never open.
  *
  * Reserved, not created: guardianships (PK guardian PortalUserId, RK child PortalUserId) and policies
  * (PK 'policy', RK child PortalUserId -> { dailyPlayMinutes }). A future parent account is a guardianship row,
  * not a portal role, and a parent-set limit would reach games as a Caller field.
  */
 
-import type { Brand, GameId, GameManifest, RoleOf } from './manifest';
+import type { Brand, GameId, RoleLadder } from './manifest';
 
 /** Minted by the admin app at invite (a UUID). The only user key a game may store. Survives a change of identity provider. */
 export type PortalUserId = Brand<string, 'PortalUserId'>;
@@ -59,7 +63,7 @@ export type Authentication =
 	| { readonly ok: true; readonly identity: Identity }
 	| { readonly ok: false; readonly code: 'unauthenticated' | 'invalid_token' };
 
-/** RS256, iss, aud, tid where pinned, ver 2.0, scp contains access_as_user, exp. From letterjoin's identity.js. Both apps call it. */
+/** RS256, iss, aud, tid where pinned, ver 2.0, scp contains access_as_user, exp. From letterjoin's identity.js. Every app calls it. */
 export function verifyToken(issuers: readonly TrustedIssuer[], authorization: string | null): Promise<Authentication> {
 	throw new Error('not implemented');
 }
@@ -88,7 +92,11 @@ export type Member = {
 	readonly grants: Grants;
 };
 
-/** What GET /api/portal/me returns. The shell routes on `state`, so a game page only ever sees 'active'. */
+/**
+ * What GET /api/portal/me returns. The shell routes on `state`, so a game page only ever sees 'active'. The portal
+ * app knows no game, so it returns the grants as stored, and the shell derives each game's role with effectiveRole
+ * over the live catalog. Each game app derives the same role from its own manifest, and that one is authoritative.
+ */
 export type Me =
 	| { readonly state: 'not-invited'; readonly email: Email | null }
 	| { readonly state: 'no-profile'; readonly email: Email }
@@ -97,11 +105,10 @@ export type Me =
 			readonly userId: PortalUserId;
 			readonly profile: Profile;
 			readonly portalRole: PortalRole;
-			/** Granted games only, with the role held in each. Derived by effectiveRole, never stored. */
-			readonly games: readonly { readonly id: GameId; readonly role: string }[];
+			readonly grants: Grants;
 	  };
 
-/** What the host's store finds for a verified identity, in one pass. */
+/** What an app's store finds for a verified identity, in one pass. */
 export type Found =
 	/** The identity row exists, so this identity has signed in before. */
 	| { readonly kind: 'known'; readonly userId: PortalUserId; readonly member: Member | undefined; readonly profile: Profile | undefined }
@@ -110,7 +117,7 @@ export type Found =
 
 export type Admission =
 	| { readonly kind: 'member'; readonly member: Member; readonly profile: Profile | null }
-	/** First sign-in of an invited child. The host inserts the identity row, then admits. */
+	/** First sign-in of an invited child. The portal app inserts the identity row, then admits; a game app answers 403 not_claimed. */
 	| { readonly kind: 'claim'; readonly member: Member }
 	| { readonly kind: 'not-invited'; readonly email: Email | null };
 
@@ -125,14 +132,26 @@ export function decide(identity: Identity, found: Found): Admission {
 /**
  * The only function that computes a game role. A portal admin holds the top rung of every game. Otherwise the
  * member's grant for the game applies, and with no grant the answer is 'none', so a new game is hidden from every
- * child until an admin grants it. The manifest's defaultRole never grants anything.
+ * child until an admin grants it. The manifest's defaultRole never grants anything. `ladder` is a manifest in a
+ * game app and a catalog entry in the shell.
  */
-export function effectiveRole<M extends GameManifest>(member: Member, game: GameId, manifest: M): RoleOf<M> | 'none' {
+export function effectiveRole<L extends { readonly roles: RoleLadder }>(member: Pick<Member, 'portalRole' | 'grants'>, game: GameId, ladder: L): L['roles'][number] | 'none' {
 	throw new Error('not implemented');
 }
 
-/** The host's view of the portal tables. No method writes members or emails. */
-export type HostStore = {
+/** What every game app may read of the portal tables. Built over a Table Data Reader credential; it has no writer. */
+export type PortalReader = {
+	/**
+	 * Reads identities, then members and profiles. It never reads emails, so an identity with no row is just
+	 * 'unclaimed', which the game app answers with 403 not_claimed before any decision.
+	 */
+	known(identity: Identity): Promise<Extract<Found, { readonly kind: 'known' }> | { readonly kind: 'unclaimed' }>;
+	/** For each game's Roster. */
+	members(): Promise<readonly { readonly member: Member; readonly profile: Profile | null }[]>;
+};
+
+/** The portal app's view. It adds the email lookup and the two writes the portal app owns, and still no member or email writer. */
+export type PortalStore = PortalReader & {
 	find(identity: Identity): Promise<Found>;
 	/**
 	 * The only claim step: insert the identities row for member.userId if absent. A rerun, or a second tab racing
@@ -141,6 +160,4 @@ export type HostStore = {
 	claim(identity: Identity, member: Member): Promise<void>;
 	/** Reserves the name row first (insert if absent), then writes the profile. */
 	setProfile(userId: PortalUserId, profile: Profile): Promise<'ok' | 'name_taken'>;
-	/** Read only, for each game's Roster. */
-	members(): Promise<readonly { readonly member: Member; readonly profile: Profile | null }[]>;
 };
