@@ -11,7 +11,12 @@
 	],
 	"scripts": {
 		"gen": "node --conditions=source tools/gen.mjs",
-		"predev": "npm run gen",
+		"predev": "npm run gen && tsc -b apps/games apps/admin",
+		"dev": "node --conditions=source tools/dev.mjs",
+		"predev:fixtures": "npm run gen && tsc -b apps/games apps/admin",
+		"dev:fixtures": "node --conditions=source tools/dev.mjs --fixtures",
+		"pree2e": "npm run gen && tsc -b apps/games apps/admin",
+		"e2e": "playwright test",
 		"prebuild": "npm run gen",
 		"build": "tsc -b",
 		"pretest": "npm run gen",
