@@ -9,8 +9,8 @@ export type NodeServer = { readonly origin: string; close(): Promise<void> };
 
 export type NodeServerOptions = {
 	readonly port: number;
-	/** Exact origins, as the Function apps' platform CORS lists them. Any other origin gets no CORS header. */
-	readonly allowedOrigins: readonly string[];
+	/** Exact origins, as each Function app's platform CORS lists them. Any other origin gets no CORS header. */
+	readonly allowedOrigins: readonly string[] | ((app: App) => readonly string[]);
 };
 
 function toHostRequest(req: IncomingMessage): HostRequest {
@@ -57,14 +57,15 @@ function write(res: ServerResponse, reply: HostReply, cors: Record<string, strin
  */
 export async function serveWithNode(apps: readonly App[], options: NodeServerOptions): Promise<NodeServer> {
 	const server = createServer(async (req, res) => {
-		const cors = corsHeaders(req, options.allowedOrigins);
+		const request = toHostRequest(req);
+		const app = apps.find((candidate) => request.path.startsWith(candidate.prefix));
+		const allowed = !app ? [] : typeof options.allowedOrigins === 'function' ? options.allowedOrigins(app) : options.allowedOrigins;
+		const cors = corsHeaders(req, allowed);
 		if (req.method === 'OPTIONS') {
 			const preflight = Object.keys(cors).length === 0 ? {} : { ...cors, 'access-control-allow-methods': req.headers['access-control-request-method'] ?? '', 'access-control-allow-headers': req.headers['access-control-request-headers'] ?? '', 'access-control-max-age': '600' };
 			res.writeHead(204, preflight).end();
 			return;
 		}
-		const request = toHostRequest(req);
-		const app = apps.find((candidate) => request.path.startsWith(candidate.prefix));
 		write(res, app ? await app.handle(request) : notFound(), cors);
 	});
 	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port, 'localhost', resolve)));

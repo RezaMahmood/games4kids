@@ -95,3 +95,19 @@ test('an admin request reaches the admin app and a step-up carries its challenge
 		await server.close();
 	}
 });
+
+test('each app can allow its own origins, as each Function app has its own platform CORS', async () => {
+	const w = world();
+	const { player, portal, admin } = fixtureApps(w, idp);
+	const ADMIN_ORIGIN = 'http://localhost:4281';
+	const server = await serveWithNode([player, portal, admin], { port: 0, allowedOrigins: (app) => (app === admin ? [ADMIN_ORIGIN] : [GAMES_ORIGIN]) });
+	try {
+		const originFor = async (path: string, origin: string) => (await fetch(`${server.origin}${path}`, { headers: { origin } })).headers.get('access-control-allow-origin');
+		assert.equal(await originFor('/api/g/fixture/health', GAMES_ORIGIN), GAMES_ORIGIN);
+		assert.equal(await originFor('/api/g/fixture/health', ADMIN_ORIGIN), null, 'the admin origin cannot call a player app');
+		assert.equal(await originFor('/api/admin/portal/health', ADMIN_ORIGIN), ADMIN_ORIGIN);
+		assert.equal(await originFor('/api/admin/portal/health', GAMES_ORIGIN), null, 'the games origin cannot call the admin app');
+	} finally {
+		await server.close();
+	}
+});
