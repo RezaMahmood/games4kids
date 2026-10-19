@@ -1,0 +1,23 @@
+{
+	"routes": [
+		{ "route": "/.auth/login/aad", "statusCode": 404 },
+		{ "route": "/.auth/login/github", "statusCode": 404 },
+		{
+			"route": "/redirect.html",
+			"headers": {
+				"Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'",
+				"Cache-Control": "no-store"
+			}
+		},
+		{ "route": "/config.json", "headers": { "Cache-Control": "no-cache" } },
+		{ "route": "/catalog.json", "headers": { "Cache-Control": "no-cache" } },
+		{ "route": "/shell/v1/*", "headers": { "Cache-Control": "no-cache" } },
+		{ "route": "/shared/*", "headers": { "Cache-Control": "no-cache" } }
+	],
+	"globalHeaders": {
+		"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' __ADMIN_API_ORIGIN__ __AUTHORITY_ORIGIN__ __TELEMETRY_ORIGIN__; frame-src 'self' __AUTHORITY_ORIGIN__; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy": "no-referrer",
+		"Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+	}
+}
