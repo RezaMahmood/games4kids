@@ -14,7 +14,6 @@
 
 import type { AzureService, ContainerOf, GameId, GameManifest, QueueOf, RoleOf, ServiceOf, SettingSpec, TableOf } from './manifest';
 import type { Member, PortalReader, PortalStore, PortalUserId, TrustedIssuer } from './identity';
-import type { Catalog } from './registry';
 import type { ContractVersion, GitSha } from './release';
 import type { Telemetry, TelemetryOwner } from './telemetry';
 
@@ -80,8 +79,11 @@ export function defineGameApi<const M extends GameManifest>(manifest: M, create:
 	throw new Error('not implemented');
 }
 
-/** The one error shape on the wire: `{ error, message, problems? }`. drawpad switches on `error`, letterjoin shows `message`. */
-export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[] };
+/**
+ * The one error shape on the wire: `{ error, message, problems?, claims? }`. drawpad switches on `error`, letterjoin
+ * shows `message`. `claims` comes only with the admin app's 401 reauth_required, for MSAL's acquireTokenRedirect.
+ */
+export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[]; readonly claims?: string };
 
 /**
  * The codes an app sends before `run`, in check order. The shell switches on these exhaustively (shell.ts): it
@@ -159,15 +161,8 @@ export type PortalRoute = {
 	run(ctx: { readonly member: Member | null; readonly params: Readonly<Record<string, string>>; readonly body: unknown; readonly now: Date }): Promise<Reply>;
 };
 
-/** GET <app>/api/g/<id>/health, /api/portal/health and /api/admin/health. The app's pipeline waits for its own sha here. */
+/** GET <app>/api/g/<id>/health, /api/portal/health and /api/admin/health. Only the app's own pipeline reads it, waiting for its sha. */
 export type AppHealth = { readonly owner: TelemetryOwner | 'admin'; readonly version: GitSha; readonly contract: ContractVersion };
-
-/** What the portal app's health adds: each catalog game's own health, fetched with a 3 second timeout. For /admin/. */
-export type GameHealth =
-	| { readonly id: GameId; readonly state: 'ok'; readonly health: AppHealth }
-	| { readonly id: GameId; readonly state: 'down'; readonly reason: string };
-
-export type PortalHealth = AppHealth & { readonly games: readonly GameHealth[] };
 
 /** Transport-neutral, so one app runs under Functions, under the dev node server, and in tests. */
 export type HostRequest = {
@@ -235,14 +230,11 @@ export function createGameApp<M extends GameManifest>(deps: GameAppDeps<M>): App
 
 export type PortalAppDeps = AppEnv & {
 	readonly portal: PortalStore;
-	/** The live catalog.json from appOrigin, cached for a minute, so a new game needs no portal deploy. */
-	readonly catalog: () => Promise<Catalog>;
-	readonly fetchHealth: (url: string, timeoutMs: number) => Promise<AppHealth>;
 };
 
 /**
  * func-g4k-portal, serving /api/portal/*: me (which claims on a first sign-in), profile, and health. It knows no
- * game at build time and runs no game code. No route reads or changes Entra, and its identity holds no Graph
+ * game, at build time or at run time, and runs no game code. No route reads or changes Entra, and its identity holds no Graph
  * permission. Same fixed order as a game app, with PortalAccess in place of a ladder and game 'portal' on telemetry.
  */
 export function createPortalApp(deps: PortalAppDeps): App {

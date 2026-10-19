@@ -15,6 +15,7 @@
  * is visible enter() sends a ShellEvent 'game_session' every 60 seconds (telemetry.ts). Games add nothing.
  */
 
+import type { AdminRefusal } from './admin';
 import type { Refusal } from './host';
 import type { Catalog, CatalogEntry } from './registry';
 import type { Me, PortalRole, PortalUserId, Profile } from './identity';
@@ -22,8 +23,9 @@ import type { Me, PortalRole, PortalUserId, Profile } from './identity';
 export type EnterOptions<Role extends string = string> = {
 	/**
 	 * Binds `api` to `${apiBaseUrl}/api/g/<id>/`, with apiBaseUrl from this game's catalog entry. null on portal pages
-	 * binds it to the portal app's /api/portal/. 'admin', a reserved id, binds it to the admin app's /api/admin/ and
-	 * requires portal admin; only the /admin/ pages pass it.
+	 * binds it to the portal app's /api/portal/. 'admin', a reserved id, binds it to the admin app's /api/admin/ with
+	 * a token for SiteConfig.adminScope instead of access_as_user, and requires portal admin; only the /admin/ pages
+	 * pass it, so no other page ever holds a token the admin app accepts.
 	 */
 	readonly game: string | null;
 	/** A rung on the game's ladder, read from catalog.json. Below it, enter() draws "Only admins can open this page". */
@@ -71,14 +73,17 @@ export class ApiFailure extends Error {
 }
 
 /**
- * What the ApiClient does with each Refusal a game app sends. A switch with a `never` default, so a new Refusal
- * fails the shell's build until it is handled.
+ * What the ApiClient does with each Refusal an app sends. A switch with a `never` default, so a new code fails the
+ * shell's build until it is handled.
  *   unauthenticated, invalid_token   one forced token refresh and retry, then loginRedirect
  *   not_claimed                      GET /api/portal/me, which claims, then one retry
- *   not_invited, no_profile,         the same screens enter() draws
- *   not_entitled, forbidden
+ *   reauth_required                  acquireTokenRedirect for adminScope with the reply's claims, back to this
+ *                                    page; the admin sends the form again, and the steps already done are no-ops
+ *   not_invited, no_profile,         the same screens enter() draws; entra_forbidden shows the reply's message
+ *   not_entitled, forbidden,
+ *   entra_forbidden
  */
-export function onRefusal(code: Refusal): 'retry-after-refresh' | 'retry-after-claim' | 'screen' {
+export function onRefusal(code: Refusal | AdminRefusal): 'retry-after-refresh' | 'retry-after-claim' | 'reauth' | 'screen' {
 	throw new Error('not implemented');
 }
 
@@ -101,6 +106,8 @@ export type SiteConfig = {
 	readonly portalApiOrigin: string;
 	/** func-g4k-admin, called only by the /admin/ pages. */
 	readonly adminApiOrigin: string;
+	/** api://<games4kids-admin client id>/admin.manage, the only scope the /admin/ pages request for adminApiOrigin. */
+	readonly adminScope: string;
 	/** Application Insights connection string. Its ingestion endpoint is the one telemetry entry in connect-src. */
 	readonly telemetryConnectionString: string;
 };

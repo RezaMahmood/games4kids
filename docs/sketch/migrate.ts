@@ -79,9 +79,9 @@ export const PLAYER_DATA = {
 export type LetterjoinUserKey = Brand<string, 'LetterjoinUserKey'>;
 
 /**
- * Derived from the members table, never typed by hand. drawpad's oid is the member's entraObjectId, because an object
+ * Derived from the emails table, never typed by hand. drawpad's oid is the account's entraObjectId, because an object
  * id is per tenant, not per app, and inviting an existing guest returns that guest (guess). letterjoin's key is
- * sha256 of the member's email. A child gets an entry once invited, before any portal sign-in.
+ * sha256 of the account's email. A child gets an entry once invited, before any portal sign-in.
  */
 export type PlayerDataMapping = {
 	readonly drawpad: ReadonlyMap<EntraObjectId, PortalUserId>;

@@ -1,10 +1,12 @@
 /**
- * Compile-time proof of the isolation claims, of the access and table-ownership rules, of the telemetry envelope, of
- * the release slots, and of the migration guards. `tsc --noEmit` passes only if every @ts-expect-error line really is
+ * Compile-time proof of the isolation claims, of the access and table-ownership rules, of the email-free game view,
+ * of Graph running only as a signed-in admin, of the telemetry envelope, of the release slots, and of the migration
+ * guards. `tsc --noEmit` passes only if every @ts-expect-error line really is
  * an error, so the negatives are checked as well as the positives.
  */
-import { defineGameApi, type GameAppDeps, type Platform } from './host';
-import { effectiveRole, type Email, type Identity, type Member, type PortalStore, type PortalUserId } from './identity';
+import { invite, openAdminSession, seedBootstrapAdmins, type AdminAssertion, type AdminSession, type AdminStore, type BootstrapAdmin, type InviteRequest, type OboGraph } from './admin';
+import { defineGameApi, type GameAppDeps, type Platform, type Roster } from './host';
+import { effectiveRole, type Authentication, type Email, type Identity, type Member, type PortalReader, type PortalStore, type PortalUserId } from './identity';
 import { defineGame, type GameId, type RoleOf } from './manifest';
 import { migratePlayerData, parseConfirmation, type NewAccounts, type OldAccounts, type PlayerDataMapping } from './migrate';
 import type { ArtifactOf, AppOrigin, GameRelease, GitSha, ReleaseManifest } from './release';
@@ -137,6 +139,37 @@ void drawpadDeps.portal.setProfile(member.userId, { displayName: 'x', timeZone: 
 // @ts-expect-error neither the game apps nor the portal app write members; grants and revokes change only in the admin app.
 void portalStore.put(member);
 
+declare const seen: Extract<Awaited<ReturnType<PortalReader['known']>>, { readonly kind: 'known' }>;
+declare const rosterRow: Awaited<ReturnType<Roster<typeof drawpad>['list']>>[number];
+void seen.member?.state;
+// @ts-expect-error a member row carries no email, so a game app reading members learns no child's email.
+void seen.member?.email;
+// @ts-expect-error the roster a game gets carries no email either.
+void rosterRow.email;
+// @ts-expect-error a game app cannot look an account up by email; only the portal app reads the emails table.
+void drawpadDeps.portal.find(identity);
+
+declare const adminStore: AdminStore;
+declare const adminAuth: { readonly ok: true; readonly identity: Identity; readonly assertion: AdminAssertion };
+declare const childAuth: Extract<Authentication, { readonly ok: true }>;
+declare const graph: OboGraph;
+declare const appOnlyGraph: Omit<OboGraph, 'as'>;
+declare const inviteRequest: InviteRequest;
+declare const bootstrapAdmins: readonly BootstrapAdmin[];
+declare const assertion: AdminAssertion;
+
+void openAdminSession(adminAuth, adminStore);
+void invite(inviteRequest, adminStore, graph, 'https://site/');
+void seedBootstrapAdmins(bootstrapAdmins, adminStore);
+// @ts-expect-error a games4kids token carries no admin assertion, so a child's token never opens a session or reaches OBO.
+void openAdminSession(childAuth, adminStore);
+// @ts-expect-error a session is minted only by openAdminSession, from a verified admin.manage token and an admin row.
+const forged: AdminSession = { actor: member, assertion };
+// @ts-expect-error there is no Graph client without an admin session, so no app-only path to Entra exists.
+void invite(inviteRequest, adminStore, appOnlyGraph, 'https://site/');
+// @ts-expect-error cold-start seeding writes rows only; nothing that runs without a signed-in admin takes a Graph client.
+void seedBootstrapAdmins(bootstrapAdmins, adminStore, graph);
+
 defineGameApi(letterjoinManifest, () => ({
 	routes: [],
 	// @ts-expect-error letterjoin declared no stencil-jobs queue.
@@ -211,4 +244,4 @@ const threeMajors: ReleaseManifest['shells'] = [shellV2, shellV1, shellV1];
 // @ts-expect-error an app's origin is parsed once from the app, not typed in.
 const typedOrigin: GameRelease = { id: drawpadId, web: drawpadWeb, app: { artifact: drawpadApp, origin: 'https://func-g4k-drawpad.azurewebsites.net' } };
 
-export { bare, foundry, leaky, pinned, shown, swapped, threeMajors, twoMajors, typedOrigin, typo, ungranted, vision };
+export { bare, forged, foundry, leaky, pinned, shown, swapped, threeMajors, twoMajors, typedOrigin, typo, ungranted, vision };
