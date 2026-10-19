@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defineGame, definePlayApi, parseEmail } from '@g4k/sdk';
-import { adminModule, createAdminApp, createPlayerApp, createPortalApp, EntraRefused, type GraphFor } from '@g4k/host';
-import fixture from './fixtures/games/fixture/manifest.ts';
-import { createAdminApi } from './fixtures/games/fixture/admin/api/index.ts';
-import { createPlayApi } from './fixtures/games/fixture/play/api/index.ts';
+import { createPlayerApp, EntraRefused, type GraphFor } from '@g4k/host';
+import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
 import { call, codeOf, PNG } from './support/http.ts';
 import { gameId } from './support/ids.ts';
@@ -14,26 +12,7 @@ import { newObjectId, NOW, seedAdmin, seedPlayer, world, type World } from './su
 const idp = await fakeIdp();
 const tokens = async () => 'token';
 const id = gameId('fixture');
-
-function apps(w: World, graph: GraphFor = () => fakeGraph().graph) {
-	const common = { telemetry: w.telemetry, now: w.now };
-	return {
-		player: createPlayerApp({ ...common, issuers: [idp.games], manifest: fixture, create: createPlayApi, portal: w.reader, accounts: w.accounts, tokens, env: {} }),
-		portal: createPortalApp({ ...common, issuers: [idp.games], portal: w.portal }),
-		admin: createAdminApp({
-			...common,
-			issuer: idp.admin,
-			store: w.admin,
-			graph,
-			games: [id],
-			modules: [adminModule(fixture, createAdminApi)],
-			accounts: w.accounts,
-			tokens,
-			env: {},
-			gamesOrigin: 'https://games.example',
-		}),
-	};
-}
+const apps = (w: World, graph?: GraphFor) => fixtureApps(w, idp, graph);
 
 async function owner(w: World) {
 	const objectId = newObjectId();
@@ -111,6 +90,7 @@ test('Entra refusals become a claims challenge or entra_forbidden', async () => 
 	});
 	assert.equal(challenged.status, 401);
 	assert.equal(challenged.headers['www-authenticate'], `Bearer error="insufficient_claims", claims="${Buffer.from('{"access_token":{}}').toString('base64')}"`);
+	assert.deepEqual(challenged.data, { error: 'insufficient_claims', message: 'Sign in again to continue.', claims: '{"access_token":{}}' }, 'a page on another origin cannot read the header, so the body carries the claims');
 
 	const forbidden = await call(apps(w, refusing(new EntraRefused({ kind: 'entra_forbidden', call: 'list-assignments' }))).admin, 'GET', '/api/admin/portal/entra', {
 		token: await me.elevated(NOW),
@@ -232,4 +212,15 @@ test('a player app refuses to start when a required setting is missing', () => {
 	assert.throws(() => createPlayerApp({ ...deps, env: {} }), /API_URL is required/);
 	assert.throws(() => createPlayerApp({ ...deps, env: { API_URL: 'not a url' } }), /API_URL must be a URL/);
 	assert.doesNotThrow(() => createPlayerApp({ ...deps, env: { API_URL: 'https://example.com/' } }));
+});
+
+test('telemetry sees the matched route template and the player, never a raw id or an email', async () => {
+	const w = world();
+	const { player, admin } = apps(w);
+	const kid = await seedPlayer(w, idp, { games: [id], profile: { displayName: 'Ada', timeZone: 'UTC' } });
+	await call(player, 'PUT', '/api/g/fixture/scores/one', { token: kid.token, json: { points: 3 } });
+	const me = await owner(w);
+	await call(admin, 'PUT', '/api/admin/g/fixture/levels/zed', { token: me.console, json: { title: 'Zed' } });
+	assert.deepEqual(w.telemetry.routes, ['/api/g/fixture/scores/{levelId}', '/api/admin/g/fixture/levels/{id}']);
+	assert.deepEqual(w.telemetry.users, [kid.userId]);
 });

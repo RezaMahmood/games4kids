@@ -34,7 +34,13 @@ export type AdminRoute = RouteOf<{ readonly admin: AdminCaller }>;
 export type Worker = (message: unknown, ctx: { readonly now: Date; readonly log: (line: string) => void; readonly dequeueCount: number }) => Promise<void>;
 
 /** The one error body every app sends. */
-export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[] };
+export type ApiError = {
+	readonly error: string;
+	readonly message: string;
+	readonly problems?: readonly string[];
+	/** Only on insufficient_claims: the claims challenge, also in WWW-Authenticate, which a page on another origin cannot read. */
+	readonly claims?: string;
+};
 
 /** What a player app sends before `run`, in check order. A game's own HttpError codes reach the page untouched. */
 export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_invited' | 'no_profile' | 'not_entitled';

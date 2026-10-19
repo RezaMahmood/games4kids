@@ -73,7 +73,7 @@ function entraRefusal(error: EntraRefused): HostReply {
 		case 'claims_challenge':
 			return apiError(
 				401,
-				{ error: 'insufficient_claims', message: 'Sign in again to continue.' },
+				{ error: 'insufficient_claims', message: 'Sign in again to continue.', claims: refusal.claims },
 				{ 'www-authenticate': `Bearer error="insufficient_claims", claims="${Buffer.from(refusal.claims).toString('base64')}"` },
 			);
 		case 'entra_forbidden':
@@ -186,6 +186,7 @@ export function createAdminApp(deps: AdminAppDeps): App {
 			const rest = underPrefix(request.path, prefix);
 			const matched = rest === null ? undefined : match(request.method, rest);
 			if (!matched) return notFound();
+			deps.telemetry.setRoute(`${prefix}${matched.path}`);
 			if (matched.target.kind === 'health') return json(200, { ok: true });
 			const auth = await verifyAdminToken(deps.issuer, request.headers.get('authorization'));
 			if (!auth.ok) return refuse(auth.code);

@@ -72,7 +72,7 @@ export function toHostReply(reply: Reply): HostReply {
 
 type Segment = { readonly literal: string } | { readonly param: string };
 
-export type Matcher<T> = (method: string, path: string) => { readonly target: T; readonly params: Readonly<Record<string, string>> } | undefined;
+export type Matcher<T> = (method: string, path: string) => { readonly target: T; readonly path: string; readonly params: Readonly<Record<string, string>> } | undefined;
 
 /** Paths like `limits/{userId}`. First match wins, so a caller lists literal routes before parameterised ones. */
 export function matcher<T>(routes: readonly { readonly method: Method; readonly path: string; readonly target: T }[]): Matcher<T> {
@@ -95,7 +95,7 @@ export function matcher<T>(routes: readonly { readonly method: Method; readonly 
 				params[segment.param] = decodeURIComponent(part);
 				return true;
 			});
-			if (matches) return { target: route.target, params };
+			if (matches) return { target: route.target, path: route.path, params };
 		}
 		return undefined;
 	};
