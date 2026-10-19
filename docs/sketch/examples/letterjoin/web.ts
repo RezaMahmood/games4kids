@@ -1,15 +1,11 @@
 /**
- * games/letterjoin/web/app.js and admin.js. gate.js, auth.js, redirect.html and vendor/msal are deleted. The
- * header in index.html becomes <portal-bar title="Letter Tracing" back="/"> with the practice pill and the
- * score chip in its center slot. In the real files the import is '/shell/v1/index.js'.
+ * games/letterjoin/admin/web/admin.js on the admin site. gate.js, auth.js and the Users tab go; the Activities,
+ * Review, Practice, Progress and Settings tabs stay. The editor preview imports render.js and sheet.js from the play
+ * part, which the admin site build copies. In the real file the import is '/shell/v1/index.js' on the admin origin.
  */
-import { enter } from '../../shell';
+import { enterAdmin } from '../../shell';
 
-const { api, me } = await enter({ game: 'letterjoin' });
-const groups = await api.get<{ level: string; items: { id: string; title: string }[] }[]>('activities');
-await api.put(`activities/${groups[0]?.items[0]?.id}/result`, { score: 92, timeMs: 41000, hard: false });
+const { api } = await enterAdmin({ game: 'letterjoin' });
+const report = await api.get('practice');
 
-const admin = await enter({ game: 'letterjoin', requires: 'admin' });
-const report = await admin.api.get('manage/practice');
-
-export { me, report };
+export { report };

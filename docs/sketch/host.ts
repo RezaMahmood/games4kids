@@ -1,96 +1,58 @@
 /**
- * The game-facing half (Route, Platform, defineGameApi, HttpError) is packages/sdk/src/api.ts in @g4k/sdk.
- * The rest is packages/host, @g4k/host: the code that turns one game's api into one Azure Functions app,
- * func-g4k-<id>, and the portal routes into func-g4k-portal. Each app bundles the @g4k/host version in its game's
- * package.json, so a host change reaches a game only when that game next ships.
+ * The game-facing half (definePlayApi, defineAdminApi, the Route types, the platforms, HttpError) is @g4k/sdk. The
+ * rest is @g4k/host: the code that turns a game's play part into its Function app func-g4k-<id>, the portal routes
+ * into func-g4k-portal, and every game's admin part into modules of func-g4k-admin (admin.ts).
  *
- * A game receives a Platform<typeof manifest>: handles typed from the names it declared, parsed settings,
- * tokens for declared services, a read-only roster. It never receives a credential, a storage client, the
- * environment or @azure/functions. Lint (no @azure/*, jose or process.env in games/x/api) and TS project
- * references (a game project includes only its own folder and references only @g4k/sdk) close the rest. Since
- * each app's identity can reach only its own game's account, a game that got past both would still find no
- * other game's data.
+ * A game never receives a credential, a storage client, the environment or @azure/functions. It receives handles over
+ * its own storage account, and which handles can write depends on the side: a player app writes only 'play' storage,
+ * the admin app writes only 'admin' and 'admin-private' storage. Each app's identity holds the matching data roles,
+ * table by table and container by container, so RBAC agrees with the types.
  */
 
-import type { AzureService, ContainerOf, GameId, GameManifest, QueueOf, RoleOf, ServiceOf, SettingSpec, TableOf } from './manifest';
-import type { Member, PortalReader, PortalStore, PortalUserId, TrustedIssuer } from './identity';
-import type { ContractVersion, GitSha } from './release';
-import type { Telemetry, TelemetryOwner } from './telemetry';
+import type { Caller, Email, EntraObjectId, PortalReader, PortalStore, PortalUserId, Profile, TrustedIssuer } from './identity';
+import type { AzureService, GameId, GameManifest, Ownership, SettingSpec, Side } from './manifest';
+import type { Telemetry } from './telemetry';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-/**
- * What a handler knows about the person. No token, oid, email or portal role. `userId` is the one sign-in key
- * shared by every game, now and later. A future parent-set policy (identity.ts, portalPolicies) would arrive
- * here as a new readonly field; no game reads a portal table.
- */
-export type Caller<M extends GameManifest> = {
-	readonly userId: PortalUserId;
-	readonly displayName: string;
-	readonly timeZone: string;
-	/** Already resolved by effectiveRole and already at least the route's `access`. */
-	readonly role: RoleOf<M>;
-};
+/** No headers member: a game sets no CORS, cookie or JSON cache header. A bytes reply may carry an ETag. */
+export type Reply =
+	| { readonly status: 200 | 201 | 202 | 204; readonly json?: unknown }
+	| { readonly status: 200; readonly bytes: Uint8Array; readonly contentType: string; readonly cacheControl?: string; readonly etag?: string }
+	| { readonly status: 304 };
 
-export type RouteCtx<M extends GameManifest, Body> = {
-	readonly caller: Caller<M>;
+type Ctx<Who, Body> = {
 	readonly params: Readonly<Record<string, string>>;
 	readonly query: URLSearchParams;
 	readonly body: Body;
 	readonly now: Date;
-	/** A line only. The app already holds this call's GameTelemetry, so a game cannot choose its own `game`. */
 	readonly log: (line: string) => void;
-};
+} & Who;
 
-/** No headers member: a game cannot set CORS, cache policy for JSON, or cookies. */
-export type Reply =
-	| { readonly status: 200 | 201 | 202 | 204; readonly json?: unknown }
-	| { readonly status: 200; readonly bytes: Uint8Array; readonly contentType: string; readonly cacheControl?: string };
+type RouteOf<Who> =
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'none'; run(ctx: Ctx<Who, undefined>): Promise<Reply> }
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'json'; run(ctx: Ctx<Who, unknown>): Promise<Reply> }
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'png'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> };
 
-type RouteBase<M extends GameManifest> = {
-	/** Unique within the game. */
-	readonly name: string;
-	readonly method: Method;
-	/** Relative, Functions template syntax: 'activities/{id}/result' mounts at /api/g/<id>/activities/{id}/result. */
-	readonly path: string;
-	/** A rung on this game's ladder. The app refuses the call before `run` when the caller's role is lower. */
-	readonly access: RoleOf<M>;
-};
+/** A player route, mounted at /api/g/<id>/<path> on func-g4k-<id>. There is no access level: every caller is a player of this game. */
+export type PlayRoute = RouteOf<{ readonly caller: Caller }>;
 
-/** `body` picks how the app parses the request: 415, 413 and 400 come back in the one error shape before `run`. */
-export type Route<M extends GameManifest> =
-	| (RouteBase<M> & { readonly body: 'none'; run(ctx: RouteCtx<M, undefined>): Promise<Reply> })
-	| (RouteBase<M> & { readonly body: 'json'; run(ctx: RouteCtx<M, unknown>): Promise<Reply> })
-	| (RouteBase<M> & { readonly body: 'png'; run(ctx: RouteCtx<M, Uint8Array>): Promise<Reply> });
+/** The admin behind an admin-module request. Only the admin app builds one (admin.ts). */
+export type AdminCaller = { readonly objectId: EntraObjectId; readonly email: Email };
+
+/** An admin route, mounted at /api/admin/g/<id>/<path> on func-g4k-admin. */
+export type AdminRoute = RouteOf<{ readonly admin: AdminCaller }>;
 
 /** Queue-triggered. Throwing lets the Functions runtime retry up to maxDequeueCount. */
 export type Worker = (message: unknown, ctx: { readonly now: Date; readonly log: (line: string) => void; readonly dequeueCount: number }) => Promise<void>;
 
-export type GameApi<M extends GameManifest> = {
-	readonly routes: readonly Route<M>[];
-	readonly workers?: readonly { readonly queue: QueueOf<M>; readonly run: Worker }[];
-};
-
-/** What `defineGameApi` returns and the game's generated app entry imports as `createGameApi`. Called once at startup. */
-export type CreateGameApi<M extends GameManifest> = (platform: Platform<M>) => GameApi<M>;
-
-/** Binds the manifest so routes, workers and platform names are checked against it without annotations. */
-export function defineGameApi<const M extends GameManifest>(manifest: M, create: CreateGameApi<M>): CreateGameApi<M> {
-	throw new Error('not implemented');
-}
+export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[] };
 
 /**
- * The one error shape on the wire: `{ error, message, problems?, claims? }`. drawpad switches on `error`, letterjoin
- * shows `message`. `claims` comes only with the admin app's 401 reauth_required, for MSAL's acquireTokenRedirect.
+ * What a player app sends before `run`, in check order. The games shell switches on these exhaustively. A game's
+ * own HttpError codes reach the page untouched.
  */
-export type ApiError = { readonly error: string; readonly message: string; readonly problems?: readonly string[]; readonly claims?: string };
-
-/**
- * The codes an app sends before `run`, in check order. The shell switches on these exhaustively (shell.ts): it
- * signs in again on the first two, claims through the portal app and retries once on not_claimed, and draws a
- * screen for the rest. A game's own HttpError codes are game data and reach the page untouched.
- */
-export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_claimed' | 'not_invited' | 'no_profile' | 'not_entitled' | 'forbidden';
+export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_invited' | 'no_profile' | 'not_entitled';
 
 export class HttpError extends Error {
 	constructor(
@@ -105,66 +67,105 @@ export class HttpError extends Error {
 
 export type Row = { readonly partitionKey: string; readonly rowKey: string; readonly [field: string]: unknown };
 
-/** drawpad's Table<R> wrapper, moved behind the platform. */
-export type Table = {
+export type ReadTable = {
 	get<R extends Row>(partitionKey: string, rowKey: string): Promise<(R & { readonly etag: string }) | undefined>;
+	inPartition<R extends Row>(partitionKey: string): Promise<readonly (R & { readonly etag: string })[]>;
+	list<R extends Row>(filter?: string): Promise<readonly (R & { readonly etag: string })[]>;
+};
+
+export type Table = ReadTable & {
 	put(row: Row): Promise<void>;
 	insertIfAbsent(row: Row): Promise<boolean>;
 	/** Replace only while the etag matches. false on conflict. */
 	replaceIfMatch(row: Row, etag: string): Promise<boolean>;
 	remove(partitionKey: string, rowKey: string): Promise<void>;
-	inPartition<R extends Row>(partitionKey: string): Promise<readonly (R & { readonly etag: string })[]>;
 };
 
-export type Blobs = {
-	get(path: string): Promise<{ readonly bytes: Uint8Array; readonly contentType: string } | undefined>;
-	put(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
-	remove(path: string): Promise<void>;
+export type ReadBlobs = {
+	/** With `ifNoneMatch` equal to the stored ETag, answers 'not-modified', so a bytes route can reply 304. */
+	get(path: string, ifNoneMatch?: string): Promise<{ readonly bytes: Uint8Array; readonly contentType: string; readonly etag: string } | 'not-modified' | undefined>;
 	list(prefix: string): Promise<readonly string[]>;
 };
 
+export type Blobs = ReadBlobs & {
+	put(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+	remove(path: string): Promise<void>;
+};
+
 export type Queue = { send(message: unknown): Promise<void> };
+
+type Access<O extends Ownership, S extends Side> = S extends 'play'
+	? O extends 'play' ? 'write' : O extends 'admin' ? 'read' : never
+	: O extends 'play' ? 'read' : 'write';
+
+type Handles<R extends Readonly<Record<string, Ownership>>, S extends Side, W, Rd> = {
+	readonly [K in keyof R as [Access<R[K], S>] extends [never] ? never : K]: Access<R[K], S> extends 'write' ? W : Rd;
+};
+
+type Writable<R extends Readonly<Record<string, Ownership>>, S extends Side> = {
+	readonly [K in keyof R as [Access<R[K], S>] extends [never] ? never : Access<R[K], S> extends 'write' ? K : never]: Queue;
+};
+
+/** The handles one side of one game gets over that game's account. Its side decides read or write per name. */
+export type StorageFor<M extends GameManifest, S extends Side> = {
+	readonly tables: Handles<M['storage']['tables'], S, Table, ReadTable>;
+	readonly blobs: Handles<M['storage']['containers'], S, Blobs, ReadBlobs>;
+	readonly queues: Writable<M['storage']['queues'], S>;
+};
 
 export type Settings<S extends Readonly<Record<string, SettingSpec>>> = {
 	readonly [K in keyof S]: S[K] extends { readonly kind: 'int' } ? number : S[K] extends { readonly optional: true } ? string | undefined : string;
 };
 
-/** Only the declared services. AzureService has no storage member, so no game can hold a storage token. */
+/** Only the declared services. AzureService has no storage member, so no game holds a storage token. */
 export type Tokens<V extends AzureService> = { readonly [K in V]: () => Promise<string> };
 
-/** The members granted this game, and portal admins, with their role in it. For admin screens that show children's names. */
-export type Roster<M extends GameManifest> = {
-	list(): Promise<readonly { readonly userId: PortalUserId; readonly displayName: string; readonly role: RoleOf<M> }[]>;
+type Common = { readonly game: GameId; readonly now: () => Date; readonly newId: () => string };
+
+export type PlayPlatform<M extends GameManifest> = StorageFor<M, 'play'> &
+	Common & {
+		readonly settings: Settings<M['play']['settings']>;
+		readonly tokens: Tokens<M['play']['services'][number]>;
+	};
+
+type AdminPart<M extends GameManifest> = NonNullable<M['admin']>;
+
+/** The players granted this game, with display names, for admin screens. No email: the admin app reads emails only for invites. */
+export type Roster = { list(): Promise<readonly { readonly userId: PortalUserId; readonly profile: Profile | null }[]> };
+
+export type AdminPlatform<M extends GameManifest> = StorageFor<M, 'admin'> &
+	Common & {
+		readonly settings: Settings<AdminPart<M>['settings']>;
+		readonly tokens: Tokens<AdminPart<M>['services'][number]>;
+		readonly roster: Roster;
+	};
+
+type WorkerOn<Q extends string> = { readonly queue: Q; readonly run: Worker };
+
+export type PlayApi<M extends GameManifest> = {
+	readonly routes: readonly PlayRoute[];
+	readonly workers?: readonly WorkerOn<keyof Writable<M['storage']['queues'], 'play'> & string>[];
 };
 
-export type Platform<M extends GameManifest> = {
-	readonly game: GameId;
-	readonly tables: { readonly [K in TableOf<M>]: Table };
-	readonly blobs: { readonly [K in ContainerOf<M>]: Blobs };
-	readonly queues: { readonly [K in QueueOf<M>]: Queue };
-	readonly settings: Settings<M['settings']>;
-	readonly tokens: Tokens<ServiceOf<M>>;
-	readonly roster: Roster<M>;
-	readonly now: () => Date;
-	readonly newId: () => string;
+export type AdminApi<M extends GameManifest> = {
+	readonly routes: readonly AdminRoute[];
+	readonly workers?: readonly WorkerOn<keyof Writable<M['storage']['queues'], 'admin'> & string>[];
 };
 
-/** Portal routes run before a profile exists, so their floor has more states than a game ladder. */
-export type PortalAccess = 'public' | 'signed-in' | 'member' | 'admin';
+export type CreatePlayApi<M extends GameManifest> = (platform: PlayPlatform<M>) => PlayApi<M>;
+export type CreateAdminApi<M extends GameManifest> = (platform: AdminPlatform<M>) => AdminApi<M>;
 
-export type PortalRoute = {
-	readonly name: string;
-	readonly method: Method;
-	readonly path: string;
-	readonly access: PortalAccess;
-	readonly body: 'none' | 'json';
-	run(ctx: { readonly member: Member | null; readonly params: Readonly<Record<string, string>>; readonly body: unknown; readonly now: Date }): Promise<Reply>;
-};
+/** games/<id>/play/api/index.ts exports `createPlayApi = definePlayApi(manifest, ...)`. */
+export function definePlayApi<const M extends GameManifest>(manifest: M, create: CreatePlayApi<M>): CreatePlayApi<M> {
+	throw new Error('not implemented');
+}
 
-/** GET <app>/api/g/<id>/health, /api/portal/health and /api/admin/health. Only the app's own pipeline reads it, waiting for its sha. */
-export type AppHealth = { readonly owner: TelemetryOwner | 'admin'; readonly version: GitSha; readonly contract: ContractVersion };
+/** games/<id>/admin/api/index.ts exports `createAdminApi = defineAdminApi(manifest, ...)`. */
+export function defineAdminApi<const M extends GameManifest>(manifest: M, create: CreateAdminApi<M>): CreateAdminApi<M> {
+	throw new Error('not implemented');
+}
 
-/** Transport-neutral, so one app runs under Functions, under the dev node server, and in tests. */
+/** Transport-neutral, so one app runs under Functions, the dev node server, and in tests. */
 export type HostRequest = {
 	readonly method: string;
 	readonly path: string;
@@ -174,112 +175,72 @@ export type HostRequest = {
 	readonly bytes: (maxBytes: number) => Promise<Uint8Array>;
 };
 
+/**
+ * No CORS header: each Function app's platform CORS (Bicep, allowedOrigins = its one site origin) is the only CORS
+ * mechanism. The dev adapter adds it for the dev origins.
+ */
 export type HostReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array | string | null };
 
-/** What every app built from @g4k/host exposes to its adapters. */
 export type App = {
-	/** Under the node adapter, which serves several apps on one port, the app whose prefix matches answers. */
 	readonly prefix: `/api/${string}/`;
 	handle(request: HostRequest): Promise<HostReply>;
-	/**
-	 * Flat list for the Functions adapter: one app.http per route, one app.storageQueue per worker, each registered
-	 * under functionName(owner, name), so the request row the Functions host writes carries the owner.
-	 */
-	readonly routes: readonly { readonly functionName: string; readonly absolutePath: string; readonly method: Method }[];
-	readonly workers: readonly { readonly functionName: string; readonly queueName: string; readonly run: Worker }[];
+	/** One app.http per route and one app.storageQueue per worker, for the Functions adapter. */
+	readonly functions: readonly { readonly name: string; readonly route?: string; readonly queue?: string }[];
 };
 
-/** Settings every app reads from its own environment, parsed once at startup. */
 export type AppEnv = {
 	readonly issuers: readonly TrustedIssuer[];
 	readonly telemetry: Telemetry;
-	/** The SWA origin. The only Access-Control-Allow-Origin the app ever sends. */
-	readonly appOrigin: string;
-	readonly version: GitSha;
-	readonly contract: ContractVersion;
 	readonly now?: () => Date;
 };
 
-export type GameAppDeps<M extends GameManifest> = AppEnv & {
+/** The owner of one storage account. */
+export type StorageOwner = GameId | 'portal';
+
+export type StorageConfig =
+	| { readonly kind: 'azure'; readonly suffix: string }
+	| { readonly kind: 'azurite'; readonly suffix: string }
+	| { readonly kind: 'memory' };
+
+/** drawpad -> g4kdrawpad<suffix>. The suffix is five characters of uniqueString(resourceGroup().id). */
+export function accountName(owner: StorageOwner, suffix: string): string {
+	throw new Error('not implemented');
+}
+
+export type PlayerAppDeps<M extends GameManifest> = AppEnv & {
 	readonly id: GameId;
 	readonly manifest: M;
-	readonly create: CreateGameApi<M>;
-	/** Read only. A game app cannot claim an identity or write a profile, member or grant. */
+	readonly create: CreatePlayApi<M>;
 	readonly portal: PortalReader;
 	readonly storage: StorageConfig;
 	readonly env: Readonly<Record<string, string | undefined>>;
 };
 
 /**
- * One game's Function app, func-g4k-<id>, serving /api/g/<id>/*. Startup runs platformFor and create; a throw
- * fails this app's start, so its own pipeline's health check fails and redeploys the pinned package. No other
- * game shares the process, so nothing needs containing.
- *
- * handle, the only auth path in the app, in fixed order. Once the route matches, the rest runs inside
- * telemetry.within({ game: id, route, user: null }), and from admission on inside a nested within with the user:
- *   match route (404) -> verifyToken (401 unauthenticated or invalid_token) -> portal.known (403 not_claimed)
- *   -> active member (403 not_invited) -> profile present (403 no_profile) -> effectiveRole not 'none'
- *   (403 not_entitled) -> atLeast access (403 forbidden) -> parse body (400, 413, 415) -> run
- *   -> HttpError to its status, anything else 500 server_error -> CORS for appOrigin, cache-control no-store
- *   unless a bytes reply set one.
- * GET health needs no token and answers AppHealth.
+ * func-g4k-<id>, serving /api/g/<id>/*. The only auth path, in fixed order:
+ *   match route (404) -> verifyGamesToken (401) -> portal.find -> decide(found, id): not_invited, no_profile,
+ *   not_entitled (403) -> parse body (400, 413, 415) -> run -> HttpError to its status, else 500.
+ * Built in: GET session answers the Caller, so a game page needs only its own app on load (one cold start, not two).
+ * GET health needs no token. Telemetry needs no game field: this app's cloud_RoleName is func-g4k-<id>.
  */
-export function createGameApp<M extends GameManifest>(deps: GameAppDeps<M>): App {
-	throw new Error('not implemented');
-}
-
-export type PortalAppDeps = AppEnv & {
-	readonly portal: PortalStore;
-};
-
-/**
- * func-g4k-portal, serving /api/portal/*: me (which claims on a first sign-in), profile, and health. It knows no
- * game, at build time or at run time, and runs no game code. No route reads or changes Entra, and its identity holds no Graph
- * permission. Same fixed order as a game app, with PortalAccess in place of a ladder and game 'portal' on telemetry.
- */
-export function createPortalApp(deps: PortalAppDeps): App {
-	throw new Error('not implemented');
-}
-
-/** The owner of one storage account. Each game has its own, and the portal has one for its tables and the releases container. */
-export type StorageOwner = GameId | 'portal';
-
-/**
- * 'azure' and 'azurite' address one account per owner, accountName(owner, suffix). tools/dev.mjs writes Azurite's
- * AZURITE_ACCOUNTS from the dev registry. 'memory' keys its maps by account too, so conformance can see which one a game used.
- */
-export type StorageConfig =
-	| { readonly kind: 'azure'; readonly suffix: string }
-	| { readonly kind: 'azurite'; readonly suffix: string }
-	| { readonly kind: 'memory' };
-
-/**
- * drawpad -> g4kdrawpad<suffix>, portal -> g4kportal<suffix>. The suffix is the first five characters of Bicep's
- * uniqueString(resourceGroup().id), so a 16-character GameId still fits Azure's 24. Inside the account, tables,
- * containers and queues keep the names the manifest declared: no owner prefix.
- */
-export function accountName(owner: StorageOwner, suffix: string): string {
+export function createPlayerApp<M extends GameManifest>(deps: PlayerAppDeps<M>): App {
 	throw new Error('not implemented');
 }
 
 /**
- * The only function that holds a storage credential. Builds handles against this game's own account only, under the
- * declared names, and parses settings from the environment; a missing required setting throws, so the app does not
- * start. The app's identity holds data roles on this account only, so RBAC agrees with the types.
+ * func-g4k-portal, serving /api/portal/*: GET me (meFor over decide(found, null)) for home and /welcome/, and PUT
+ * profile. It knows no game and holds no Entra right. A game page never calls it.
  */
-export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, portal: PortalReader): Platform<M> {
+export function createPortalApp(deps: AppEnv & { readonly portal: PortalStore }): App {
 	throw new Error('not implemented');
 }
 
-/** packages/host/src/adapters/functions.ts, the only importer of @azure/functions. Route prefix '', authLevel anonymous. */
+/** packages/host/src/adapters/functions.ts, the only importer of @azure/functions. */
 export function registerWithFunctions(app: App): void {
 	throw new Error('not implemented');
 }
 
-/**
- * packages/host/src/adapters/node.ts. Dev and tests only: tools/dev.mjs serves the portal app and every game app
- * from the dev registry on one port, each answering its own prefix, with the real verifyToken against the fake IdP.
- */
+/** Dev and tests: every app on one port, each answering its prefix, against the fake IdP for both audiences. */
 export function serveWithNode(apps: readonly App[], port: number): Promise<{ readonly origin: string; close(): Promise<void> }> {
 	throw new Error('not implemented');
 }

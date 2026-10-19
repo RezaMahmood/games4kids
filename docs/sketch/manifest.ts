@@ -1,115 +1,91 @@
 /**
- * packages/sdk/src/manifest.ts, part of @g4k/sdk, the only package a game may import.
+ * packages/sdk/src/manifest.ts, part of @g4k/sdk.
  *
- * games/<id>/manifest.ts default-exports `defineGame({...})`. It is data only, so tools/gen.mjs, the game's
- * Bicep parameters, its catalog entry and the conformance suite can load it without loading any game code. It is
- * the single list of everything the portal knows about a game. Nothing else in the repo names a game by hand.
+ * games/<id>/manifest.ts default-exports `defineGame({...})`. It is data only, so tools/gen.mjs, infra/game.bicep's
+ * parameters, both sites' game lists and the conformance suites load it without loading game code. It is the one
+ * list of what the platform knows about a game. Nothing else in the repo names a game by hand.
+ *
+ * A game has three parts, and the manifest describes all three:
+ *   games/<id>/data    the storage it declares here, its row types, parse functions and stores. Both backends import it.
+ *   games/<id>/play    player pages (games site, /g/<id>/) and the player API (func-g4k-<id>, audience games4kids)
+ *   games/<id>/admin   admin pages (admin site, /g/<id>/) and an admin API module (func-g4k-admin, audience
+ *                      games4kids-admin). Optional: a game with no content to manage has none.
+ * There is no role anywhere in a manifest. A player is a player; administration is a different app.
  */
 
 declare const brand: unique symbol;
 export type Brand<T, Name extends string> = T & { readonly [brand]: Name };
 
 /**
- * `^[a-z][a-z0-9]{2,15}$`, equal to the folder name, not reserved. One string serves as the URL segment
- * (/g/<id>/, /api/g/<id>/), the Function app (func-g4k-<id>), the storage account (g4k<id><suffix>, at most 24
- * characters), the Bicep deployment (game-<id>), the release pins (pins/<id>/), the `game` tag on the game's Azure
- * resources and the `game` value on its telemetry. No underscore, so a function name <id>_<route> parses back.
- * Minted only by `parseGameId` in tools/gen.mjs; a manifest writes a plain literal.
+ * `^[a-z][a-z0-9]{2,15}$`, equal to the folder name, not reserved. One string names the page path (/g/<id>/ on both
+ * sites), the player Function app (func-g4k-<id>), the storage account (g4k<id><suffix>), the Bicep deployment
+ * (game-<id>), the `game` tag, and the admin route prefix (api/admin/g/<id>/). No hyphen, so an admin function
+ * name `<id>-<name>` splits back. Minted only by parseGameId.
  */
 export type GameId = Brand<string, 'GameId'>;
 
 export const GAME_ID = /^[a-z][a-z0-9]{2,15}$/;
 
-/**
- * Names the portal owns: paths, the portal storage account and telemetry owner ('portal'), and the tag value for
- * shared resources ('shared'). A game folder with one of these names fails the build.
- */
 export const RESERVED_IDS = ['portal', 'shared', 'shell', 'admin', 'welcome', 'api', 'g'] as const;
 
-/** Lowest privilege first. The last rung is the game's admin role, which every portal admin holds. 'none' is not a rung. */
-export type RoleLadder = readonly [string, ...string[]];
+/** One of the two backends. */
+export type Side = 'play' | 'admin';
+
+/**
+ * Who writes a table, container or queue. Exactly one backend writes each, and RBAC agrees with the type.
+ *   'play'           the game's player app writes; the admin app reads (reports, review, gallery)
+ *   'admin'          the admin app writes (content, settings); the player app reads
+ *   'admin-private'  the admin app only (AI jobs, review state); the player app has no role on it at all
+ */
+export type Ownership = 'play' | 'admin' | 'admin-private';
 
 export type SettingSpec =
 	| { readonly kind: 'url'; readonly optional?: true }
 	| { readonly kind: 'string'; readonly optional?: true }
 	| { readonly kind: 'int'; readonly min: number; readonly max: number; readonly default: number };
 
-/** Azure services a game may hold a token for. Storage is not one of them: a game gets handles, never a credential. */
+/** Azure services a backend may hold a token for. Storage is not one: code gets handles, never a credential. */
 export type AzureService = 'cognitiveServices';
 
-/** CSP directives a game may widen for its own pages. connect-src, script-src and frame-ancestors belong to the shell. */
+/** CSP directives a game may widen for its own pages. connect-src, script-src and frame-ancestors belong to the site. */
 export type CspExtension = Partial<Record<'img-src' | 'worker-src' | 'font-src' | 'style-src' | 'media-src', readonly string[]>>;
 
-export type WebBuild =
-	/** games/<id>/web is a Vite project, built with base /g/<id>/. */
-	| { readonly kind: 'vite' }
-	/** games/<id>/web is copied as is (ES modules, no bundler). */
-	| { readonly kind: 'static' };
+export type WebBuild = { readonly kind: 'vite' } | { readonly kind: 'static' };
 
-/**
- * The game's own Function app. drawpad sets maxInstances 1, so its Foundry worker runs one job at a time. The
- * defaults are the platform's: 2048 MB and 100 instances.
- */
+/** What one side of a game needs from its backend and its site. */
+export type Part = {
+	readonly web: WebBuild;
+	readonly settings: Readonly<Record<string, SettingSpec>>;
+	readonly services: readonly AzureService[];
+	readonly csp?: CspExtension;
+};
+
+/** The player app's own Flex settings. Defaults: 2048 MB, 100 instances. The admin app's are fixed in infra (one instance). */
 export type Hosting = { readonly maxInstances?: number; readonly memoryMb?: 512 | 2048 | 4096 };
 
-/**
- * The door for cross-game features such as a joint scoreboard. A game would export a named read here and a
- * portal hub would call it; no game ever reads another game's storage. No hub exists yet, so the type admits
- * only an empty object and tools/gen.mjs rejects a non-empty one as well.
- */
+/** The door for cross-game features. No hub exists yet, so only an empty object type-checks. */
 export type ReservedExports = Readonly<Record<string, never>>;
 
 export type GameManifest = {
 	readonly id: string;
 	readonly title: string;
-	/** One line on the home card. */
 	readonly summary: string;
-	/** Path under the game's built web output, shown on the home card. */
 	readonly icon: string;
-	readonly web: WebBuild;
-	/** Relative to /g/<id>/. Listed on the /admin/ hub for anyone holding this game's top role. */
-	readonly adminPath?: string;
-	readonly roles: RoleLadder;
-	/**
-	 * The rung the /admin/ invite form and access grid pre-select for this game. It grants nothing: a member with
-	 * no grant for the game has effectiveRole 'none' and never sees it.
-	 */
-	readonly defaultRole: string;
 	readonly storage: {
-		readonly tables: readonly string[];
-		readonly containers: readonly string[];
-		readonly queues: readonly string[];
+		readonly tables: Readonly<Record<string, Ownership>>;
+		readonly containers: Readonly<Record<string, Ownership>>;
+		readonly queues: Readonly<Record<string, Ownership>>;
 	};
-	readonly settings: Readonly<Record<string, SettingSpec>>;
-	readonly services: readonly AzureService[];
-	readonly hosting?: Hosting;
-	readonly csp?: CspExtension;
+	readonly play: Part & { readonly hosting?: Hosting };
+	readonly admin?: Part;
 	readonly exports?: ReservedExports;
 };
 
-export type RoleOf<M extends GameManifest> = M['roles'][number];
-export type TableOf<M extends GameManifest> = M['storage']['tables'][number];
-export type ContainerOf<M extends GameManifest> = M['storage']['containers'][number];
-export type QueueOf<M extends GameManifest> = M['storage']['queues'][number];
-export type ServiceOf<M extends GameManifest> = M['services'][number];
-
-/** Reports a rung named 'none', which effectiveRole uses for no access, and a `defaultRole` off the ladder, at that property. */
-type CheckedRoles<M extends GameManifest> = 'none' extends RoleOf<M>
-	? Omit<M, 'roles'> & { readonly roles: readonly Exclude<RoleOf<M>, 'none'>[] }
-	: M['defaultRole'] extends RoleOf<M>
-		? M
-		: Omit<M, 'defaultRole'> & { readonly defaultRole: RoleOf<M> };
-
-/** Keeps every literal, so roles, storage names, settings and services become unions downstream. */
-export function defineGame<const M extends GameManifest>(manifest: CheckedRoles<M>): M {
+/** Keeps every literal, so storage names, ownership, settings and services become unions downstream. */
+export function defineGame<const M extends GameManifest>(manifest: M): M {
 	throw new Error('not implemented');
 }
 
 export function parseGameId(raw: string): GameId | { readonly problem: string } {
-	throw new Error('not implemented');
-}
-
-/** Rank on the game's own ladder. The game app's access check and the shell's `requires` both use this. */
-export function atLeast<M extends GameManifest>(manifest: M, held: RoleOf<M>, needed: RoleOf<M>): boolean {
 	throw new Error('not implemented');
 }

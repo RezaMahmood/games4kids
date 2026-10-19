@@ -1,12 +1,12 @@
 # games4kids
 
-games4kids is a family games portal with one sign-in and one front door. Each game is a self-contained folder that the portal hosts under `/g/<id>/` and releases independently. The first two games are drawpad and letterjoin.
+games4kids is a family games portal with one sign-in per child and one front door. It is two apps. The games site is for players only: each game lives under `/g/<id>/` and has its own API. The admin site, on its own origin and Entra registration, is where you invite children, choose their games, revoke access, and run each game's admin screens. The first two games are drawpad and letterjoin.
 
 The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The type sketch it describes is in [docs/sketch/](docs/sketch/). To check the sketch, run `tsc --noEmit --strict -p docs/sketch`.
 
 ## Status
 
-This repo holds the architecture only, at revision 6 after owner feedback. Each game ships on its own. Its pipeline publishes its pages and API as versioned artifacts, deploys its own Function app, and moves only its own release pins. A small release job then redeploys the one site from the pins, so other games ship byte-identical. You invite children and choose their games in the admin portal, and its Entra changes run as you through on-behalf-of, so no app holds a standing Entra right or a secret. Your Mac creates the two Entra registrations and the deploy identities once and runs one-off data moves, and adding a game needs no Mac step. No game app can read a child's email. Every Azure resource carries a `game` tag, and every telemetry record names its game, so an Azure Workbook shows usage and cost per game. Content migrates at cutover, and the player-data migration gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
+This repo holds the architecture only, at revision 7. A child's token can only ever mean "player", and no admin role exists anywhere on the games side. Everyday admin work holds no Graph power. Each change in Entra asks you to sign in again, and the admin app acts as you through on-behalf-of only for 10 minutes after that sign-in, from a dedicated account whose roles limit it to inviting guests and assigning users to the games app. A merge to `main` deploys whatever changed, and rollback is a revert. Each game's tables have one writer each, the player API or the admin API. Your Mac runs bootstrap and one-off data moves, and adding a game needs no Mac step. Every Azure resource carries a `game` tag and the workbook shows usage and cost per game. Content migrates at cutover, and the player-data migration gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
 
 ## The existing apps stay independent
 

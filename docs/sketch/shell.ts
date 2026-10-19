@@ -1,64 +1,18 @@
 /**
- * shell/ builds the shell artifact for one contract major: /shell/v1/index.js, with MSAL vendored inside, and
- * /shell/v1/theme.css. Every page imports the major it was built against by URL:
- * `import { enter } from '/shell/v1/index.js'`. A static game needs no bundler. A Vite game marks the URL external
- * and gets these types from @g4k/sdk, which declares the '/shell/v1/index.js' module. A minor release replaces
- * v1 in place and only adds; a breaking change ships as /shell/v2/ beside v1 (release.ts, `compatible`). The files
- * are served with no-cache and an ETag, so a page picks up a new minor on its next load.
+ * Two shells, one per site, each built from its own app folder and served at a stable path, /shell/v1/index.js on
+ * its own origin. A shell change is additive only; CI runs every game's tests on any shell change, and a change that
+ * breaks a game changes that game in the same pull request. There is no second major and no version rule.
  *
- * Pages are separate documents on one origin. MSAL caches in sessionStorage, which every path in a tab shares, so
- * moving from / to /g/letterjoin/ gets a token silently. The registration needs https://<site>/ and
- * https://<site>/redirect.html as redirect URIs, for every game, so a new game changes nothing in Entra.
+ * apps/games/shell: the games site, origin A. MSAL client games4kids, scope access_as_user, cache in sessionStorage,
+ * which every path in a tab shares, so moving from / to /g/letterjoin/ gets a token silently. This shell has no admin
+ * scope and no admin origin in its config, so nothing on origin A can ask for a games4kids-admin token.
  *
- * The shell also vendors the Application Insights browser SDK at 100 percent sampling. A telemetry initializer stamps
- * every page view with `game` (the id passed to enter, or 'portal') and the PortalUserId, and while a game page
- * is visible enter() sends a ShellEvent 'game_session' every 60 seconds (telemetry.ts). Games add nothing.
+ * apps/admin/shell: the admin site, origin B. MSAL client games4kids-admin. One instance in sessionStorage for
+ * admin.console, and a second, memory-only instance created per Entra task (elevated).
  */
 
-import type { AdminRefusal } from './admin';
 import type { Refusal } from './host';
-import type { Catalog, CatalogEntry } from './registry';
-import type { Me, PortalRole, PortalUserId, Profile } from './identity';
-
-export type EnterOptions<Role extends string = string> = {
-	/**
-	 * Binds `api` to `${apiBaseUrl}/api/g/<id>/`, with apiBaseUrl from this game's catalog entry. null on portal pages
-	 * binds it to the portal app's /api/portal/. 'admin', a reserved id, binds it to the admin app's /api/admin/ with
-	 * a token for SiteConfig.adminScope instead of access_as_user, and requires portal admin; only the /admin/ pages
-	 * pass it, so no other page ever holds a token the admin app accepts.
-	 */
-	readonly game: string | null;
-	/** A rung on the game's ladder, read from catalog.json. Below it, enter() draws "Only admins can open this page". */
-	readonly requires?: Role;
-};
-
-export type Session<Role extends string = string> = {
-	readonly me: {
-		readonly userId: PortalUserId;
-		readonly profile: Profile;
-		readonly portalRole: PortalRole;
-		/** The role in this game. On portal pages, the portal role. */
-		readonly role: Role;
-	};
-	readonly api: ApiClient;
-	signOut(): Promise<void>;
-	/** Signs out and asks Entra for an account picker. For the family iPad passed between children. */
-	switchAccount(): Promise<void>;
-};
-
-/**
- * Calls the portal app's GET /api/portal/me first, which claims a first sign-in, then reads catalog.json.
- * Resolves only with an active session for this game. Every other state is a screen the shell draws, or a
- * redirect, and the promise never resolves:
- *   signed out        loginRedirect in the top window, back to this page
- *   not invited       "Ask your grown-up to invite you", with the email and a sign-out button
- *   no profile        location = /welcome/?return=<this page>
- *   game hidden       effectiveRole is 'none': "This game is not switched on for you"
- *   below `requires`  "Only admins can open this page"
- */
-export function enter<Role extends string = string>(options: EnterOptions<Role>): Promise<Session<Role>> {
-	throw new Error('not implemented');
-}
+import type { Profile, PortalUserId } from './identity';
 
 /** Thrown by ApiClient for any non-2xx reply, parsed from the one error shape. */
 export class ApiFailure extends Error {
@@ -72,64 +26,99 @@ export class ApiFailure extends Error {
 	}
 }
 
-/**
- * What the ApiClient does with each Refusal an app sends. A switch with a `never` default, so a new code fails the
- * shell's build until it is handled.
- *   unauthenticated, invalid_token   one forced token refresh and retry, then loginRedirect
- *   not_claimed                      GET /api/portal/me, which claims, then one retry
- *   reauth_required                  acquireTokenRedirect for adminScope with the reply's claims, back to this
- *                                    page; the admin sends the form again, and the steps already done are no-ops
- *   not_invited, no_profile,         the same screens enter() draws; entra_forbidden shows the reply's message
- *   not_entitled, forbidden,
- *   entra_forbidden
- */
-export function onRefusal(code: Refusal | AdminRefusal): 'retry-after-refresh' | 'retry-after-claim' | 'reauth' | 'screen' {
-	throw new Error('not implemented');
-}
+export type SendOptions = {
+	/** fetch keepalive, for drawpad's heartbeat and letterjoin's addPractice on pagehide. */
+	readonly keepalive?: true;
+};
 
-/** Bearer handling and Refusal routing, from drawpad's transport.ts. A game's own error codes come back as ApiFailure. */
+/** Bearer handling and refusal routing, from drawpad's transport.ts. */
 export type ApiClient = {
 	get<T>(path: string, query?: Readonly<Record<string, string>>): Promise<T>;
-	post<T>(path: string, body: unknown): Promise<T>;
-	put<T>(path: string, body: unknown): Promise<T>;
+	post<T>(path: string, body: unknown, options?: SendOptions): Promise<T>;
+	put<T>(path: string, body: unknown, options?: SendOptions): Promise<T>;
 	patch<T>(path: string, body: unknown): Promise<T>;
 	delete(path: string): Promise<void>;
 	sendPng<T>(path: string, png: Uint8Array): Promise<T>;
-	/** Fetches a protected image with the token and returns an object URL. drawpad's blobs/cache.ts. */
+	/** A protected image as an object URL. Keeps the ETag and sends If-None-Match, so a 304 reuses the cached bytes (drawpad's blobs/cache.ts). */
 	objectUrl(path: string): Promise<string>;
 };
 
-/** /config.json, written by web-release from the pins. Parsed once by the shell. Games never read it. Game app origins live in catalog.json. */
-export type SiteConfig = {
-	readonly authorities: readonly { readonly issuer: string; readonly authority: string; readonly clientId: string }[];
-	/** func-g4k-portal. */
+/** localStorage keyed `g4k:<game>:<userId>:<key>`, so two games, or two children on one iPad, never share a key. */
+export type GameStorage = {
+	get(key: string): string | null;
+	set(key: string, value: string): void;
+	remove(key: string): void;
+};
+
+/** /config.json on the games site, written at deploy. No admin field exists. */
+export type GamesSiteConfig = {
+	readonly authority: string;
+	readonly clientId: string;
+	/** api://<games4kids>/access_as_user */
+	readonly scope: string;
 	readonly portalApiOrigin: string;
-	/** func-g4k-admin, called only by the /admin/ pages. */
-	readonly adminApiOrigin: string;
-	/** api://<games4kids-admin client id>/admin.manage, the only scope the /admin/ pages request for adminApiOrigin. */
-	readonly adminScope: string;
-	/** Application Insights connection string. Its ingestion endpoint is the one telemetry entry in connect-src. */
 	readonly telemetryConnectionString: string;
 };
 
-export function parseSiteConfig(raw: unknown): SiteConfig | null {
-	throw new Error('not implemented');
-}
+export type GameSession = {
+	readonly me: { readonly userId: PortalUserId; readonly profile: Profile };
+	readonly api: ApiClient;
+	readonly storage: GameStorage;
+	signOut(): Promise<void>;
+	/** Signs out and asks Entra for an account picker. For the family iPad passed between children. */
+	switchAccount(): Promise<void>;
+};
 
 /**
- * <portal-bar title="Letter Tracing" back="/">. Light-DOM slots, so Preact and plain DOM fill it the same way.
- * Draws the brand, the title, the child's name, Home, the game's admin link for its top role, and sign out.
+ * Games site. The game id is the page's folder name, checked against catalog.json. `game: null` on portal pages binds `api` to func-g4k-portal and calls GET me. A game page binds `api`
+ * to its own app and calls its GET session, so only that app wakes. Resolves only for a player of this game; every
+ * other state is a screen or a redirect and the promise never resolves:
+ *   signed out     loginRedirect, back to this page
+ *   not_invited    "Ask your grown-up to invite you", with a sign-out button
+ *   no_profile     location = /welcome/?return=<this page>
+ *   not_entitled   "This game is not switched on for you"
  */
-export declare class PortalBar extends HTMLElement {
-	session: Session | null;
-}
-
-/** The catalog entries whose effectiveRole for this member is not 'none', with that role. Home and <portal-bar> use it. */
-export function visibleGames(catalog: Catalog, me: Extract<Me, { state: 'active' }>): readonly { readonly entry: CatalogEntry; readonly role: string }[] {
+export function enter(options: { readonly game: string | null }): Promise<GameSession> {
 	throw new Error('not implemented');
 }
 
-/** Home cards for visibleGames. A game without a grant has no card, even for a child who guesses its URL. */
-export function mountCatalog(root: HTMLElement, catalog: Catalog, me: Extract<Me, { state: 'active' }>): void {
+/** A switch with a `never` default, so a new Refusal fails the shell's build until handled. */
+export function onRefusal(code: Refusal): 'retry-after-refresh' | 'screen' {
+	throw new Error('not implemented');
+}
+
+/** /config.json on the admin site. */
+export type AdminSiteConfig = {
+	readonly authority: string;
+	readonly clientId: string;
+	/** api://<games4kids-admin>/admin.console */
+	readonly consoleScope: string;
+	/** api://<games4kids-admin>/admin.elevate */
+	readonly elevateScope: string;
+	readonly adminApiOrigin: string;
+	readonly telemetryConnectionString: string;
+};
+
+/** An admin page for one game's admin module: api bound to /api/admin/g/<id>/ with an admin.console token. */
+export type AdminGameSession = {
+	readonly admin: { readonly email: string };
+	readonly api: ApiClient;
+	signOut(): Promise<void>;
+};
+
+/** The admin site's own pages (members, Entra). Only these can elevate. */
+export type AdminPortalSession = AdminGameSession & {
+	/**
+	 * One Entra task. Creates a PublicClientApplication with cacheLocation 'memoryStorage', calls acquireTokenPopup
+	 * for elevateScope with prompt 'login' and the admin as loginHint, runs `task` with an ApiClient bound to that
+	 * token, then clears and drops the instance. A step_up_required or insufficient_claims reply inside the task
+	 * reopens the popup once (with the claims) and retries.
+	 */
+	elevated<T>(task: (api: ApiClient) => Promise<T>): Promise<T>;
+};
+
+export function enterAdmin(options: { readonly game: null }): Promise<AdminPortalSession>;
+export function enterAdmin(options: { readonly game: string }): Promise<AdminGameSession>;
+export function enterAdmin(options: { readonly game: string | null }): Promise<AdminGameSession> {
 	throw new Error('not implemented');
 }

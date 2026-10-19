@@ -1,36 +1,33 @@
 /**
- * test/conformance.ts. It needs createGameApp, so it lives with the tests, not in @g4k/sdk. test/conformance.test.ts
- * runs it once per entry in dev/generated/games.ts, so a new game gets the suite without writing a test.
+ * test/conformance.ts. test/conformance.test.ts runs both suites once per entry in dev/generated/games.ts, so a new
+ * game gets them without writing a test. Each builds the real app over memory storage keyed by account, a memory
+ * portal and the fake IdP, and drives app.handle. A spy wraps each handler, so "refused" means `run` never ran.
  *
- * It builds the game's real app (createGameApp) over memory storage, a memory PortalReader and the fake IdP's
- * signing keys, and drives app.handle. The handler under test is wrapped in a spy, so "refused" means `run` never ran.
+ * They run in every pull request: a change to packages/*, apps/games/shell or apps/admin/shell runs every game's.
  *
- * When it runs:
- *   - a game's pipeline, before it publishes that game's app artifact
- *   - every pull request that changes packages/sdk, packages/host or shell/: every game's `tsc -b` and conformance
- *     run against the changed packages. Nothing deploys. A change released as a minor that fails any game is a major.
+ * Player suite (createPlayerApp):
+ *   - 401 with no token, with an untrusted issuer, and with a games4kids-admin token
+ *   - 403 not_invited for an unknown identity and for a revoked member; no_profile; not_entitled without the game
+ *   - GET session answers the Caller for a granted player
+ *   - every path stays under /api/g/<id>/; names and method+path pairs are unique
+ *   - storage: the memory account saw this game's account and no other, and no write reached an 'admin' or
+ *     'admin-private' name
+ *   - every error body parses as ApiError; replies carry no CORS header; createPlayApi does no I/O
  *
- * Checks:
- *   - every route answers 401 unauthenticated without a token and with a token from an untrusted issuer
- *   - every route answers 403 not_claimed for a verified identity with no identities row, and writes no portal table
- *   - every route answers 403 not_invited for a claimed identity with no active member row, and for a revoked member
- *   - every route answers 403 not_entitled for an active member with a profile and no grant for this game
- *   - every route above the bottom rung answers 403 forbidden for a member one rung lower
- *   - route names and method+path pairs are unique; every path stays under /api/g/<id>/
- *   - the platform exposes exactly the declared tables, containers and queues, and the memory storage, keyed by
- *     account, saw this game's account (accountName(id)) and no other during the suite
- *   - every record the in-memory Telemetry sink received during the suite has game equal to this game's id, and
- *     every route and worker is registered under functionName(id, name)
- *   - GET health answers AppHealth with this game's id, the build's sha and the contract it was built against
- *   - every reply carries Access-Control-Allow-Origin equal to appOrigin and no other CORS header value
- *   - every error body parses as ApiError
- *   - createGameApi does no I/O: the memory storage records zero calls during startup
+ * Admin suite (the module mounted in createAdminApp):
+ *   - 401 with a games4kids token, including one for a member whose games include this one
+ *   - 403 for a games4kids-admin token whose oid has no admins row
+ *   - every path stays under /api/admin/g/<id>/ and every function name is adminFunctionName(id, name)
+ *   - no write reached a 'play' name; no handler received a Graph client
  */
 
-import type { CreateGameApi } from './host';
+import type { CreateAdminApi, CreatePlayApi } from './host';
 import type { GameManifest } from './manifest';
 
-/** Registers node:test cases. The access checks run before body parsing, so no sample bodies are needed. */
-export function runGameConformance<M extends GameManifest>(manifest: M, createGameApi: CreateGameApi<M>): void {
+export function runPlayConformance<M extends GameManifest>(manifest: M, createPlayApi: CreatePlayApi<M>): void {
+	throw new Error('not implemented');
+}
+
+export function runAdminConformance<M extends GameManifest>(manifest: M, createAdminApi: CreateAdminApi<M>): void {
 	throw new Error('not implemented');
 }

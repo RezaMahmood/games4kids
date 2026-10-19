@@ -1,21 +1,18 @@
 /**
- * tools/migrate/content.mjs and tools/migrate/player-data.mjs. The admin runs them on the Mac as one-off,
- * bootstrap-type data moves. They read the old storage accounts in rg-drawpad and rg-letterjoin with the admin's
- * existing data roles and write each game's own new account in rg-games4kids, g4k<id><suffix>, under the declared
- * names. They never write an old account, and both old apps stay live.
+ * tools/migrate/content.mjs and tools/migrate/player-data.mjs, run on the Mac as one-off, bootstrap-type data moves.
+ * They read the old storage accounts in rg-drawpad and rg-letterjoin with the owner's existing data roles and write
+ * each game's new account g4k<id><suffix>. They never write an old account, and both old apps stay live. They are
+ * the one exception to the single-writer rule, once, before either backend has written the rows they insert.
  *
- * They do not run in the pipeline, because a pipeline identity would need new role assignments on the old resource
- * groups, which changes them. If the admin lacks a read role on an old account, the tool stops and names it.
- *
- * Every write is insert-if-absent at a key derived from the source, so a rerun converges, a crash at any point
- * is finished by the next run, and a row the child made in the portal is never overwritten.
+ * Every write is insert-if-absent at a key derived from the source, so a rerun converges, a crash anywhere is
+ * finished by the next run, and a row a child made in the portal is never overwritten.
  */
 
 import type { Row } from './host';
 import type { EntraObjectId, PortalUserId } from './identity';
 import type { Brand } from './manifest';
 
-/** An old account through read-only handles. No member writes, so the tools cannot change old data. */
+/** An old account through read-only handles. */
 export type OldAccount = {
 	readonly tables: Readonly<Record<string, { list(filter?: string): AsyncIterable<Row> }>>;
 	readonly containers: Readonly<Record<string, {
@@ -24,7 +21,6 @@ export type OldAccount = {
 	}>>;
 };
 
-/** One game's new account, addressed by the names its manifest declared (pictures, drawings). */
 export type NewAccount = {
 	table(name: string): { insertIfAbsent(row: Row): Promise<boolean> };
 	container(name: string): { putIfAbsent(path: string, bytes: Uint8Array, contentType: string): Promise<boolean> };
@@ -32,26 +28,23 @@ export type NewAccount = {
 
 export type OldAccounts = { readonly drawpad: OldAccount; readonly letterjoin: OldAccount };
 
-/** Each game's data lands in its own account, so a migration can never write one game's rows into another's. */
+/** Each game's data lands in its own account. */
 export type NewAccounts = { readonly drawpad: NewAccount; readonly letterjoin: NewAccount };
 
 export type MigrationMode = 'dry-run' | 'apply';
 
 export type MigrationReport = {
 	readonly mode: MigrationMode;
-	/** Per target table or container, the count written in apply or that would be written in dry-run. */
 	readonly written: Readonly<Record<string, number>>;
-	/** Already present in the new account and left alone. */
 	readonly skipped: Readonly<Record<string, number>>;
 	/** Old player keys with no PortalUserId yet, with their row counts. Nothing is written for them. */
 	readonly unmapped: readonly { readonly game: 'drawpad' | 'letterjoin'; readonly oldKey: string; readonly rows: number }[];
 };
 
 /**
- * Authored content, copied at cutover with the same keys. The drawpad pictures container holds every library
- * picture's original.jpg, outline.png, pbn.json, pbn-regions.png and pbn-preview.png, which is where accepted
- * AI tracing and paint-by-numbers images end up. drawpad's jobs table and container hold only in-flight AI jobs
- * (blobs expire after 7 days), so they are not copied. letterjoin's activities table includes the settings partition.
+ * Authored content, copied at cutover with the same keys. drawpad: the pictures table and container (every library
+ * picture's original, outline and paint-by-numbers files) and the settings default row. letterjoin: the activities
+ * table, including its settings partition. drawpad's jobs are in-flight only and are not copied.
  */
 export const CONTENT = {
 	drawpad: { tables: ['pictures', 'settings'], containers: ['pictures'] },
@@ -65,10 +58,12 @@ export function migrateContent(mode: MigrationMode, from: OldAccounts, to: NewAc
 
 /**
  * Player data, re-keyed to PortalUserId. Built and tested, and not run until the owner says so.
- *   drawpad     drawings (PK oid), usage (PK oid), drawings blobs <oid>/<id>.png, and each child's
- *               dailyLimitMinutes from profiles, which becomes a settings row (PK 'child', RK userId)
- *   letterjoin  results and attempts (PK userKey), practice rows (PK practice-<userKey>, email column dropped),
- *               submissions rows (userKey and email columns rewritten, pointer rows re-keyed) and blobs <userKey>/<id>.png
+ *   drawpad     drawings and usage (PK oid) and drawing blobs <oid>/<id>.png; each child's dailyLimitMinutes from the
+ *               old profiles row becomes a settings row (PK 'child', RK userId). Names and time zones are dropped:
+ *               each child chooses them again on /welcome/.
+ *   letterjoin  results (practice partitions included, email column dropped) and attempts (PK userKey), submissions
+ *               rows and blobs re-keyed; each submission's reviewed, reviewedBy, reviewedAt and note move to a
+ *               reviews row (RK submission id), because the admin app owns review state.
  */
 export const PLAYER_DATA = {
 	drawpad: { tables: ['drawings', 'usage', 'profiles'], containers: ['drawings'] },
@@ -79,9 +74,9 @@ export const PLAYER_DATA = {
 export type LetterjoinUserKey = Brand<string, 'LetterjoinUserKey'>;
 
 /**
- * Derived from the emails table, never typed by hand. drawpad's oid is the account's entraObjectId, because an object
- * id is per tenant, not per app, and inviting an existing guest returns that guest (guess). letterjoin's key is
- * sha256 of the account's email. A child gets an entry once invited, before any portal sign-in.
+ * Derived from the portal tables, never typed by hand. drawpad's oid maps through the identities rows the admin app
+ * wrote at invite (an object id is per tenant, so the existing guest keeps it). letterjoin's key is sha256 of the
+ * emails row's address. A child gets an entry once invited and synced, before any sign-in.
  */
 export type PlayerDataMapping = {
 	readonly drawpad: ReadonlyMap<EntraObjectId, PortalUserId>;
@@ -91,7 +86,6 @@ export type PlayerDataMapping = {
 /** Minted only by parseConfirmation, so no code path reaches apply without the flag on the command line. */
 export type PlayerDataConfirmation = Brand<'confirm-player-data', 'PlayerDataConfirmation'>;
 
-/** Returns a confirmation only when argv holds both --apply and --confirm-player-data. */
 export function parseConfirmation(argv: readonly string[]): PlayerDataConfirmation | null {
 	throw new Error('not implemented');
 }
