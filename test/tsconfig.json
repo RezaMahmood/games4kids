@@ -4,6 +4,6 @@
 		"rootDir": "..",
 		"outDir": "../dist"
 	},
-	"include": ["**/*.ts", "../dev/generated/**/*.ts"],
+	"include": ["**/*.ts", "fixtures/games/*/.gen/*.ts", "../dev/generated/**/*.ts"],
 	"references": [{ "path": "../packages/sdk" }, { "path": "../packages/host" }, { "path": "../dev" }]
 }

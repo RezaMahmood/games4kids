@@ -78,3 +78,29 @@ test('gen writes the registry for valid games, and a second run changes nothing'
 	assert.match(second.stdout, /dev\/generated\/games\.ts unchanged/);
 	assert.equal(readFileSync(join(root, 'dev/generated/games.ts'), 'utf8'), registry);
 });
+
+test('gen writes each game a player app entry, the catalogs, and the admin modules', () => {
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	game(root, 'alpha', { id: 'alpha', title: 'Alpha', summary: 'First.' });
+	game(root, 'beta', { id: 'beta', title: 'Beta', admin: part, storage: { tables: { content: 'admin' }, containers: {}, queues: {} } }, ['data/index.ts', 'play/api/index.ts', 'admin/api/index.ts']);
+	assert.equal(gen(root).status, 0);
+
+	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/games/.gen/catalog.json'), 'utf8')), [
+		{ id: 'alpha', title: 'Alpha', summary: 'First.', icon: 'icon.svg', path: '/g/alpha/' },
+		{ id: 'beta', title: 'Beta', summary: '', icon: 'icon.svg', path: '/g/beta/' },
+	]);
+	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/admin/.gen/catalog.json'), 'utf8')), [
+		{ id: 'alpha', title: 'Alpha', hasAdmin: false, path: '/g/alpha/' },
+		{ id: 'beta', title: 'Beta', hasAdmin: true, path: '/g/beta/' },
+	]);
+	const modules = readFileSync(join(root, 'apps/admin/.gen/modules.ts'), 'utf8');
+	assert.match(modules, /grantable: readonly GameId\[\] = \[\n\trequireGameId\(manifest0\),\n\trequireGameId\(manifest1\),\n\];/);
+	assert.match(modules, /modules: readonly AdminModule\[\] = \[\n\tadminModule\(manifest1, admin1\),\n\];/);
+	assert.doesNotMatch(modules, /admin0/);
+	const playApp = readFileSync(join(root, 'games/alpha/.gen/play-app.ts'), 'utf8');
+	assert.match(playApp, /registerWithFunctions\(playerAppFromEnv\(manifest, createPlayApi, process\.env\)\);/);
+	assert.match(playApp, /from '\.\.\/play\/api\/index\.ts'/);
+
+	const again = gen(root);
+	assert.ok(!again.stdout.includes(' written'), 'a second run writes nothing');
+});
