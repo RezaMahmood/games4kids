@@ -5,7 +5,9 @@
 		{ "path": "packages/host" },
 		{ "path": "apps/shared" },
 		{ "path": "apps/games" },
+		{ "path": "apps/games/api" },
 		{ "path": "apps/admin" },
+		{ "path": "apps/admin/api" },
 		{ "path": "dev" },
 		{ "path": "test" }
 	]
