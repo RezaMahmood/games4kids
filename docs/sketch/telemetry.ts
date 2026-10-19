@@ -16,6 +16,8 @@ import type { GameId } from './manifest';
 export type Telemetry = {
 	/** Sets the g4k.user attribute on the current request's spans. */
 	setUser(user: PortalUserId): void;
+	/** Sets http.route to the matched template, such as /api/g/drawpad/drawings/{id}. */
+	setRoute(route: string): void;
 	log(level: 'info' | 'warn' | 'error', line: string): void;
 	exception(error: unknown): void;
 };
