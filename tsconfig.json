@@ -1,4 +1,12 @@
 {
 	"files": [],
-	"references": [{ "path": "packages/sdk" }, { "path": "packages/host" }, { "path": "dev" }, { "path": "test" }]
+	"references": [
+		{ "path": "packages/sdk" },
+		{ "path": "packages/host" },
+		{ "path": "apps/shared" },
+		{ "path": "apps/games" },
+		{ "path": "apps/admin" },
+		{ "path": "dev" },
+		{ "path": "test" }
+	]
 }

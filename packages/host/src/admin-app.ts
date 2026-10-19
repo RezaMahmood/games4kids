@@ -92,6 +92,13 @@ export function createAdminApp(deps: AdminAppDeps): App {
 		{ owner: 'portal', name: 'health', method: 'GET', path: 'portal/health', target: { kind: 'health' } },
 		{
 			owner: 'portal',
+			name: 'me',
+			method: 'GET',
+			path: 'portal/me',
+			target: { kind: 'console', run: async ({ session }) => ({ status: 200, json: { email: session.admin.email } }) },
+		},
+		{
+			owner: 'portal',
 			name: 'members-list',
 			method: 'GET',
 			path: 'portal/members',

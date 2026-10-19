@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Choose your name</title>
+	<link rel="stylesheet" href="/shared/tokens.css">
+	<link rel="stylesheet" href="/shared/shell.css">
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+	<main class="page narrow">
+		<h1>Choose your name</h1>
+		<p>This is the name your games will show. You can ask your grown-up to change it later.</p>
+		<form id="form" novalidate>
+			<div class="field">
+				<label for="name">Your name in games</label>
+				<input id="name" name="name" autocomplete="off" maxlength="24" required aria-describedby="name-help error">
+				<p id="name-help" class="help">Up to 24 letters, numbers or spaces.</p>
+			</div>
+			<div class="field">
+				<label for="zone">Where you are</label>
+				<select id="zone" name="zone"></select>
+			</div>
+			<p id="error" class="error" role="alert"></p>
+			<button class="g4k-button" type="submit">Let's play</button>
+		</form>
+	</main>
+	<script type="module" src="/welcome.js"></script>
+</body>
+</html>
