@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Members</title>
+	<link rel="stylesheet" href="/shared/tokens.css">
+	<link rel="stylesheet" href="/shared/shell.css">
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+	<admin-bar></admin-bar>
+	<main class="page">
+		<h1>Members</h1>
+		<p id="status" role="status" aria-live="polite">Loading members.</p>
+		<div id="sync-offer" aria-live="polite"></div>
+
+		<section aria-labelledby="add-title">
+			<h2 id="add-title">Add a member</h2>
+			<form id="add">
+				<div class="field">
+					<label for="add-email">Email</label>
+					<input id="add-email" name="email" type="email" autocomplete="off" required>
+				</div>
+				<fieldset class="field">
+					<legend>Games to switch on</legend>
+					<div id="add-games"></div>
+				</fieldset>
+				<button class="g4k-button" type="submit">Save member</button>
+			</form>
+		</section>
+
+		<section aria-labelledby="people-title">
+			<h2 id="people-title">People</h2>
+			<table>
+				<thead>
+					<tr><th scope="col">Person</th><th scope="col">State</th><th scope="col">Games</th><th scope="col">Entra</th><th scope="col">Actions</th></tr>
+				</thead>
+				<tbody id="people"></tbody>
+			</table>
+		</section>
+
+		<section aria-labelledby="entra-title">
+			<h2 id="entra-title">Entra</h2>
+			<p>Changes in Entra ask you to sign in again, in a window, every time.</p>
+			<p class="row">
+				<button id="check" class="g4k-button quiet" type="button">Check Entra</button>
+				<button id="sync-all" class="g4k-button" type="button">Sync everyone</button>
+			</p>
+			<ul id="drift" aria-live="polite"></ul>
+		</section>
+	</main>
+	<script type="module" src="/members.js"></script>
+</body>
+</html>

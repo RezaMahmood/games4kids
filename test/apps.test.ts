@@ -214,6 +214,16 @@ test('a player app refuses to start when a required setting is missing', () => {
 	assert.doesNotThrow(() => createPlayerApp({ ...deps, env: { API_URL: 'https://example.com/' } }));
 });
 
+test('GET portal/me tells an admin page who it is signed in as, and refuses anyone else', async () => {
+	const w = world();
+	const { admin } = apps(w);
+	const me = await owner(w);
+	assert.deepEqual((await call(admin, 'GET', '/api/admin/portal/me', { token: me.console })).data, { email: 'owner@example.com' });
+	assert.equal(codeOf(await call(admin, 'GET', '/api/admin/portal/me', { token: await idp.adminToken(newObjectId()) })), 'forbidden');
+	const kid = await seedPlayer(w, idp, { games: [id] });
+	assert.equal(codeOf(await call(admin, 'GET', '/api/admin/portal/me', { token: kid.token })), 'invalid_token');
+});
+
 test('telemetry sees the matched route template and the player, never a raw id or an email', async () => {
 	const w = world();
 	const { player, admin } = apps(w);
