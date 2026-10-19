@@ -1,7 +1,8 @@
 /**
- * tools/migrate/content.mjs and tools/migrate/player-data.mjs. The admin runs them on a laptop. They read the
- * old storage accounts in rg-drawpad and rg-letterjoin with the admin's existing data roles and write the new
- * account in rg-games4kids. They never write an old account, and both old apps stay live.
+ * tools/migrate/content.mjs and tools/migrate/player-data.mjs. The admin runs them on the Mac as one-off,
+ * bootstrap-type data moves. They read the old storage accounts in rg-drawpad and rg-letterjoin with the admin's
+ * existing data roles and write the new account in rg-games4kids. They never write an old account, and both old
+ * apps stay live.
  *
  * They do not run in the pipeline, because a pipeline identity would need new role assignments on the old resource
  * groups, which changes them. If the admin lacks a read role on an old account, the tool stops and names it.
@@ -75,9 +76,9 @@ export const PLAYER_DATA = {
 export type LetterjoinUserKey = Brand<string, 'LetterjoinUserKey'>;
 
 /**
- * Derived from the portal rows, never typed by hand. drawpad's oid is the member's 'entra' identity subject,
- * because an object id is per tenant, not per app. letterjoin's key is sha256 of the member's email. A child
- * gets an entry only after a first portal sign-in.
+ * Derived from portalMembers, never typed by hand. drawpad's oid is the member's entraObjectId, because an object
+ * id is per tenant, not per app, and inviting an existing guest returns that guest (guess). letterjoin's key is
+ * sha256 of the member's email. A child gets an entry once invited, before any portal sign-in.
  */
 export type PlayerDataMapping = {
 	readonly drawpad: ReadonlyMap<EntraObjectId, PortalUserId>;

@@ -1,82 +1,143 @@
 /**
- * tools/invite.mjs and tools/members.mjs. The admin runs them on a laptop, signed in with `az login`. They are
- * the only code that calls Microsoft Graph, and they call it with the admin's own token, so the shared backend
- * holds no tenant-wide permission.
+ * admin/src: the admin Function app, func-g4k-admin. It serves only /api/admin/*, for the /admin/ pages, and runs
+ * no game code: it imports identity.ts, storage naming and the generated catalog.json, never host/generated/games.ts
+ * or games/*. Its user-assigned identity, id-g4k-graph, holds the portal's only Graph permissions:
+ * User.Invite.All and GroupMember.ReadWrite.All. admin/src/graph.ts is the only file that calls Graph.
  *
- * The portal rows are the intent and the Entra assignment follows them. Each tool reads the current state of
- * both lists and applies only the difference, per make-operations-idempotent, so a rerun after a crash at any
- * step converges.
+ * The member rows are the intent and Entra follows them. Every operation reads current state and applies only the
+ * difference, per make-operations-idempotent, so a retry or the drift fix finishes a run that stopped anywhere.
  */
 
-import type { DriftReport, Email, EntraObjectId, Grants, Invite, IdentityStore, PortalRole, PortalUserId } from './identity';
+import type { HostReply, HostRequest, PortalRoute } from './host';
+import type { Email, EntraObjectId, Grants, Identity, Member, PortalRole, PortalUserId, Profile, TrustedIssuer } from './identity';
+import type { Catalog } from './registry';
 
-/** Graph with the admin's delegated token. Never the Function app's identity. */
-export type GraphAsAdmin = {
-	findUser(email: Email): Promise<EntraObjectId | null>;
-	/** A B2B guest invitation. Graph treats a repeat for the same email as a no-op and returns the same object id. */
+/** Graph as id-g4k-graph. The host's identity holds no Graph permission. */
+export type GraphAsApp = {
+	/**
+	 * POST /invitations with sendInvitationMessage and a redirect to https://<site>/. A repeat for the same email
+	 * returns the same account and sends the email again (guess, as drawpad relies on it).
+	 */
 	inviteGuest(email: Email, redirectUrl: string): Promise<EntraObjectId>;
-	/** Assignments to the games4kids enterprise app. Every assignment uses the default access role; roles live in portalMembers. */
-	assignments(): Promise<readonly { readonly principalId: EntraObjectId; readonly email: Email | null }[]>;
-	/** An existing assignment counts as done. */
-	assign(principalId: EntraObjectId): Promise<void>;
-	/** A missing assignment counts as done. */
-	unassign(principalId: EntraObjectId): Promise<void>;
+	/** Object ids in games4kids-players. */
+	groupMembers(): Promise<readonly EntraObjectId[]>;
+	/**
+	 * An existing member counts as done. While Entra has not replicated a new guest, Graph answers "Not a valid
+	 * reference update", so this asks again after 2, 4, 8 and 16 seconds, as drawpad's commit 83bc093 does.
+	 */
+	addToGroup(objectId: EntraObjectId): Promise<void>;
+	/** A missing member counts as done. */
+	removeFromGroup(objectId: EntraObjectId): Promise<void>;
 };
 
-/**
- * /api/portal/admin/* with a token from `az account get-access-token --scope api://<clientId>/access_as_user`.
- * tools/bootstrap.mjs adds Azure CLI as an authorized client of that scope. The host checks portal admin as for
- * the /admin/ hub, so the CLI and the hub share one writer of the portal tables and one parseGrants.
- */
-export type PortalAdminApi = {
-	invite(invite: Invite): Promise<void>;
-	list(): ReturnType<IdentityStore['list']>;
-	revoke(userId: PortalUserId): Promise<void>;
-	saveDrift(report: DriftReport): Promise<void>;
+/** One row of the /admin/ member list and access grid. */
+export type MemberView = { readonly member: Member; readonly profile: Profile | null; readonly signedIn: boolean };
+
+/** The admin app's view of the portal tables. It writes portalMembers and portalEmails and reads the rest. */
+export type AdminStore = {
+	/** The caller's member row, through the identity row the host wrote at first sign-in. */
+	memberFor(identity: Identity): Promise<Member | undefined>;
+	/** portalEmails insert if absent with a fresh UUID; on conflict the existing one, so a re-invite keeps the PortalUserId. */
+	userIdFor(email: Email): Promise<PortalUserId>;
+	get(userId: PortalUserId): Promise<Member | undefined>;
+	/** Replace while the etag read with it matches, and retry on conflict. */
+	put(member: Member): Promise<void>;
+	/** Insert if absent, so a seed never overwrites a later change. */
+	seed(member: Member): Promise<void>;
+	list(): Promise<readonly MemberView[]>;
 };
 
 export type InviteRequest = { readonly email: Email; readonly portalRole: PortalRole; readonly grants: Grants };
 
 /**
- * `node tools/invite.mjs <email> [--role admin] [--grant drawpad=player ...]`. Three steps, each safe to repeat:
- *   1. upsert the join invite through PortalAdminApi, harmless alone because Entra still refuses the account
- *   2. findUser, or inviteGuest when the account is not in the tenant
- *   3. assign
- * A crash after step 1 leaves an invite without an assignment, which reconcile reports and `--fix` finishes.
+ * Boundary parse for the invite form and the access grid: every grants key a catalog game, every value on that
+ * game's ladder. The form pre-selects each game's defaultRole in its picker; an unticked game sends no key.
  */
-export function invite(request: InviteRequest, graph: GraphAsAdmin, portal: PortalAdminApi, redirectUrl: string): Promise<{ readonly principalId: EntraObjectId; readonly guestInvited: boolean }> {
-	throw new Error('not implemented');
-}
-
-export type Fix =
-	/** Find or guest-invite the account by email, then assign it. */
-	| { readonly kind: 'assign'; readonly email: Email }
-	| { readonly kind: 'unassign'; readonly principalId: EntraObjectId };
-
-/**
- * Pure, table-tested. Matches an assignment to a member by Entra object id (the member's 'entra' identity
- * subject) and to an invite by email. BOOTSTRAP_ADMIN_EMAILS count as rows, so the admin's own assignment is
- * not drift before the admin's first sign-in.
- */
-export function reconcile(
-	assignments: Awaited<ReturnType<GraphAsAdmin['assignments']>>,
-	rows: Awaited<ReturnType<PortalAdminApi['list']>>,
-	bootstrapAdmins: ReadonlySet<Email>,
-	checkedAt: Date,
-): DriftReport {
-	throw new Error('not implemented');
-}
-
-/** One fix per drift entry. Applying them and reconciling again yields an empty report. */
-export function fixesFor(report: DriftReport): readonly Fix[] {
+export function parseInviteRequest(raw: unknown, catalog: Catalog): InviteRequest | { readonly problems: readonly string[] } {
 	throw new Error('not implemented');
 }
 
 /**
- * `node tools/members.mjs reconcile [--fix]` prints the report and uploads it for the /admin/ hub; `--fix`
- * applies fixesFor first. `node tools/members.mjs revoke <email>` calls portal revoke, then unassign, so the portal
- * gate closes first, and a crash between the two leaves 'revoked-but-assigned', which `--fix` finishes.
+ * POST /api/admin/invites. Four steps, each safe to repeat. A crash leaves:
+ *   1. userIdFor(email)          an email row with no member, which nothing reads; a retry reuses it
+ *   2. put the member row        an active member Entra still refuses: drift 'no-account'
+ *      (active, role, grants, any known entraObjectId kept)
+ *   3. unless the member has     a guest whose id is not recorded: drift 'no-account'; a retry gets the same id
+ *      signed in, inviteGuest
+ *      and record entraObjectId
+ *   4. addToGroup                a member Entra refuses: drift 'not-in-group'
+ * Sending the same form again runs all four and converges. Until the child signs in, it also re-sends Microsoft's email.
  */
-export type MembersCommand =
-	| { readonly kind: 'reconcile'; readonly fix: boolean }
-	| { readonly kind: 'revoke'; readonly email: Email };
+export function invite(request: InviteRequest, store: AdminStore, graph: GraphAsApp, redirectUrl: string): Promise<Member> {
+	throw new Error('not implemented');
+}
+
+/** PUT /api/admin/members/{userId}/access, from the access grid. Changes grants and portal role. Entra is untouched. */
+export function setAccess(userId: PortalUserId, access: Omit<InviteRequest, 'email'>, actor: Member, store: AdminStore): Promise<void> {
+	throw new Error('not implemented');
+}
+
+/**
+ * POST /api/admin/members/{userId}/revoke. 1. state 'revoked', so the host refuses the next request. 2. removeFromGroup,
+ * so Entra issues no new token. A crash between them leaves drift 'in-group-without-member'.
+ */
+export function revoke(userId: PortalUserId, actor: Member, store: AdminStore, graph: GraphAsApp): Promise<void> {
+	throw new Error('not implemented');
+}
+
+/** No revoking yourself, no demoting or revoking the last admin. From both apps' admin rules. */
+export function revokeProblem(target: Member, actor: Member, members: readonly Member[]): string | null {
+	throw new Error('not implemented');
+}
+
+/** One way the group and the member rows disagree. */
+export type Drift =
+	/** Entra admits the account, but no active member has it. Includes a half-done revoke. Fix: remove from the group. */
+	| { readonly kind: 'in-group-without-member'; readonly objectId: EntraObjectId; readonly userId: PortalUserId | null }
+	/** An active member Entra refuses. Fix: add to the group. */
+	| { readonly kind: 'not-in-group'; readonly userId: PortalUserId; readonly objectId: EntraObjectId }
+	/** An active member with no recorded account. Fix: invite steps 3 and 4. */
+	| { readonly kind: 'no-account'; readonly userId: PortalUserId; readonly email: Email };
+
+/** Pure, table-tested. Run live on every GET /api/admin/members, from groupMembers() and the member rows. */
+export function computeDrift(group: readonly EntraObjectId[], members: readonly Member[]): readonly Drift[] {
+	throw new Error('not implemented');
+}
+
+/**
+ * POST /api/admin/drift/fix computes drift, applies one fix per entry, and returns a fresh computeDrift. The rows
+ * are the intent, so a fix changes only Entra. Each fix counts "already done" as done, so a second click finds nothing.
+ */
+export function fixDrift(store: AdminStore, graph: GraphAsApp, redirectUrl: string): Promise<readonly Drift[]> {
+	throw new Error('not implemented');
+}
+
+/** BOOTSTRAP_ADMINS, email=objectId pairs that tools/bootstrap.mjs sets from your own signed-in account. */
+export type BootstrapAdmin = { readonly email: Email; readonly objectId: EntraObjectId };
+
+/**
+ * Runs on every cold start: userIdFor, seed an active admin row, then addToGroup while that row is still active, so
+ * a later revoke sticks. GET /api/admin/health reports it done, and the pipeline's verify step waits for that.
+ */
+export function seedBootstrapAdmins(admins: readonly BootstrapAdmin[], store: AdminStore, graph: GraphAsApp): Promise<void> {
+	throw new Error('not implemented');
+}
+
+export type AdminDeps = {
+	readonly issuers: readonly TrustedIssuer[];
+	readonly store: AdminStore;
+	readonly graph: GraphAsApp;
+	readonly catalog: Catalog;
+	/** The SWA origin, the only CORS origin, and the invitation redirect. */
+	readonly appOrigin: string;
+	readonly version: string;
+};
+
+/**
+ * Fixed order: match route (404) -> verifyToken (401) -> memberFor, active with portalRole admin (403 forbidden)
+ * -> parse body (400) -> run -> CORS for appOrigin. Routes: GET members (with drift), POST invites,
+ * PUT members/{userId}/access, POST members/{userId}/revoke, POST drift/fix, GET health.
+ */
+export function createAdminApp(deps: AdminDeps): { handle(request: HostRequest, log: (line: string) => void): Promise<HostReply>; readonly routes: readonly PortalRoute[] } {
+	throw new Error('not implemented');
+}

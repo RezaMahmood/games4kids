@@ -6,7 +6,7 @@ The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The type sketch i
 
 ## Status
 
-This repo holds the architecture only, at revision 2 after owner feedback: West Europe, Entra assignment plus an invite list, one pipeline and identity per layer, content migration at cutover, and a player-data migration that gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
+This repo holds the architecture only, at revision 3 after owner feedback. You invite children and choose their games in the admin portal, every infra and app deploy goes through a pipeline per layer with OIDC, and your Mac runs only bootstrap and one-off data moves. Content migrates at cutover, and the player-data migration gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
 
 ## The existing apps stay independent
 

@@ -1,9 +1,10 @@
 /**
- * Compile-time proof of the isolation claims, and of the migration guards. `tsc --noEmit` passes only if every
+ * Compile-time proof of the isolation claims, of the access and table-ownership rules, and of the migration guards. `tsc --noEmit` passes only if every
  * @ts-expect-error line really is an error, so the negatives are checked as well as the positives.
  */
 import { defineGameApi, type Platform } from './host';
-import { defineGame } from './manifest';
+import { effectiveRole, type HostStore, type Member } from './identity';
+import { defineGame, type GameId, type RoleOf } from './manifest';
 import { migratePlayerData, parseConfirmation, type NewAccount, type OldAccounts, type PlayerDataMapping } from './migrate';
 import type drawpad from './examples/drawpad/manifest';
 import type letterjoin from './examples/letterjoin/manifest';
@@ -92,6 +93,35 @@ defineGame({
 	exports: { scoreboard: 'v1' },
 });
 
+defineGame({
+	id: 'nonerung',
+	title: 'None rung',
+	summary: '',
+	icon: 'icon.svg',
+	web: { kind: 'static' },
+	// @ts-expect-error 'none' means no access, so it cannot be a rung.
+	roles: ['none', 'admin'],
+	defaultRole: 'admin',
+	storage: { tables: [], containers: [], queues: [] },
+	settings: {},
+	services: [],
+});
+
+declare const member: Member;
+declare const drawpadId: GameId;
+declare const drawpadManifest: typeof drawpad;
+declare const hostStore: HostStore;
+
+const held = effectiveRole(member, drawpadId, drawpadManifest);
+if (held !== 'none') {
+	const granted: RoleOf<typeof drawpad> = held;
+	void granted;
+}
+// @ts-expect-error with no grant the role is 'none', so the host must refuse before it builds a Caller.
+const ungranted: RoleOf<typeof drawpad> = held;
+// @ts-expect-error the host has no member writer; grants and revokes change only in the admin app.
+void hostStore.put(member);
+
 defineGameApi(letterjoinManifest, () => ({
 	routes: [],
 	// @ts-expect-error letterjoin declared no stencil-jobs queue.
@@ -114,4 +144,4 @@ void migratePlayerData({ mode: 'apply', mapping, confirmation: 'confirm-player-d
 // @ts-expect-error the old accounts are read-only, so a table handle has no write.
 void old.drawpad.tables.drawings?.insertIfAbsent({ partitionKey: 'p', rowKey: 'r' });
 
-export { foundry, vision };
+export { foundry, ungranted, vision };

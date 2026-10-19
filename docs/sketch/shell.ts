@@ -12,7 +12,10 @@ import type { Catalog } from './registry';
 import type { Me, PortalRole, PortalUserId, Profile } from './identity';
 
 export type EnterOptions<Role extends string = string> = {
-	/** Binds `api` to /api/g/<id>/. null on portal pages, which binds it to /api/portal/. */
+	/**
+	 * Binds `api` to /api/g/<id>/. null on portal pages binds it to /api/portal/. 'admin', a reserved id, binds it
+	 * to the admin Function app's /api/admin/ and requires portal admin; only the /admin/ pages pass it.
+	 */
 	readonly game: string | null;
 	/** A rung on the game's ladder, read from catalog.json. Below it, enter() draws "Only admins can open this page". */
 	readonly requires?: Role;
@@ -38,7 +41,7 @@ export type Session<Role extends string = string> = {
  *   signed out        loginRedirect in the top window, back to this page
  *   not invited       "Ask your grown-up to invite you", with the email and a sign-out button
  *   no profile        location = /welcome/?return=<this page>
- *   game hidden       effectiveRole is null: "This game is not switched on for you"
+ *   game hidden       effectiveRole is 'none': "This game is not switched on for you"
  *   below `requires`  "Only admins can open this page"
  */
 export function enter<Role extends string = string>(options: EnterOptions<Role>): Promise<Session<Role>> {
@@ -72,7 +75,10 @@ export type ApiClient = {
 /** /config.json, written at deploy. Parsed once by the shell. Games never read it. */
 export type SiteConfig = {
 	readonly authorities: readonly { readonly issuer: string; readonly authority: string; readonly clientId: string }[];
+	/** The host Function app. */
 	readonly apiOrigin: string;
+	/** The admin Function app, called only by the /admin/ pages. */
+	readonly adminApiOrigin: string;
 };
 
 export function parseSiteConfig(raw: unknown): SiteConfig | null {
@@ -87,7 +93,7 @@ export declare class PortalBar extends HTMLElement {
 	session: Session | null;
 }
 
-/** Home cards from catalog.json, filtered to the games in `me.games`. The /admin/ hub uses the same catalog. */
+/** Home cards from catalog.json, filtered to the games in `me.games`, which holds only granted games. */
 export function mountCatalog(root: HTMLElement, catalog: Catalog, me: Extract<Me, { state: 'active' }>): void {
 	throw new Error('not implemented');
 }

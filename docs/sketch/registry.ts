@@ -7,7 +7,7 @@
  *
  *   host/generated/games.ts          static imports of every manifest and api/index.ts, as RegistryEntry[]
  *   tsconfig.games.json              one project reference per games/<id>/api and games/<id>/web
- *   portal/web/public/catalog.json   Catalog, read by the home page and the /admin/ hub
+ *   portal/web/public/catalog.json   Catalog, read by the home page and /admin/, and bundled into the admin app
  *   dist/site/staticwebapp.config.json routes: /g/<id>/* fallback and per-game CSP
  *   infra/generated/storage.json     prefixed table, container and queue names, read by main.bicep
  *   infra/generated/games.bicep      one module per games/<id>/infra.bicep
@@ -26,6 +26,8 @@ export type Problem =
 	/** Prefixed table names must match ^[A-Za-z][A-Za-z0-9]{2,62}$; containers and queues 3 to 63 lowercase characters with single hyphens. */
 	| { readonly kind: 'storage-name'; readonly game: string; readonly name: string; readonly rule: string }
 	| { readonly kind: 'default-role'; readonly game: string; readonly role: string }
+	/** effectiveRole returns 'none' for no access, so a ladder may not use it. */
+	| { readonly kind: 'reserved-role'; readonly game: string }
 	| { readonly kind: 'exports-reserved'; readonly game: string; readonly names: readonly string[] };
 
 export type ScannedGame = { readonly id: GameId; readonly folder: string; readonly manifest: GameManifest };
@@ -59,6 +61,8 @@ export type CatalogEntry = {
 	readonly icon: string;
 	readonly path: `/g/${string}/`;
 	readonly roles: readonly string[];
+	/** Pre-selected in the /admin/ role picker for this game. Grants nothing. */
+	readonly defaultRole: string;
 	readonly adminPath?: string;
 };
 

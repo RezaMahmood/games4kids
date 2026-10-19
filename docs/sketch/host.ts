@@ -9,7 +9,7 @@
  */
 
 import type { AzureService, ContainerOf, GameId, GameManifest, QueueOf, RoleOf, ServiceOf, SettingSpec, TableOf } from './manifest';
-import type { Email, IdentityStore, Member, PortalUserId, TrustedIssuer } from './identity';
+import type { HostStore, Member, PortalUserId, TrustedIssuer } from './identity';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -115,7 +115,7 @@ export type Settings<S extends Readonly<Record<string, SettingSpec>>> = {
 /** Only the declared services. AzureService has no storage member, so no game can hold a storage token. */
 export type Tokens<V extends AzureService> = { readonly [K in V]: () => Promise<string> };
 
-/** The members who can see this game, with their role in it. For admin screens that show children's names. */
+/** The members granted this game, and portal admins, with their role in it. For admin screens that show children's names. */
 export type Roster<M extends GameManifest> = {
 	list(): Promise<readonly { readonly userId: PortalUserId; readonly displayName: string; readonly role: RoleOf<M> }[]>;
 };
@@ -157,8 +157,7 @@ export type Health = {
 
 export type HostDeps = {
 	readonly issuers: readonly TrustedIssuer[];
-	readonly identities: IdentityStore;
-	readonly bootstrapAdmins: ReadonlySet<Email>;
+	readonly identities: HostStore;
 	readonly games: readonly Mounted[];
 	readonly portal: readonly PortalRoute[];
 	/** The SWA origin. The only Access-Control-Allow-Origin the host ever sends. */
@@ -183,7 +182,7 @@ export type Host = {
 	/**
 	 * Fixed order, the only auth path in the repo:
 	 *   match route (404) -> verifyToken (401) -> find + decide, claim if planned (403 not_invited)
-	 *   -> profile present (403 no_profile) -> effectiveRole (403 not_entitled) -> atLeast access (403 forbidden)
+	 *   -> profile present (403 no_profile) -> effectiveRole not 'none' (403 not_entitled) -> atLeast access (403 forbidden)
 	 *   -> parse body (400, 413, 415) -> run -> HttpError to its status, anything else 500 server_error
 	 *   -> CORS for appOrigin, cache-control no-store unless a bytes reply set one.
 	 */
@@ -217,7 +216,7 @@ export function containerOrQueueName(owner: GameId | 'portal', declared: string)
  * The only function that holds a storage credential. Builds handles bound to prefixed names and parses
  * settings from the environment; a missing required setting throws, which mountGames contains.
  */
-export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, identities: IdentityStore): Platform<M> {
+export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, identities: HostStore): Platform<M> {
 	throw new Error('not implemented');
 }
 
@@ -241,9 +240,9 @@ export function serveWithNode(host: Host, port: number): Promise<{ readonly orig
 }
 
 /**
- * Portal routes: me, profile, health, and the admin routes the /admin/ hub and tools/*.mjs share: members,
- * grants, invites, revoke, drift. No route reads or changes Entra; the Function app has no Graph permission.
+ * Portal routes: me, profile and health. Invites, grants, revokes and drift live in the admin Function app
+ * (admin.ts). No route here reads or changes Entra, and the host's identity holds no Graph permission.
  */
-export function portalRoutes(identities: IdentityStore, manifests: readonly GameManifest[], health: () => Health): readonly PortalRoute[] {
+export function portalRoutes(identities: HostStore, manifests: readonly GameManifest[], health: () => Health): readonly PortalRoute[] {
 	throw new Error('not implemented');
 }

@@ -21,7 +21,7 @@ export const GAME_ID = /^[a-z][a-z0-9]{2,23}$/;
 /** Paths and storage prefixes the portal owns. A game folder with one of these names fails the build. */
 export const RESERVED_IDS = ['portal', 'shell', 'admin', 'welcome', 'api', 'g'] as const;
 
-/** Lowest privilege first. The last rung is the game's admin role, which every portal admin holds. */
+/** Lowest privilege first. The last rung is the game's admin role, which every portal admin holds. 'none' is not a rung. */
 export type RoleLadder = readonly [string, ...string[]];
 
 export type SettingSpec =
@@ -60,10 +60,10 @@ export type GameManifest = {
 	readonly adminPath?: string;
 	readonly roles: RoleLadder;
 	/**
-	 * The role a member holds when no grant says otherwise. Applied when the role is read, so adding a game
-	 * never backfills member rows. `null` hides the game until an admin grants a role.
+	 * The rung the /admin/ invite form and access grid pre-select for this game. It grants nothing: a member with
+	 * no grant for the game has effectiveRole 'none' and never sees it.
 	 */
-	readonly defaultRole: string | null;
+	readonly defaultRole: string;
 	readonly storage: {
 		readonly tables: readonly string[];
 		readonly containers: readonly string[];
@@ -81,13 +81,15 @@ export type ContainerOf<M extends GameManifest> = M['storage']['containers'][num
 export type QueueOf<M extends GameManifest> = M['storage']['queues'][number];
 export type ServiceOf<M extends GameManifest> = M['services'][number];
 
-/** Reports a `defaultRole` that is not on the ladder at that property. */
-type DefaultOnLadder<M extends GameManifest> = M['defaultRole'] extends RoleOf<M> | null
-	? M
-	: Omit<M, 'defaultRole'> & { readonly defaultRole: RoleOf<M> | null };
+/** Reports a rung named 'none', which effectiveRole uses for no access, and a `defaultRole` off the ladder, at that property. */
+type CheckedRoles<M extends GameManifest> = 'none' extends RoleOf<M>
+	? Omit<M, 'roles'> & { readonly roles: readonly Exclude<RoleOf<M>, 'none'>[] }
+	: M['defaultRole'] extends RoleOf<M>
+		? M
+		: Omit<M, 'defaultRole'> & { readonly defaultRole: RoleOf<M> };
 
 /** Keeps every literal, so roles, storage names, settings and services become unions downstream. */
-export function defineGame<const M extends GameManifest>(manifest: DefaultOnLadder<M>): M {
+export function defineGame<const M extends GameManifest>(manifest: CheckedRoles<M>): M {
 	throw new Error('not implemented');
 }
 
