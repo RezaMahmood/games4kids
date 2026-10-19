@@ -1,0 +1,23 @@
+{
+	"name": "@g4k/host",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./functions": {
+			"source": "./src/adapters/functions.ts",
+			"types": "./dist/adapters/functions.d.ts",
+			"default": "./dist/adapters/functions.js"
+		}
+	},
+	"dependencies": {
+		"@azure/functions": "4.16.5",
+		"@g4k/sdk": "0.0.0",
+		"jose": "6.2.12"
+	}
+}
