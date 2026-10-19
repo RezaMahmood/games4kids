@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import { defineConfig } from 'eslint/config';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 const GAME_ROOTS = ['games/*', 'test/fixtures/games/*'];
@@ -14,16 +15,27 @@ const GAME_BANS = [
 	{ group: ['process', 'node:process'], message: 'A game reads settings from its platform, never the environment.' },
 ];
 
+/** Code that runs in a browser: no host, no Node, no server SDK. Type-only MSAL imports stay allowed. */
+const BROWSER_BANS = [
+	{ group: ['@g4k/host', '@g4k/host/*'], message: 'Browser code builds on @g4k/sdk types only.' },
+	{ group: ['node:*'], message: 'Browser code cannot import Node modules.' },
+	{ group: ['jose', '@opentelemetry/*', '@azure/functions', '@azure/data-tables', '@azure/storage-*', '@azure/identity', '@azure/monitor-*'], message: 'Browser code uses no server SDK.' },
+];
+
 const banned = (...extra) => ['error', { patterns: [...GAME_BANS, ...extra] }];
 
 export default defineConfig(
-	{ ignores: ['.claude/**', '**/dist/**', 'dev/generated/**', 'test/generated/**', 'docs/sketch/**', '**/.gen/**'] },
+	{ ignores: ['.claude/**', '**/dist/**', 'dev/generated/**', 'test/generated/**', 'docs/sketch/**', '**/.gen/**', 'apps/shared/vendor/**'] },
 	js.configs.recommended,
 	tseslint.configs.recommended,
 	{
 		rules: {
 			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
 		},
+	},
+	{
+		files: ['**/web/**/*.js'],
+		languageOptions: { globals: globals.browser },
 	},
 	{
 		files: ['tools/**/*.mjs', '*.js'],
@@ -42,6 +54,21 @@ export default defineConfig(
 		rules: {
 			'no-restricted-imports': ['error', { patterns: [{ group: ['@azure/functions'], message: 'Only adapters/functions.ts imports @azure/functions.' }] }],
 		},
+	},
+	{
+		files: ['apps/shared/**/*.ts', 'apps/*/shell/**/*.ts', 'apps/*/pages/**/*.ts'],
+		rules: {
+			'no-restricted-imports': ['error', { patterns: BROWSER_BANS }],
+			'no-restricted-globals': ['error', { name: 'process', message: 'Browser code reads /config.json, never the environment.' }],
+		},
+	},
+	{
+		files: ['apps/games/shell/**/*.ts', 'apps/games/pages/**/*.ts'],
+		rules: { 'no-restricted-imports': ['error', { patterns: [...BROWSER_BANS, { group: ['**/apps/admin/**', '../../admin/**', '../../../admin/**'], message: 'The games site has no admin scope and no admin origin, so it imports nothing of the admin site.' }] }] },
+	},
+	{
+		files: ['apps/admin/shell/**/*.ts', 'apps/admin/pages/**/*.ts'],
+		rules: { 'no-restricted-imports': ['error', { patterns: [...BROWSER_BANS, { group: ['**/apps/games/**', '../../games/**', '../../../games/**'], message: 'The admin site builds from its own folder and the shared modules only.' }] }] },
 	},
 	{
 		files: inGames('**/*.ts'),

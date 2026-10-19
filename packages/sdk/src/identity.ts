@@ -1,4 +1,4 @@
-import type { Brand } from './manifest.ts';
+import type { Brand, GameId } from './manifest.ts';
 
 /** Minted by the admin app at invite (a UUID). The only user key a game stores. */
 export type PortalUserId = Brand<string, 'PortalUserId'>;
@@ -37,3 +37,9 @@ export function parsePortalUserId(raw: unknown): PortalUserId | null {
 export function parseEntraObjectId(raw: unknown): EntraObjectId | null {
 	return typeof raw === 'string' && GUID.test(raw) ? (raw.toLowerCase() as EntraObjectId) : null;
 }
+
+/** GET /api/portal/me. */
+export type Me =
+	| { readonly state: 'not-invited'; readonly email: Email | null }
+	| { readonly state: 'no-profile' }
+	| { readonly state: 'active'; readonly userId: PortalUserId; readonly profile: Profile; readonly games: readonly GameId[] };
