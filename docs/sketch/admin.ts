@@ -20,7 +20,7 @@
  * reads Entra and applies only the difference, so it converges wherever a previous run stopped.
  */
 
-import type { App, AppEnv, CreateAdminApi, StorageConfig } from './host';
+import type { Accounts, AdminRoute, App, AppEnv, CreateAdminApi, Roster, TokenSource } from './host';
 import type { Email, EntraObjectId, Member, PortalUserId, Profile, TrustedIssuer } from './identity';
 import type { Brand, GameId, GameManifest } from './manifest';
 
@@ -127,12 +127,17 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 	throw new Error('not implemented');
 }
 
+/** How the admin app reaches Graph. Production passes `(e) => graphAs(e, clientAssertion, tenantId)`; tests and dev pass a fake. */
+export type GraphFor = (elevation: Elevation) => OboGraph;
+
 /** One row of the members screen. `objectId` comes from the identities row, null until the first sync records it. */
 export type MemberView = { readonly member: Member; readonly email: Email; readonly objectId: EntraObjectId | null; readonly profile: Profile | null };
 
 /** The admin app's view of the portal tables: writes members, emails and identities; reads profiles and admins. */
 export type AdminStore = {
 	admin(objectId: EntraObjectId): Promise<AdminRow | undefined>;
+	/** setAccess answers 404 for an unknown id instead of writing a member row with no email. */
+	member(userId: PortalUserId): Promise<Member | undefined>;
 	/** emails insert-if-absent with a fresh UUID; on conflict the existing userId, so a re-invite keeps the child's history. */
 	userIdFor(email: Email): Promise<PortalUserId>;
 	/** Replace while the etag read with it matches, and retry on conflict. */
@@ -191,16 +196,34 @@ export function syncEntra(graph: OboGraph, store: AdminStore, only: PortalUserId
 	throw new Error('not implemented');
 }
 
-/** One game's admin part, as gen lists it for the admin app entry. */
-export type AdminModule = { readonly id: GameId; readonly manifest: GameManifest; readonly create: CreateAdminApi<GameManifest> };
+/** What the admin app lends a game's admin module. */
+export type ModuleHost = {
+	readonly accounts: Accounts;
+	readonly env: Readonly<Record<string, string | undefined>>;
+	readonly tokens: TokenSource;
+	readonly now: () => Date;
+	readonly roster: (game: GameId) => Roster;
+};
+
+/**
+ * One game's admin part. A list cannot hold CreateAdminApi<GameManifest>: a game's create takes its own narrower
+ * platform, so it is not assignable to the erased one. adminModule closes over the manifest's literal types instead.
+ */
+export type AdminModule = { readonly id: GameId; mount(host: ModuleHost): readonly AdminRoute[] };
+
+export function adminModule<M extends GameManifest>(manifest: M, create: CreateAdminApi<M>): AdminModule {
+	throw new Error('not implemented');
+}
 
 export type AdminAppDeps = Omit<AppEnv, 'issuers'> & {
 	readonly issuer: TrustedIssuer;
-	readonly tenantId: string;
 	readonly store: AdminStore;
-	readonly clientAssertion: ClientAssertion;
+	readonly graph: GraphFor;
+	/** Every game a member can be granted, with or without an admin part. */
+	readonly games: readonly GameId[];
 	readonly modules: readonly AdminModule[];
-	readonly storage: StorageConfig;
+	readonly accounts: Accounts;
+	readonly tokens: TokenSource;
 	readonly env: Readonly<Record<string, string | undefined>>;
 	/** The games site origin, the invitation redirect. */
 	readonly gamesOrigin: string;

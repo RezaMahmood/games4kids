@@ -10,8 +10,7 @@
  *   dev/generated/games.ts           every game, for tools/dev.mjs and the tests
  */
 
-import type { AdminModule } from './admin';
-import type { CreatePlayApi } from './host';
+import type { CreateAdminApi, CreatePlayApi } from './host';
 import type { GameId, GameManifest, Hosting } from './manifest';
 
 export type Problem =
@@ -72,8 +71,13 @@ export type GameModuleParams = {
 	readonly queues: readonly string[];
 };
 
-/** Dev and tests only: one erased shape per game. */
-export type RegistryEntry = { readonly id: GameId; readonly manifest: GameManifest; readonly play: CreatePlayApi<GameManifest>; readonly admin: AdminModule | null };
+export type GameParts<M extends GameManifest> = { readonly manifest: M; readonly play: CreatePlayApi<M>; readonly admin: CreateAdminApi<M> | null };
+
+/**
+ * Dev and tests only. A list cannot hold each game's own manifest type, and an erased CreatePlayApi<GameManifest> does
+ * not accept a concrete game's create, so `use` hands the parts back with their types to code generic over manifests.
+ */
+export type RegistryEntry = { readonly id: GameId; use<R>(visit: <M extends GameManifest>(parts: GameParts<M>) => R): R };
 
 /** Pure renderers, one per output, snapshot-tested in test/gen.test.ts. */
 export function renderPlayApp(game: ScannedGame): string {

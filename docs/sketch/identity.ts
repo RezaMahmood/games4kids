@@ -87,10 +87,15 @@ export type Admission =
 	| { readonly kind: 'not-invited' }
 	| { readonly kind: 'not-entitled' };
 
+/** The portal app asks about no game, so nothing it sees is not-entitled. */
+export type PortalAdmission = Exclude<Admission, { readonly kind: 'not-entitled' }>;
+
 /**
- * Pure, table-tested. Known identity, active member, granted game (when `game` is not null), profile present.
- * The portal app passes null; a player app passes its own id.
+ * Pure, table-tested. Checks in Refusal order: known identity with an active member, then a profile, then the game
+ * in the grants when `game` is not null. The portal app passes null; a player app passes its own id.
  */
+export function decide(found: Found, game: null): PortalAdmission;
+export function decide(found: Found, game: GameId): Admission;
 export function decide(found: Found, game: GameId | null): Admission {
 	throw new Error('not implemented');
 }
@@ -113,6 +118,6 @@ export type Me =
 	| { readonly state: 'active'; readonly userId: PortalUserId; readonly profile: Profile; readonly games: readonly GameId[] };
 
 /** Pure: the portal app's `me` route is this function over decide(found, null). */
-export function meFor(identity: Identity, admission: Exclude<Admission, { readonly kind: 'not-entitled' }>): Me {
+export function meFor(identity: Identity, admission: PortalAdmission): Me {
 	throw new Error('not implemented');
 }
