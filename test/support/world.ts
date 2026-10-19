@@ -3,12 +3,13 @@ import { parseEmail, parseEntraObjectId, type EntraObjectId, type GameId, type P
 import { adminStore, memoryAccounts, portalReader, portalStore, type Member, type MemoryAccounts, type PortalTableName, type Telemetry } from '@g4k/host';
 import type { FakeIdp } from './idp.ts';
 
-export type RecordingTelemetry = Telemetry & { readonly exceptions: unknown[]; readonly users: PortalUserId[] };
+export type RecordingTelemetry = Telemetry & { readonly exceptions: unknown[]; readonly users: PortalUserId[]; readonly routes: string[] };
 
 export function recordingTelemetry(): RecordingTelemetry {
 	const exceptions: unknown[] = [];
 	const users: PortalUserId[] = [];
-	return { exceptions, users, setUser: (user) => void users.push(user), log: () => {}, exception: (error) => void exceptions.push(error) };
+	const routes: string[] = [];
+	return { exceptions, users, routes, setUser: (user) => void users.push(user), setRoute: (route) => void routes.push(route), log: () => {}, exception: (error) => void exceptions.push(error) };
 }
 
 export const NOW = new Date('2026-10-19T20:00:00Z');

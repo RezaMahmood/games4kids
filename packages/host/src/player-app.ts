@@ -47,6 +47,7 @@ export function createPlayerApp<M extends GameManifest>(deps: PlayerAppDeps<M>):
 			const rest = underPrefix(request.path, prefix);
 			const matched = rest === null ? undefined : match(request.method, rest);
 			if (!matched) return notFound();
+			deps.telemetry.setRoute(`${prefix}${matched.path}`);
 			if (matched.target.kind === 'health') return json(200, { ok: true });
 			const auth = await verifyGamesToken(deps.issuers, request.headers.get('authorization'));
 			if (!auth.ok) return refuse(auth.code);
@@ -109,6 +110,7 @@ export function createPortalApp(deps: AppEnv & { readonly portal: PortalStore })
 			const rest = underPrefix(request.path, prefix);
 			const matched = rest === null ? undefined : match(request.method, rest);
 			if (!matched) return notFound();
+			deps.telemetry.setRoute(`${prefix}${matched.path}`);
 			if (matched.target === 'health') return json(200, { ok: true });
 			const admitted = await admit(request);
 			if ('status' in admitted) return admitted;
