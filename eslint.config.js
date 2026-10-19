@@ -31,6 +31,13 @@ export default defineConfig(
 	},
 	{
 		files: ['packages/host/src/**/*.ts'],
+		ignores: ['packages/host/src/adapters/**', 'packages/host/src/runtime.ts'],
+		rules: {
+			'no-restricted-imports': ['error', { patterns: [{ group: ['@azure/*', '@opentelemetry/*'], message: 'Only the adapters and runtime.ts import an Azure or OpenTelemetry SDK.' }] }],
+		},
+	},
+	{
+		files: ['packages/host/src/adapters/**/*.ts'],
 		ignores: ['packages/host/src/adapters/functions.ts'],
 		rules: {
 			'no-restricted-imports': ['error', { patterns: [{ group: ['@azure/functions'], message: 'Only adapters/functions.ts imports @azure/functions.' }] }],
