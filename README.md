@@ -6,8 +6,8 @@ The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The type sketch i
 
 ## Status
 
-This repo holds the architecture only. Nothing is built, and nothing is deployed.
+This repo holds the architecture only, at revision 2 after owner feedback: West Europe, Entra assignment plus an invite list, one pipeline and identity per layer, content migration at cutover, and a player-data migration that gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
 
 ## The existing apps stay independent
 
-The drawpad and letterjoin repos, their deployments, their Entra registrations, and their resource groups do not change. The portal gets its own Entra registration "games4kids" and its own resource group `rg-games4kids`. It copies code from the old repos and never calls them. Both old apps keep running.
+The drawpad and letterjoin repos, their deployments, their Entra registrations, and their resource groups do not change. The portal gets its own Entra registration "games4kids" and its own resource group `rg-games4kids`. It copies code from the old repos and never calls them. The migration tools only read the old storage accounts. Both old apps keep running.

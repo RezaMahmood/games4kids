@@ -13,7 +13,11 @@ import type { Email, IdentityStore, Member, PortalUserId, TrustedIssuer } from '
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-/** What a handler knows about the person. No token, oid, email or portal role. */
+/**
+ * What a handler knows about the person. No token, oid, email or portal role. `userId` is the one sign-in key
+ * shared by every game, now and later. A future parent-set policy (identity.ts, portalPolicies) would arrive
+ * here as a new readonly field; no game reads a portal table.
+ */
 export type Caller<M extends GameManifest> = {
 	readonly userId: PortalUserId;
 	readonly displayName: string;
@@ -236,7 +240,10 @@ export function serveWithNode(host: Host, port: number): Promise<{ readonly orig
 	throw new Error('not implemented');
 }
 
-/** Portal routes: me, profile, members, grants, invites, health. */
+/**
+ * Portal routes: me, profile, health, and the admin routes the /admin/ hub and tools/*.mjs share: members,
+ * grants, invites, revoke, drift. No route reads or changes Entra; the Function app has no Graph permission.
+ */
 export function portalRoutes(identities: IdentityStore, manifests: readonly GameManifest[], health: () => Health): readonly PortalRoute[] {
 	throw new Error('not implemented');
 }

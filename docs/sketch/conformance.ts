@@ -7,7 +7,7 @@
  *
  * Checks:
  *   - every route answers 401 unauthenticated without a token and with a token from an untrusted issuer
- *   - every route answers 403 not_invited for a verified identity with no member row
+ *   - every route answers 403 not_invited for a verified identity with no member row, and for a revoked member
  *   - every route answers 403 not_entitled for a member whose grant for this game is 'none'
  *   - every route above the bottom rung answers 403 forbidden for a member one rung lower
  *   - route names and method+path pairs are unique; every path stays under /api/g/<id>/

@@ -1,9 +1,10 @@
 /**
- * Compile-time proof of the isolation claims. `tsc --noEmit` passes only if every @ts-expect-error line really
- * is an error, so the negatives are checked as well as the positives.
+ * Compile-time proof of the isolation claims, and of the migration guards. `tsc --noEmit` passes only if every
+ * @ts-expect-error line really is an error, so the negatives are checked as well as the positives.
  */
 import { defineGameApi, type Platform } from './host';
 import { defineGame } from './manifest';
+import { migratePlayerData, parseConfirmation, type NewAccount, type OldAccounts, type PlayerDataMapping } from './migrate';
 import type drawpad from './examples/drawpad/manifest';
 import type letterjoin from './examples/letterjoin/manifest';
 import letterjoinManifest from './examples/letterjoin/manifest';
@@ -96,5 +97,21 @@ defineGameApi(letterjoinManifest, () => ({
 	// @ts-expect-error letterjoin declared no stencil-jobs queue.
 	workers: [{ queue: 'stencil-jobs', run: async () => {} }],
 }));
+
+declare const old: OldAccounts;
+declare const fresh: NewAccount;
+declare const mapping: PlayerDataMapping;
+declare const argv: readonly string[];
+
+void migratePlayerData({ mode: 'dry-run', mapping }, old, fresh);
+const confirmation = parseConfirmation(argv);
+if (confirmation) void migratePlayerData({ mode: 'apply', mapping, confirmation }, old, fresh);
+
+// @ts-expect-error applying player data needs the confirmation that only --confirm-player-data mints.
+void migratePlayerData({ mode: 'apply', mapping }, old, fresh);
+// @ts-expect-error a plain string is not a confirmation.
+void migratePlayerData({ mode: 'apply', mapping, confirmation: 'confirm-player-data' }, old, fresh);
+// @ts-expect-error the old accounts are read-only, so a table handle has no write.
+void old.drawpad.tables.drawings?.insertIfAbsent({ partitionKey: 'p', rowKey: 'r' });
 
 export { foundry, vision };
