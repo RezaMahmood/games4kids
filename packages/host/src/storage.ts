@@ -1,6 +1,5 @@
 import type { Blob, Blobs, GameId, GameManifest, Ownership, Queue, ReadBlobs, ReadTable, Row, Side, StorageDeclaration, StorageFor, Stored, Table } from '@g4k/sdk';
 
-/** The owner of one storage account. */
 export type StorageOwner = GameId | 'portal';
 
 /** drawpad -> g4kdrawpad<suffix>. The suffix is five characters of uniqueString(resourceGroup().id). */
@@ -73,9 +72,17 @@ export type MemoryAccounts = Accounts & {
 
 type Entry = { readonly row: Row; readonly etag: string };
 
+function memo<K, V>(map: Map<K, V>, key: K, make: () => V): V {
+	const existing = map.get(key);
+	if (existing !== undefined) return existing;
+	const made = make();
+	map.set(key, made);
+	return made;
+}
+
 function memoryTable(record: (write: boolean) => void, nextEtag: () => string): Table {
 	const partitions = new Map<string, Map<string, Entry>>();
-	const partition = (key: string) => partitions.get(key) ?? partitions.set(key, new Map()).get(key)!;
+	const partition = (key: string) => memo(partitions, key, () => new Map<string, Entry>());
 	const stored = <R extends Row>(entry: Entry) => ({ ...entry.row, etag: entry.etag }) as Stored<R>;
 	const sorted = (rows: Map<string, Entry>) => [...rows.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, entry]) => entry);
 	const write = (row: Row) => partition(row.partitionKey).set(row.rowKey, { row: { ...row }, etag: nextEtag() });
@@ -156,8 +163,8 @@ export function memoryAccounts(): MemoryAccounts {
 		const containers = new Map<string, Blobs>();
 		const recorder = (kind: StorageOp['kind'], name: string) => (write: boolean) => void ops.push({ account: owner, kind, name, write });
 		const account: Account = {
-			table: (name) => tables.get(name) ?? tables.set(name, memoryTable(recorder('table', name), nextEtag)).get(name)!,
-			container: (name) => containers.get(name) ?? containers.set(name, memoryBlobs(recorder('container', name), nextEtag)).get(name)!,
+			table: (name) => memo(tables, name, () => memoryTable(recorder('table', name), nextEtag)),
+			container: (name) => memo(containers, name, () => memoryBlobs(recorder('container', name), nextEtag)),
 			queue: (name) => ({
 				async send(message) {
 					recorder('queue', name)(true);

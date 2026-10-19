@@ -29,7 +29,6 @@ const REGISTRIES = [
 	{ games: join(root, 'test/fixtures/games'), out: join(root, 'test/generated/fixtures.ts') },
 ];
 
-/** @param {string} folder */
 async function scanFolder(folder) {
 	const problems = [];
 	const name = folder.split(sep).at(-1);
@@ -61,7 +60,6 @@ async function scanFolder(folder) {
 	return { problems, game: { id, folder, hasAdmin } };
 }
 
-/** @param {string} gamesDir */
 async function scan(gamesDir) {
 	if (!existsSync(gamesDir)) return { games: [], problems: [] };
 	const entries = await readdir(gamesDir, { withFileTypes: true });

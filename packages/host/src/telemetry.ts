@@ -1,6 +1,5 @@
 import type { GameId, PortalUserId } from '@g4k/sdk';
 
-/** The OpenTelemetry adapter that implements this for Application Insights lands with the deploy phase. */
 export type Telemetry = {
 	/** Sets the g4k.user attribute on the current request's spans. */
 	setUser(user: PortalUserId): void;

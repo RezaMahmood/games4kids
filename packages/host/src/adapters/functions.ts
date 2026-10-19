@@ -1,8 +1,8 @@
+// CommonJS: Node 22 does not detect every named export, so the module is imported whole.
 import azureFunctions, { type HttpRequest, type HttpResponseInit } from '@azure/functions';
 import { HttpError } from '@g4k/sdk';
 import type { App, HostReply, HostRequest } from '../http.ts';
 
-/** The only importer of @azure/functions. It is CommonJS and Node 22 does not detect every named export, so it is imported whole. */
 export function toHostRequest(request: HttpRequest): HostRequest {
 	const url = new URL(request.url);
 	const tooLarge = () => new HttpError(413, 'too_large', 'That is too big to send.');
