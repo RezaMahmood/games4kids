@@ -12,6 +12,7 @@
  */
 
 import type { Refusal } from './host';
+import type { AdminCatalogEntry, CatalogEntry } from './registry';
 import type { Profile, PortalUserId } from './identity';
 
 /** Thrown by ApiClient for any non-2xx reply, parsed from the one error shape. */
@@ -21,6 +22,8 @@ export class ApiFailure extends Error {
 		readonly code: string,
 		message: string,
 		readonly problems: readonly string[] = [],
+		/** insufficient_claims only: the challenge, in the body because a page on another origin cannot read WWW-Authenticate. */
+		readonly claims?: string,
 	) {
 		super(message);
 	}
@@ -78,7 +81,17 @@ export type GameSession = {
  *   no_profile     location = /welcome/?return=<this page>
  *   not_entitled   "This game is not switched on for you"
  */
-export function enter(options: { readonly game: string | null }): Promise<GameSession> {
+export function enter(options: { readonly game: null }): Promise<PortalSession>;
+export function enter(options: { readonly game: string }): Promise<GameSession>;
+export function enter(options: { readonly game: string | null }): Promise<GameSession | PortalSession> {
+	throw new Error('not implemented');
+}
+
+/** Home also gets a card for each game switched on for this child, from catalog.json. */
+export type PortalSession = GameSession & { readonly games: readonly CatalogEntry[] };
+
+/** /welcome/ runs for a member with no profile, which `enter` would send back there. */
+export function enterWelcome(): Promise<{ readonly api: ApiClient; signOut(): Promise<void> }> {
 	throw new Error('not implemented');
 }
 
@@ -108,6 +121,8 @@ export type AdminGameSession = {
 
 /** The admin site's own pages (members, Entra). Only these can elevate. */
 export type AdminPortalSession = AdminGameSession & {
+	/** Every game a member can be granted, from the admin site's catalog.json. */
+	readonly games: readonly AdminCatalogEntry[];
 	/**
 	 * One Entra task. Creates a PublicClientApplication with cacheLocation 'memoryStorage', calls acquireTokenPopup
 	 * for elevateScope with prompt 'login' and the admin as loginHint, runs `task` with an ApiClient bound to that

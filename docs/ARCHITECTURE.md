@@ -66,13 +66,14 @@ games4kids/
 	package.json            npm workspaces. gen runs on predev, prebuild, pretest
 	packages/sdk/           @g4k/sdk: defineGame, definePlayApi, defineAdminApi, HttpError, types
 	packages/host/          @g4k/host: createPlayerApp, createPortalApp, createAdminApp, identity, storage, telemetry
-	apps/games/             shell/ (/shell/v1/), pages/ (/, /welcome/, redirect.html), api/ (func-g4k-portal)
-	apps/admin/             shell/ (/shell/v1/), pages/ (members, Entra), api/ (func-g4k-admin: graph.ts, elevation.ts)
+	apps/games/             shell/v1/ (/shell/v1/), pages/ (/, /welcome/, redirect.html), api/ (func-g4k-portal)
+	apps/admin/             shell/v1/ (/shell/v1/), pages/ (members, Entra), api/ (func-g4k-admin)
+	apps/shared/            api-client, msal loader, telemetry and the vendored MSAL, served at /shared/ on both sites
 	games/drawpad/          manifest.ts, data/, play/, admin/, infra.bicep (Foundry)
 	games/letterjoin/       manifest.ts, data/, play/, admin/, infra.bicep (Vision)
 	tools/                  gen, dev, changes, bootstrap, migrate/content, migrate/player-data (.mjs)
 	infra/                  main.bicep (shared), game.bicep (one deployment per game), workbook.json
-	dev/                    fake-idp.mjs, fake-graph.mjs, generated/
+	dev/                    fake-idp.ts, fake-graph.ts, sites.ts, stack.ts (tools/dev.mjs starts it), generated/
 	test/                   conformance.ts, *.test.ts, e2e/ (Playwright)
 	.github/workflows/      ci.yml, deploy.yml
 ```
@@ -327,6 +328,7 @@ Applied from your two directives and the adversarial review:
 - Can the workbook query Cost Management on this Pay-As-You-Go subscription? Untested.
 - Is 0.16 GB a day enough? A guess until a week of real use.
 - The migrations run on your Mac because a pipeline would need read roles on the old storage accounts. Do you accept that?
+- Can a Function app's platform CORS expose `ETag` and `WWW-Authenticate` to the page? Neither is a CORS-safelisted response header, and I found no setting that exposes them (inferred, unchecked). The shell reads the step-up and the claims challenge from the error body, and an image whose ETag it cannot read is fetched again, which the browser's own cache revalidates.
 - Would a parent join as a guest or wait for External ID?
 
 ## Build plan

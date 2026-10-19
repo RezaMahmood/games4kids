@@ -42,6 +42,9 @@ export type CatalogEntry = {
 	readonly apiBaseUrl: string;
 };
 
+/** One row of the admin site's game list (apps/admin/.gen/catalog.json): what a member can be granted, and whether the game has admin pages. */
+export type AdminCatalogEntry = { readonly id: GameId; readonly title: string; readonly hasAdmin: boolean; readonly path: `/g/${string}/` };
+
 /** Bicep tags. `game` is a GameId on a game's resources, 'portal' or 'admin' on those apps, 'shared' on what serves everyone. */
 export type ResourceTags = { readonly app: 'games4kids'; readonly game: GameId | 'portal' | 'admin' | 'shared' };
 
