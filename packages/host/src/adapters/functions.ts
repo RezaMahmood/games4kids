@@ -1,8 +1,8 @@
-import { app as functions, type HttpRequest, type HttpResponseInit } from '@azure/functions';
+import azureFunctions, { type HttpRequest, type HttpResponseInit } from '@azure/functions';
 import { HttpError } from '@g4k/sdk';
 import type { App, HostReply, HostRequest } from '../http.ts';
 
-/** The only importer of @azure/functions. */
+/** The only importer of @azure/functions. It is CommonJS and Node 22 does not detect every named export, so it is imported whole. */
 export function toHostRequest(request: HttpRequest): HostRequest {
 	const url = new URL(request.url);
 	const tooLarge = () => new HttpError(413, 'too_large', 'That is too big to send.');
@@ -27,7 +27,7 @@ export function toResponse(reply: HostReply): HttpResponseInit {
 /** One app.http per route, so each route is its own function name in telemetry. */
 export function registerWithFunctions(app: App): void {
 	for (const fn of app.functions) {
-		functions.http(fn.name, {
+		azureFunctions.app.http(fn.name, {
 			methods: [fn.method],
 			route: fn.route,
 			authLevel: 'anonymous',

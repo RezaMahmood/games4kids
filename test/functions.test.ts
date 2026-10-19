@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { HttpRequest } from '@azure/functions';
+import azureFunctions from '@azure/functions';
 import { toHostRequest, toResponse } from '@g4k/host/functions';
+
+const { HttpRequest } = azureFunctions;
 
 test('the Functions adapter turns an HttpRequest into a HostRequest with path, query, headers and a capped body', async () => {
 	const request = new HttpRequest({
