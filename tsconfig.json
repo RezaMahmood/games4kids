@@ -1,4 +1,4 @@
 {
 	"files": [],
-	"references": [{ "path": "packages/sdk" }, { "path": "packages/host" }, { "path": "test" }]
+	"references": [{ "path": "packages/sdk" }, { "path": "packages/host" }, { "path": "dev" }, { "path": "test" }]
 }
