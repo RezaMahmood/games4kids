@@ -104,3 +104,21 @@ test('gen writes each game a player app entry, the catalogs, and the admin modul
 	const again = gen(root);
 	assert.ok(!again.stdout.includes(' written'), 'a second run writes nothing');
 });
+
+test('gen writes each game the ARM parameters for infra/game.bicep, with the manifest hosting over the defaults', () => {
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	const storage = { tables: { content: 'admin', scores: 'play' }, containers: { art: 'admin' }, queues: { jobs: 'admin-private' } };
+	game(root, 'alpha', { id: 'alpha', admin: part, storage }, ['data/index.ts', 'play/api/index.ts', 'admin/api/index.ts']);
+	game(root, 'beta', { id: 'beta', play: { ...part, hosting: { memoryMb: 512, maxInstances: 3 } } });
+	assert.equal(gen(root).status, 0);
+
+	const params = (id: string) => JSON.parse(readFileSync(join(root, `games/${id}/.gen/params.json`), 'utf8'));
+	assert.equal(params('alpha').contentVersion, '1.0.0.0');
+	assert.deepEqual(params('alpha').parameters, { id: { value: 'alpha' }, storage: { value: storage }, memoryMb: { value: 2048 }, maxInstances: { value: 10 } });
+	assert.deepEqual(params('beta').parameters, {
+		id: { value: 'beta' },
+		storage: { value: { tables: {}, containers: {}, queues: {} } },
+		memoryMb: { value: 512 },
+		maxInstances: { value: 3 },
+	});
+});
