@@ -1,8 +1,8 @@
 /**
  * tools/migrate/content.mjs and tools/migrate/player-data.mjs. The admin runs them on the Mac as one-off,
  * bootstrap-type data moves. They read the old storage accounts in rg-drawpad and rg-letterjoin with the admin's
- * existing data roles and write the new account in rg-games4kids. They never write an old account, and both old
- * apps stay live.
+ * existing data roles and write each game's own new account in rg-games4kids, g4k<id><suffix>, under the declared
+ * names. They never write an old account, and both old apps stay live.
  *
  * They do not run in the pipeline, because a pipeline identity would need new role assignments on the old resource
  * groups, which changes them. If the admin lacks a read role on an old account, the tool stops and names it.
@@ -24,13 +24,16 @@ export type OldAccount = {
 	}>>;
 };
 
-/** The new account, addressed by prefixed names (drawpadPictures, drawpad-pictures). */
+/** One game's new account, addressed by the names its manifest declared (pictures, drawings). */
 export type NewAccount = {
 	table(name: string): { insertIfAbsent(row: Row): Promise<boolean> };
 	container(name: string): { putIfAbsent(path: string, bytes: Uint8Array, contentType: string): Promise<boolean> };
 };
 
 export type OldAccounts = { readonly drawpad: OldAccount; readonly letterjoin: OldAccount };
+
+/** Each game's data lands in its own account, so a migration can never write one game's rows into another's. */
+export type NewAccounts = { readonly drawpad: NewAccount; readonly letterjoin: NewAccount };
 
 export type MigrationMode = 'dry-run' | 'apply';
 
@@ -56,14 +59,14 @@ export const CONTENT = {
 } as const;
 
 /** `node tools/migrate/content.mjs [--apply]`. Dry-run by default. */
-export function migrateContent(mode: MigrationMode, from: OldAccounts, to: NewAccount): Promise<MigrationReport> {
+export function migrateContent(mode: MigrationMode, from: OldAccounts, to: NewAccounts): Promise<MigrationReport> {
 	throw new Error('not implemented');
 }
 
 /**
  * Player data, re-keyed to PortalUserId. Built and tested, and not run until the owner says so.
  *   drawpad     drawings (PK oid), usage (PK oid), drawings blobs <oid>/<id>.png, and each child's
- *               dailyLimitMinutes from profiles, which becomes a drawpadSettings row (PK 'child', RK userId)
+ *               dailyLimitMinutes from profiles, which becomes a settings row (PK 'child', RK userId)
  *   letterjoin  results and attempts (PK userKey), practice rows (PK practice-<userKey>, email column dropped),
  *               submissions rows (userKey and email columns rewritten, pointer rows re-keyed) and blobs <userKey>/<id>.png
  */
@@ -76,7 +79,7 @@ export const PLAYER_DATA = {
 export type LetterjoinUserKey = Brand<string, 'LetterjoinUserKey'>;
 
 /**
- * Derived from portalMembers, never typed by hand. drawpad's oid is the member's entraObjectId, because an object
+ * Derived from the members table, never typed by hand. drawpad's oid is the member's entraObjectId, because an object
  * id is per tenant, not per app, and inviting an existing guest returns that guest (guess). letterjoin's key is
  * sha256 of the member's email. A child gets an entry once invited, before any portal sign-in.
  */
@@ -98,6 +101,6 @@ export type PlayerDataRun =
 	| { readonly mode: 'apply'; readonly mapping: PlayerDataMapping; readonly confirmation: PlayerDataConfirmation };
 
 /** `node tools/migrate/player-data.mjs [--apply --confirm-player-data]`. Dry-run by default. */
-export function migratePlayerData(run: PlayerDataRun, from: OldAccounts, to: NewAccount): Promise<MigrationReport> {
+export function migratePlayerData(run: PlayerDataRun, from: OldAccounts, to: NewAccounts): Promise<MigrationReport> {
 	throw new Error('not implemented');
 }

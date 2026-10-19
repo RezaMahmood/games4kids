@@ -10,6 +10,7 @@
 
 import type { AzureService, ContainerOf, GameId, GameManifest, QueueOf, RoleOf, ServiceOf, SettingSpec, TableOf } from './manifest';
 import type { HostStore, Member, PortalUserId, TrustedIssuer } from './identity';
+import type { Telemetry } from './telemetry';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -32,6 +33,7 @@ export type RouteCtx<M extends GameManifest, Body> = {
 	readonly query: URLSearchParams;
 	readonly body: Body;
 	readonly now: Date;
+	/** A line only. The host already holds this call's GameTelemetry, so a game cannot choose its own `game`. */
 	readonly log: (line: string) => void;
 };
 
@@ -160,6 +162,8 @@ export type HostDeps = {
 	readonly identities: HostStore;
 	readonly games: readonly Mounted[];
 	readonly portal: readonly PortalRoute[];
+	/** handle and every worker run inside telemetry.within({ game, route, user }); portal routes use game 'portal'. */
+	readonly telemetry: Telemetry;
 	/** The SWA origin. The only Access-Control-Allow-Origin the host ever sends. */
 	readonly appOrigin: string;
 	readonly version: string;
@@ -180,41 +184,53 @@ export type HostReply = { readonly status: number; readonly headers: Readonly<Re
 
 export type Host = {
 	/**
-	 * Fixed order, the only auth path in the repo:
+	 * Fixed order, the only auth path in the repo. Once the route matches, the rest runs inside
+	 * telemetry.within({ game, route, user: null }), and from admission on inside a nested within with the user:
 	 *   match route (404) -> verifyToken (401) -> find + decide, claim if planned (403 not_invited)
 	 *   -> profile present (403 no_profile) -> effectiveRole not 'none' (403 not_entitled) -> atLeast access (403 forbidden)
 	 *   -> parse body (400, 413, 415) -> run -> HttpError to its status, anything else 500 server_error
 	 *   -> CORS for appOrigin, cache-control no-store unless a bytes reply set one.
+	 * An unmatched path has no owner, so its 404 is logged with game 'portal'.
 	 */
-	handle(request: HostRequest, log: (line: string) => void): Promise<HostReply>;
+	handle(request: HostRequest): Promise<HostReply>;
 	readonly health: Health;
-	/** Flat list for the Functions adapter: one app.http per route, one app.storageQueue per worker. */
-	readonly routes: readonly { readonly absolutePath: string; readonly method: Method }[];
-	readonly workers: readonly { readonly queueName: string; readonly run: Worker }[];
+	/**
+	 * Flat list for the Functions adapter: one app.http per route, one app.storageQueue per worker, each registered
+	 * under functionName(owner, name), so the request row the Functions host writes carries the owner.
+	 */
+	readonly routes: readonly { readonly functionName: string; readonly absolutePath: string; readonly method: Method }[];
+	readonly workers: readonly { readonly functionName: string; readonly game: GameId; readonly queueName: string; readonly run: Worker }[];
 };
 
 export function createHost(deps: HostDeps): Host {
 	throw new Error('not implemented');
 }
 
+/** The owner of one storage account. Each game has its own, and the portal has one for its tables and deploy packages. */
+export type StorageOwner = GameId | 'portal';
+
+/**
+ * 'azure' and 'azurite' address one account per owner, accountName(owner, suffix). tools/dev.mjs writes Azurite's
+ * AZURITE_ACCOUNTS from the registry. 'memory' keys its maps by account too, so conformance can see which one a game used.
+ */
 export type StorageConfig =
-	| { readonly kind: 'account'; readonly accountName: string }
-	| { readonly kind: 'connection-string'; readonly connectionString: string }
+	| { readonly kind: 'azure'; readonly suffix: string }
+	| { readonly kind: 'azurite'; readonly suffix: string }
 	| { readonly kind: 'memory' };
 
-/** drawpad + pictures -> drawpadPictures. */
-export function tableName(owner: GameId | 'portal', declared: string): string {
-	throw new Error('not implemented');
-}
-
-/** drawpad + stencil-jobs -> drawpad-stencil-jobs. Containers and queues share the rule. */
-export function containerOrQueueName(owner: GameId | 'portal', declared: string): string {
+/**
+ * drawpad -> g4kdrawpad<suffix>, portal -> g4kportal<suffix>. The suffix is the first five characters of Bicep's
+ * uniqueString(resourceGroup().id), so a 16-character GameId still fits Azure's 24. Inside the account, tables,
+ * containers and queues keep the names the manifest declared: no owner prefix.
+ */
+export function accountName(owner: StorageOwner, suffix: string): string {
 	throw new Error('not implemented');
 }
 
 /**
- * The only function that holds a storage credential. Builds handles bound to prefixed names and parses
- * settings from the environment; a missing required setting throws, which mountGames contains.
+ * The only function that holds a storage credential. Builds handles against this game's own account only,
+ * under the declared names, and parses settings from the environment; a missing required setting throws, which
+ * mountGames contains. The host identity holds data roles on every game account, so this, not RBAC, keeps games apart.
  */
 export function platformFor<M extends GameManifest>(manifest: M, id: GameId, storage: StorageConfig, env: Readonly<Record<string, string | undefined>>, identities: HostStore): Platform<M> {
 	throw new Error('not implemented');

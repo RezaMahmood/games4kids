@@ -9,8 +9,12 @@
  *   tsconfig.games.json              one project reference per games/<id>/api and games/<id>/web
  *   portal/web/public/catalog.json   Catalog, read by the home page and /admin/, and bundled into the admin app
  *   dist/site/staticwebapp.config.json routes: /g/<id>/* fallback and per-game CSP
- *   infra/generated/storage.json     prefixed table, container and queue names, read by main.bicep
- *   infra/generated/games.bicep      one module per games/<id>/infra.bicep
+ *   infra/generated/storage.json     StorageAccounts: one account per game plus the portal's, with declared names
+ *                                    and tags, read by main.bicep, which also grants the host data roles on each
+ *   infra/generated/games.bicep      one module per games/<id>/infra.bicep, passed tags { app: 'games4kids', game: <id> }
+ *
+ * tools/infra.mjs builds main.bicep and fails if any resource lacks the `app` or `game` tag, so cost by tag covers
+ * everything. The workbook groups by `game` at query time, so nothing here lists games for it.
  */
 
 import type { CreateGameApi } from './host';
@@ -23,7 +27,7 @@ export type Problem =
 	| { readonly kind: 'reserved-id'; readonly folder: string; readonly id: string }
 	| { readonly kind: 'duplicate-id'; readonly id: string; readonly folders: readonly string[] }
 	| { readonly kind: 'missing-file'; readonly game: string; readonly path: string }
-	/** Prefixed table names must match ^[A-Za-z][A-Za-z0-9]{2,62}$; containers and queues 3 to 63 lowercase characters with single hyphens. */
+	/** Declared table names must match ^[A-Za-z][A-Za-z0-9]{2,62}$; containers and queues 3 to 63 lowercase characters with single hyphens. */
 	| { readonly kind: 'storage-name'; readonly game: string; readonly name: string; readonly rule: string }
 	| { readonly kind: 'default-role'; readonly game: string; readonly role: string }
 	/** effectiveRole returns 'none' for no access, so a ladder may not use it. */
@@ -68,7 +72,16 @@ export type CatalogEntry = {
 
 export type Catalog = readonly CatalogEntry[];
 
-export type StorageResources = { readonly tables: readonly string[]; readonly containers: readonly string[]; readonly queues: readonly string[] };
+/** One storage account. `owner` gives both the account name (accountName in host.ts) and the `game` tag ('shared' for the portal). */
+export type StorageAccount = {
+	readonly owner: GameId | 'portal';
+	readonly tags: { readonly app: 'games4kids'; readonly game: GameId | 'shared' };
+	readonly tables: readonly string[];
+	readonly containers: readonly string[];
+	readonly queues: readonly string[];
+};
+
+export type StorageAccounts = readonly StorageAccount[];
 
 /** Pure renderers, one per output, snapshot-tested in test/gen.test.ts. */
 export function renderHostRegistry(games: readonly ScannedGame[]): string {
@@ -83,7 +96,7 @@ export function renderCatalog(games: readonly ScannedGame[]): Catalog {
 export function renderSwaRoutes(games: readonly ScannedGame[]): unknown {
 	throw new Error('not implemented');
 }
-export function renderStorage(games: readonly ScannedGame[]): StorageResources {
+export function renderStorage(games: readonly ScannedGame[]): StorageAccounts {
 	throw new Error('not implemented');
 }
 export function renderInfraModules(games: readonly ScannedGame[]): string {

@@ -6,7 +6,7 @@ The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The type sketch i
 
 ## Status
 
-This repo holds the architecture only, at revision 3 after owner feedback. You invite children and choose their games in the admin portal, every infra and app deploy goes through a pipeline per layer with OIDC, and your Mac runs only bootstrap and one-off data moves. Content migrates at cutover, and the player-data migration gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
+This repo holds the architecture only, at revision 4 after owner feedback. You invite children and choose their games in the admin portal. Every infra and app deploy goes through a pipeline per layer with OIDC. Your Mac creates the identities and grants their rights, and runs one-off data moves. Each game has its own storage account, every Azure resource carries a `game` tag, and every telemetry record names its game, so an Azure Workbook shows usage and cost per game. Content migrates at cutover, and the player-data migration gets built and tested but runs only when the owner says so. Nothing is built yet, and nothing is deployed.
 
 ## The existing apps stay independent
 

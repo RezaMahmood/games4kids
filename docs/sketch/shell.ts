@@ -6,6 +6,10 @@
  * Pages are separate documents on one origin. MSAL caches in sessionStorage, which every path in a tab shares, so
  * moving from / to /g/letterjoin/ gets a token silently. The registration needs https://<site>/ and
  * https://<site>/redirect.html as redirect URIs, for every game.
+ *
+ * v1.js also vendors the Application Insights browser SDK at 100 percent sampling. A telemetry initializer stamps
+ * every page view with `game` (the id passed to enter, or 'portal') and the PortalUserId, and while a game page
+ * is visible enter() sends a ShellEvent 'game_session' every 60 seconds (telemetry.ts). Games add nothing.
  */
 
 import type { Catalog } from './registry';
@@ -79,6 +83,8 @@ export type SiteConfig = {
 	readonly apiOrigin: string;
 	/** The admin Function app, called only by the /admin/ pages. */
 	readonly adminApiOrigin: string;
+	/** Application Insights connection string. Its ingestion endpoint is the one telemetry entry in connect-src. */
+	readonly telemetryConnectionString: string;
 };
 
 export function parseSiteConfig(raw: unknown): SiteConfig | null {

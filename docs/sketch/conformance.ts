@@ -11,8 +11,10 @@
  *   - every route answers 403 not_entitled for an active member with a profile and no grant for this game
  *   - every route above the bottom rung answers 403 forbidden for a member one rung lower
  *   - route names and method+path pairs are unique; every path stays under /api/g/<id>/
- *   - the platform exposes exactly the declared tables, containers and queues, and every name the memory
- *     storage was asked for during the suite starts with the game's prefix
+ *   - the platform exposes exactly the declared tables, containers and queues, and the memory storage, keyed by
+ *     account, saw this game's account (accountName(id)) and no other during the suite
+ *   - every record the in-memory Telemetry sink received during the suite has game equal to this game's id, and
+ *     every route and worker is registered under functionName(id, name)
  *   - every reply carries Access-Control-Allow-Origin equal to appOrigin and no other CORS header value
  *   - every error body parses as ApiError
  *   - createGameApi does no I/O: the memory storage records zero calls during mount

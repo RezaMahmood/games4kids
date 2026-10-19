@@ -1,11 +1,12 @@
 /**
- * Compile-time proof of the isolation claims, of the access and table-ownership rules, and of the migration guards. `tsc --noEmit` passes only if every
+ * Compile-time proof of the isolation claims, of the access and table-ownership rules, of the telemetry envelope, and of the migration guards. `tsc --noEmit` passes only if every
  * @ts-expect-error line really is an error, so the negatives are checked as well as the positives.
  */
 import { defineGameApi, type Platform } from './host';
-import { effectiveRole, type HostStore, type Member } from './identity';
+import { effectiveRole, type Email, type HostStore, type Member, type PortalUserId } from './identity';
 import { defineGame, type GameId, type RoleOf } from './manifest';
-import { migratePlayerData, parseConfirmation, type NewAccount, type OldAccounts, type PlayerDataMapping } from './migrate';
+import { migratePlayerData, parseConfirmation, type NewAccounts, type OldAccounts, type PlayerDataMapping } from './migrate';
+import type { GameTelemetry, Telemetry } from './telemetry';
 import type drawpad from './examples/drawpad/manifest';
 import type letterjoin from './examples/letterjoin/manifest';
 import letterjoinManifest from './examples/letterjoin/manifest';
@@ -22,8 +23,8 @@ void lj.tokens.cognitiveServices();
 
 // @ts-expect-error pictures is drawpad's table, not letterjoin's.
 lj.tables.pictures;
-// @ts-expect-error portal tables are not reachable by name.
-lj.tables['portalMembers'];
+// @ts-expect-error portal tables live in the portal account and are not reachable by name.
+lj.tables['members'];
 // @ts-expect-error letterjoin declared no queues.
 lj.queues['stencil-jobs'];
 // @ts-expect-error drawpad declared no submissions container.
@@ -128,8 +129,40 @@ defineGameApi(letterjoinManifest, () => ({
 	workers: [{ queue: 'stencil-jobs', run: async () => {} }],
 }));
 
+declare const telemetry: Telemetry;
+declare const someUser: PortalUserId;
+declare const someEmail: Email;
+
+telemetry.log({ game: drawpadId, route: 'createDrawing', user: someUser }, 'info', 'saved');
+telemetry.log({ game: 'portal', route: 'me', user: null }, 'info', 'ok');
+// @ts-expect-error every host log record names its game, so no row escapes the per-game workbook.
+telemetry.log({ route: 'createDrawing', user: someUser }, 'info', 'saved');
+// @ts-expect-error a request or worker scope cannot start without a game.
+void telemetry.within({ route: 'stencil-jobs', user: null }, async () => {});
+// @ts-expect-error a plain string is not a GameId, so a typo cannot invent a game in the cost split.
+const typo: GameTelemetry = { game: 'drawpd', route: 'createDrawing', user: null };
+// @ts-expect-error an email is never the telemetry user.
+const leaky: GameTelemetry = { game: 'portal', route: 'me', user: someEmail };
+
+defineGameApi(letterjoinManifest, () => ({
+	routes: [
+		{
+			name: 'spoof',
+			method: 'GET',
+			path: 'spoof',
+			access: 'member',
+			body: 'none',
+			async run({ log }) {
+				// @ts-expect-error a game logs lines only; the host decides which game a record belongs to.
+				log({ game: 'drawpad', route: 'spoof', user: null });
+				return { status: 204 };
+			},
+		},
+	],
+}));
+
 declare const old: OldAccounts;
-declare const fresh: NewAccount;
+declare const fresh: NewAccounts;
 declare const mapping: PlayerDataMapping;
 declare const argv: readonly string[];
 
@@ -143,5 +176,7 @@ void migratePlayerData({ mode: 'apply', mapping }, old, fresh);
 void migratePlayerData({ mode: 'apply', mapping, confirmation: 'confirm-player-data' }, old, fresh);
 // @ts-expect-error the old accounts are read-only, so a table handle has no write.
 void old.drawpad.tables.drawings?.insertIfAbsent({ partitionKey: 'p', rowKey: 'r' });
+// @ts-expect-error each game migrates into its own account; there is no shared target.
+void fresh.table('drawings');
 
-export { foundry, ungranted, vision };
+export { foundry, leaky, typo, ungranted, vision };

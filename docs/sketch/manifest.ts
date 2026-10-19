@@ -10,16 +10,20 @@ declare const brand: unique symbol;
 export type Brand<T, Name extends string> = T & { readonly [brand]: Name };
 
 /**
- * `^[a-z][a-z0-9]{2,23}$`, equal to the folder name, not reserved. One string serves as the URL segment
- * (/g/<id>/, /api/g/<id>/) and the storage prefix (drawpadPictures, drawpad-pictures). Minted only by
- * `parseGameId` in tools/gen.mjs; a manifest writes a plain literal and the generator brands it.
+ * `^[a-z][a-z0-9]{2,15}$`, equal to the folder name, not reserved. One string serves as the URL segment
+ * (/g/<id>/, /api/g/<id>/), the storage account (g4k<id><suffix>, at most 24 characters), the `game` tag on the
+ * game's Azure resources and the `game` value on its telemetry. No underscore, so a function name
+ * <id>_<route> parses back. Minted only by `parseGameId` in tools/gen.mjs; a manifest writes a plain literal.
  */
 export type GameId = Brand<string, 'GameId'>;
 
-export const GAME_ID = /^[a-z][a-z0-9]{2,23}$/;
+export const GAME_ID = /^[a-z][a-z0-9]{2,15}$/;
 
-/** Paths and storage prefixes the portal owns. A game folder with one of these names fails the build. */
-export const RESERVED_IDS = ['portal', 'shell', 'admin', 'welcome', 'api', 'g'] as const;
+/**
+ * Names the portal owns: paths, the portal storage account and telemetry owner ('portal'), and the tag value for
+ * shared resources ('shared'). A game folder with one of these names fails the build.
+ */
+export const RESERVED_IDS = ['portal', 'shared', 'shell', 'admin', 'welcome', 'api', 'g'] as const;
 
 /** Lowest privilege first. The last rung is the game's admin role, which every portal admin holds. 'none' is not a rung. */
 export type RoleLadder = readonly [string, ...string[]];

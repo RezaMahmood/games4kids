@@ -1,27 +1,27 @@
 # games4kids portal architecture
 
-This is the design for the games4kids portal, revised twice after owner feedback (see [Revision 3](#revision-3-portal-onboarding-and-the-mac)). Nothing is built or deployed yet. The type sketch in [`docs/sketch/`](sketch/) is the contract this prose describes, and `tsc --noEmit --strict -p docs/sketch` checks it, including the negatives in [`isolation.check.ts`](sketch/isolation.check.ts).
+This is the design for the games4kids portal, revised three times after owner feedback (see [Revision 4](#revision-4-cost-by-game-and-identity-without-p1)). Nothing is built or deployed yet. The type sketch in [`docs/sketch/`](sketch/) is the contract this prose describes, and `tsc --noEmit --strict -p docs/sketch` checks it, including the negatives in [`isolation.check.ts`](sketch/isolation.check.ts).
 
 ## Problem
 
-Two finished games, drawpad and letterjoin, need one front door, one sign-in, and one admin, with more games later. Below the sign-in they disagree on almost everything. drawpad is Preact with a Vite bundle, keyed by Entra `oid`, with `route({ requires })` and `{ error: code }`. letterjoin is vanilla ES modules that own two HTML pages, keyed by email, with `{ level }` and `{ error: message }`. What they share is the portal's job: MSAL against one tenant, a Functions API that validates its own JWTs behind CORS, storage through a managed identity, config and CSP written at deploy, and OIDC deploys.
+Two finished games, drawpad and letterjoin, need one front door, one sign-in, and one admin, with more games later. Below the sign-in they disagree on almost everything. drawpad is Preact with Vite, keyed by Entra `oid`, with `{ error: code }`. letterjoin is vanilla ES modules, keyed by email, with `{ error: message }`. What they share is the portal's job: MSAL against one tenant, a Functions API that validates its own JWTs, storage through a managed identity, and OIDC deploys. On a shared platform you also need to see which game costs what.
 
-The old repos, deployments, Entra registrations, and resource groups stay as they are. The portal gets its own registration "games4kids", its own resource group `rg-games4kids` in West Europe, and its own Static Web App, two Function apps, and storage. Players are invite only, with one sign-in per child for every game. You invite each child and choose their games in the admin portal. Every deploy goes through a pipeline, and the repo keeps one list of games.
+The old repos, deployments, Entra registrations, and resource groups stay as they are. The portal gets its own registration "games4kids" and resource group `rg-games4kids` in West Europe. Players are invite only, with one sign-in per child for every game. Every deploy goes through a pipeline, and the repo keeps one list of games.
 
 ## Where each action runs
 
-People and access change only in the admin portal at `/admin/`. Azure resources and code change only through GitHub Actions. Your Mac runs bootstrap and one-off data moves.
+People and access change only in the admin portal at `/admin/`. Azure resources, code, and the existing games4kids registration's settings change only through GitHub Actions. Your Mac creates the identities, grants their rights, and runs one-off data moves.
 
 | | Mac (bootstrap only) | Admin portal, `/admin/` | Pipelines |
 | --- | --- | --- | --- |
 | People and access | Nothing | Invite with games and roles, change access, revoke, view and fix drift | Nothing |
-| Entra | The games4kids registration and scope, the `games4kids-players` group and its assignment, admin consent for Graph permissions | Guests and group membership, through invites and revokes | SWA redirect URIs |
-| Azure | `rg-games4kids`, the user-assigned identities and their federated credentials, the infra identity's roles, your migration data roles | Nothing | Everything in Bicep |
+| Entra | The games4kids registration and its settings. The managed identities, federated credentials, directory roles, Graph permission, and consent. The spike | Guests and their assignment to games4kids | Redirect URIs on the games4kids registration |
+| Azure | `rg-games4kids`, the identities' Azure roles, your migration data roles | Nothing | Everything in Bicep, with tags and the workbook |
 | GitHub | Environments, reviewers, and variables (ids and `BOOTSTRAP_ADMINS`, no secrets), through `gh` | Nothing | Nothing |
 | Code | Nothing | Nothing | Both APIs and the site |
 | Data | Content migration at cutover, player-data migration only when you say so | Nothing | Nothing |
 
-The Mac never creates a user identity, sends an invite, sets a grant, or deploys. `tools/bootstrap.mjs` applies only the difference from current state, so a second run changes nothing. The migrations run there because a pipeline would need read roles on the old storage accounts (an open question).
+The Mac never creates a user, sends an invite, or deploys. No pipeline or app creates a registration or managed identity, or grants a directory role or Graph permission. `tools/bootstrap.mjs` applies only the difference from current state.
 
 ## Usage (caller's view)
 
@@ -31,7 +31,7 @@ A game author reads this and nothing else:
 games/<id>/manifest.ts     export default defineGame({...})              data only
 games/<id>/web/            your pages, served at /g/<id>/
 games/<id>/api/index.ts    export const createGameApi = defineGameApi(manifest, (platform) => ({ routes }))
-games/<id>/infra.bicep     optional: Azure resources only this game uses
+games/<id>/infra.bicep     optional: Azure resources only this game uses, each tagged with the `tags` param
 Import only @g4k/sdk and '/shell/v1.js'. Run npm run dev. Nothing else in the repo lists your game.
 ```
 
@@ -52,7 +52,7 @@ const session = await enter<RoleOf<typeof manifest>>({ game: 'drawpad' });
 render(<App session={session} />, document.getElementById('app')!);
 ```
 
-On the API side, drawpad's `route({ requires })` and letterjoin's `level` become `Route` objects with `access`, and both user keys become `caller.userId` ([drawpad](sketch/examples/drawpad/api.ts), [letterjoin](sketch/examples/letterjoin/api.ts)). `platform.tables.pictures` in letterjoin, `access: 'superuser'`, `services: ['storage']`, and a non-empty `exports` are compile errors.
+On the API side, drawpad's `route({ requires })` and letterjoin's `level` become `Route` objects with `access`, and both user keys become `caller.userId` ([drawpad](sketch/examples/drawpad/api.ts), [letterjoin](sketch/examples/letterjoin/api.ts)). `platform.tables.pictures` in letterjoin and `access: 'superuser'` are compile errors. A game writes no telemetry code.
 
 ## Shape
 
@@ -62,18 +62,18 @@ On the API side, drawpad's `route({ requires })` and letterjoin's `level` become
 games4kids/
 	package.json                npm workspaces. gen runs on predev, prebuild, pretest
 	tsconfig.json               solution file. References the generated tsconfig.games.json
-	eslint.config.js            no @azure/*, jose, or process.env in games/*/api. Graph only in admin/src/graph.ts
+	eslint.config.js            no @azure/*, @opentelemetry/*, jose, or process.env in games/*/api
 	packages/sdk/               @g4k/sdk: defineGame, defineGameApi, HttpError, Platform, Session
-	shell/                      builds dist/site/shell/v1.js (MSAL vendored) and theme.css. <portal-bar>
+	shell/                      builds dist/site/shell/v1.js (MSAL and Application Insights vendored) and theme.css
 	portal/web/                 / (home), /welcome/, /admin/ (invite form, access grid, drift), redirect.html
-	host/src/                   index.ts, host.ts, identity.ts, storage.ts, portal-routes.ts, adapters/
+	host/src/                   index.ts, host.ts, identity.ts, storage.ts, telemetry.ts, portal-routes.ts, adapters/
 	host/generated/games.ts     gitignored, from tools/gen.mjs
 	admin/src/                  admin Function app: admin.ts, graph.ts, adapters/. Never imports games/*
 	games/drawpad/              manifest.ts, web/ (Vite + Preact), api/, infra.bicep (Foundry, Event Grid)
 	games/letterjoin/           manifest.ts, web/ (static), api/ (JS, checkJs), infra.bicep (Vision F0)
 	tools/                      gen, build, dev, site-config, deploy, deploy-guard, changes, infra, bootstrap,
 	                            migrate/content, migrate/player-data (all .mjs)
-	infra/main.bicep            reads infra/generated/storage.json and games.bicep (gitignored)
+	infra/                      main.bicep, workbook.json, generated/ (gitignored: storage.json, games.bicep)
 	dev/fake-idp.mjs            from letterjoin, unchanged
 	test/                       conformance.ts, *.test.ts suites, e2e/ (Playwright)
 	.github/workflows/          deploy.yml, then the reusable infra.yml, api.yml, admin-api.yml, web.yml
@@ -81,230 +81,247 @@ games4kids/
 
 ### Request flow
 
-1. A child opens `/`, which calls `enter({ game: null })` from `/shell/v1.js`. With no cached account, the shell calls `loginRedirect` in the top window, and Entra signs in only members of `games4kids-players`.
+1. A child opens `/`, which calls `enter({ game: null })` from `/shell/v1.js`. With no cached account, the shell calls `loginRedirect`, and Entra signs in only accounts assigned to games4kids.
 2. The shell gets a token for `api://<clientId>/access_as_user` and calls `GET /api/portal/me`.
-3. The host verifies the token, and the pure `decide` turns the stored rows into an `Admission`. An invited child's first sign-in claims, anyone else is not invited, and a member with no profile goes to `/welcome/`.
-4. Home renders cards from `catalog.json` for the games in `me.games`, which holds granted games only.
-5. On Draw Pad, `enter({ game: 'drawpad' })` gets a token silently from the shared sessionStorage cache and returns `{ api, me, signOut }` with `me.role` set to `player`.
-6. `api.post('drawings', ...)` reaches `host.handle`, which runs the fixed order in [`host.ts`](sketch/host.ts). It verifies, admits, checks `effectiveRole` against `route.access`, parses the body, calls `run` with a `Caller`, maps errors to `{ error, message, problems? }`, and adds CORS for the site origin only.
+3. The host verifies the token, and the pure `decide` turns the stored rows into an `Admission`. An invited child's first sign-in claims, and a member with no profile goes to `/welcome/`.
+4. Home renders cards from `catalog.json` for the granted games in `me.games`.
+5. On Draw Pad, `enter({ game: 'drawpad' })` gets a token silently, returns `{ api, me, signOut }`, and starts the play heartbeat.
+6. `api.post('drawings', ...)` reaches `host.handle`, which runs the fixed order in [`host.ts`](sketch/host.ts) inside a telemetry scope for `{ game, route, user }`: verify, admit, check `effectiveRole` against `route.access`, parse, `run`, map errors to `{ error, message, problems? }`, and add CORS for the site origin.
 
 ### Games are pages, not mounts or frames
 
-The site is one Static Web App. The portal owns `/`, `/welcome/`, and `/admin/`. Each game is its own set of documents under `/g/<id>/`, built as `vite` or `static`. Every page imports `/shell/v1.js`, which holds MSAL and `<portal-bar>`. Pages share an origin, so moving between games costs one cached page load and a silent token call. Game admin screens stay in each game, and `/admin/` links to each `adminPath`. One game's pointer handlers, CSS, or viewport meta can never reach another game.
+The site is one Static Web App. The portal owns `/`, `/welcome/`, and `/admin/`. Each game is its own set of documents under `/g/<id>/`, built as `vite` or `static`, and every page imports `/shell/v1.js`. Pages share an origin, so moving between games costs one cached page load and a silent token call. Game admin screens stay in each game. One game's pointer handlers, CSS, or viewport meta can never reach another game.
 
 ### One host runs every game's API
 
-The game host is one Functions app. `createHost` mounts `/api/portal/*` and each game's routes at `/api/g/<id>/*`. A game receives a `Platform<typeof manifest>` with tables, blobs, and queues typed from the names it declared, parsed settings, tokens for declared services only, a read-only `roster`, `now`, and `newId`. It never receives a credential, a client, the environment, or `@azure/functions`, and `Reply` has no headers, so a game cannot set CORS. Only the adapters import a transport, so one host runs in Functions, the dev stack, and tests.
+The game host is one Functions app. `createHost` mounts `/api/portal/*` and each game's routes at `/api/g/<id>/*`. A game receives a `Platform<typeof manifest>` with tables, blobs, and queues typed from the names it declared, parsed settings, tokens for declared services only, a read-only `roster`, `now`, and `newId`. It never receives a credential, a client, or the environment, and `Reply` has no headers, so a game cannot set CORS. Only the adapters import a transport.
 
-Each `games/<id>/api` and Vite `web` is a composite TS project that references only `@g4k/sdk`, so importing another game's or the host's files fails `tsc -b` with TS6307, which c1 measured. ESLint closes the rest.
+Each `games/<id>/api` and Vite `web` is a composite TS project that references only `@g4k/sdk`, so importing another game's or the host's files fails `tsc -b` (c1 measured TS6307). ESLint closes the rest.
 
 ### Startup containment and health
 
-`mountGames` runs `platformFor` and `createGameApi` per game inside its own try/catch, so a game that throws, or lacks a required setting, answers 503 `game_unavailable` while the others mount. `GET /api/portal/health` reports the version and each game's state. A module that throws while it loads is not contained, so CI's conformance suite catches it.
+`mountGames` runs `platformFor` and `createGameApi` per game inside its own try/catch, so a game that throws, or lacks a required setting, answers 503 `game_unavailable` while the others mount, and `GET /api/portal/health` reports it. A module that throws while it loads is not contained, so CI catches it.
 
 ### Identity and roles
 
 There is one single-tenant Entra registration, "games4kids", with SPA redirect URIs `https://<site>/` and `https://<site>/redirect.html` and the scope `access_as_user`. The admin app mints a `PortalUserId`, a branded UUID, at invite. It is the only user key a game sees or stores.
 
-Entry needs two things ([`identity.ts`](sketch/identity.ts)). Entra "assignment required" is on, and the app's one assignment is the security group `games4kids-players`, so Entra issues no token to an account outside it. Then the host admits only an active `portalMembers` row. The admin app writes both lists. Group assignment needs Entra ID P1, which this tenant lacks (see the open questions).
+Entry needs two things ([`identity.ts`](sketch/identity.ts)). Entra "assignment required" is on, and each invited account holds its own assignment to the games4kids enterprise app, so Entra issues no token to anyone else. Then the host admits only an active `members` row. The admin app writes both lists. Assigning a group instead would need Entra ID P1, which this tenant lacks (measured).
 
-Each portal table has one writer. Table-scoped roles on the admin app's identity enforce its half, and `HostStore`, which has no member writer, enforces the host's.
+Each portal table lives in the portal account and has one writer, enforced by table-scoped roles for the admin app and by `HostStore`, which has no member writer, for the host.
 
 | Table | Holds | Writer |
 | --- | --- | --- |
-| `portalMembers` | email, Entra object id, state, portal role, grants | admin app |
-| `portalEmails` | email to `PortalUserId` | admin app |
-| `portalIdentities` | issuer and subject to `PortalUserId` | host, at first sign-in |
-| `portalProfiles`, `portalNames` | display name and time zone | host, on `/welcome/` |
+| `members` | email, Entra object id, state, portal role, grants | admin app |
+| `emails` | email to `PortalUserId` | admin app |
+| `identities` | issuer and subject to `PortalUserId` | host, at first sign-in |
+| `profiles`, `names` | display name and time zone | host, on `/welcome/` |
 
-Each manifest declares its role ladder, lowest first, such as drawpad's `['player', 'admin']`. `effectiveRole`, the only function that computes a game role, gives a portal admin the top rung of every game. Anyone else gets their grant, or `'none'` without one, which hides the game, so a new game is visible to no child until you grant it. The manifest's `defaultRole` only pre-selects the role picker. A game sees `Caller = { userId, displayName, timeZone, role }` and nothing about tokens or email.
+Each manifest declares its role ladder, lowest first, such as drawpad's `['player', 'admin']`. `effectiveRole`, the only function that computes a game role, gives a portal admin the top rung of every game and anyone else their grant, or `'none'` without one. So a new game is hidden from every child until you grant it, and `defaultRole` only pre-selects the role picker. A game sees `Caller = { userId, displayName, timeZone, role }` and nothing about tokens or email.
 
-### The admin app holds Graph, and no game code
+### The admin app holds the user rights, and no game code
 
-`func-g4k-admin` is a second, small Function app that serves only `/api/admin/*` to the `/admin/` pages ([`admin.ts`](sketch/admin.ts)). It verifies the same token audience as the host and requires an active portal admin. It reads games from the generated `catalog.json` and never imports `games/*`, so no game code runs under its identity, and the host's identity holds no Graph permission.
+`func-g4k-admin` is a second, small Function app that serves only `/api/admin/*` to the `/admin/` pages ([`admin.ts`](sketch/admin.ts)). It requires an active portal admin and reads games from `catalog.json`. It never imports `games/*`, so no game code runs under its identity, and the host's identity holds no Entra right.
 
-Its user-assigned identity, `id-g4k-graph`, holds the portal's only Graph permissions, `User.Invite.All` and `GroupMember.ReadWrite.All`. Do not grant `AppRoleAssignment.ReadWrite.All`, which assigning each account directly would need. It can assign any app role, Graph's permissions included, to any principal, so the admin app could grant itself control of the tenant.
+Its identity, `id-g4k-graph`, holds two rights from bootstrap. Graph `User.Invite.All` creates guests, and is narrower than the Guest Inviter role, which also reads every user's profile, groups, and devices ([permissions reference](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference)). The built-in Cloud Application Administrator role, scoped to the games4kids service principal only, adds and removes that app's assignments.
 
-`GroupMember.ReadWrite.All` can change the members of any group that is not role-assignable. Today that adds two Microsoft 365 groups, "All Company" and "rezamahmood" (measured), whose members read the group's mail and files. With six accounts and code only you deploy, that is acceptable. Give no group an Azure role unless it is role-assignable. The narrower later option is Groups Administrator scoped to an administrative unit holding only `games4kids-players`, untested and possibly needing P1 (guess).
+Tenant-wide, that role could add a credential to any app, drawpad's and letterjoin's included, and act as it. Scoped, it reaches only games4kids, where it could also add a credential or turn assignment off. games4kids holds no API permission, an app-only token lacks the `access_as_user` scope the host requires, and the member gate still holds, so that reaches no data (inferred).
+
+Microsoft Learn confirms that built-in roles need no licence and accept an enterprise app or registration as scope ([RBAC overview](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/custom-overview)), and that the role includes `servicePrincipals/appRoleAssignedTo/update`. It leaves two gaps. Only "some relevant built-in roles" accept a single-resource scope ([assign roles](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/manage-roles-portal)), and Graph documents the app-only assignment call with `AppRoleAssignment.ReadWrite.All` only ([API page](https://learn.microsoft.com/en-us/graph/api/serviceprincipal-post-approleassignedto?view=graph-rest-1.0)). Bootstrap's spike closes both.
 
 ### Onboarding a child
 
-1. On `/admin/` you enter the child's email, a portal role, and, per catalog game, a checkbox and a role picker preset to its `defaultRole`.
-2. The admin app reads or creates the `portalEmails` row, which fixes the `PortalUserId`, so a re-invited child keeps their history.
+1. On `/admin/` you enter the child's email, a portal role, and a role for each game you tick.
+2. The admin app reads or creates the `emails` row, which fixes the `PortalUserId`, so a re-invited child keeps their history.
 3. It writes the active member row with the role and grants.
-4. Unless the child has signed in, it sends Microsoft's B2B invitation, redirecting to the site, and records the returned object id.
-5. It adds the account to `games4kids-players`, retrying after 2, 4, 8, and 16 seconds while Entra replicates a new guest, as drawpad's commit 83bc093 does.
-6. The child accepts Microsoft's email and signs in. With no identity row, the host finds the member through `portalEmails` by the token's email, checks that its object id equals the token's `oid`, and inserts the identity row. A rerun finds the row and stops.
+4. Unless the child has signed in, it sends Microsoft's B2B invitation and records the returned object id.
+5. It assigns the account to games4kids, retrying after 2, 4, 8, and 16 seconds while Entra replicates a new guest, as drawpad's commit 83bc093 does for group adds (assignments assumed alike, guess).
+6. The child accepts the email and signs in. With no identity row, the host finds the member through `emails` by the token's email, checks that its object id equals the token's `oid`, and inserts the identity row.
 7. `/welcome/` asks for a display name and a time zone, and home shows only the granted games.
 
-Steps 2 to 5 are `invite`, and each is safe to repeat. A crash after step 2 leaves an email row nothing reads. After step 3 or 4 it leaves an active member with no recorded account, which drift shows as `no-account`. After step 5 it leaves one outside the group, shown as `not-in-group`. Sending the form again converges.
+Steps 2 to 5 are `invite`, and each is safe to repeat. A crash after step 3 or 4 leaves an active member with no recorded account, which drift shows as `no-account`. After step 5 it leaves one Entra refuses, `not-assigned`. Sending the form again converges.
 
-To revoke, the admin app marks the member revoked, then removes the account from the group. An earlier token stays valid for its 60 to 90 minute lifetime, but the host reads the member row on every request, so the next call gets 403 `not_invited`. A crash between the steps leaves `in-group-without-member`.
+To revoke, the admin app marks the member revoked, then removes the assignment. The host reads the member row on every request, so the next call gets 403 `not_invited` even with a live token. A crash between the steps leaves `assigned-without-member`.
 
-The access grid shows members by games, and a change touches only grants and roles. Every `GET /api/admin/members` reads the group from Graph and runs `computeDrift` against the member rows. The rows are the intent, so **Fix drift** changes only Entra, and a second click finds nothing to do.
-
-On each cold start the admin app seeds an admin row for each `BOOTSTRAP_ADMINS` entry without one, and adds that account to the group while the row is active.
+The access grid changes only grants and roles. Every `GET /api/admin/members` reads the app's assignments from Graph and runs `computeDrift` against the member rows, which are the intent, so **Fix drift** changes only Entra. On each cold start the admin app seeds an admin row for each `BOOTSTRAP_ADMINS` entry without one, and assigns that account.
 
 ### Doors left for other sign-ins and parents
 
-Google and Facebook sign-in are not built. An Entra External ID tenant, which can federate with both, would join as a second `TrustedIssuer` whose identity rows map to the child's existing `PortalUserId`. Its tokens prove no group membership and carry no workforce `oid`, so its claim rule waits for that door.
-
-You are the parent for now, as portal admin. A later parent account is a relation, not a role, and `identity.ts` reserves `portalGuardianships` and `portalPolicies` for it. Games would read a policy, such as a daily play limit, as a new `Caller` field.
+Google and Facebook sign-in are not built. An Entra External ID tenant federated with both would join as a second `TrustedIssuer` whose identity rows map to the child's existing `PortalUserId`. Its tokens carry no workforce assignment or `oid`, so its claim rule waits for that door. You are the parent for now, as portal admin. A later parent account is a relation, not a role, and `identity.ts` reserves `guardianships` and `policies` tables for it.
 
 ### Data isolation
 
-All data lives in one storage account. `storage.ts` is the only module with a storage client and names everything `<id><Declared>` or `<id>-<declared>`, with `portal` reserved. `platform.tables` has only the declared keys, and `AzureService` has no storage member, so a game cannot spell another game's data. This is a code boundary, not an RBAC boundary, and `platformFor` is the one place a later per-game account would change.
+Each game has its own storage account, `g4k<id><suffix>`, and the portal has `g4kportal<suffix>`, with the suffix taken from Bicep's `uniqueString(resourceGroup().id)`. Inside an account, tables, containers, and queues keep their declared names, such as `pictures`, so the old `<id>` prefix is gone. Game ids are now 3 to 16 characters so account names fit Azure's 24.
 
-The door for cross-game features, such as a joint scoreboard, is the manifest's reserved `exports`, which a portal hub would call instead of reading a game's tables. Until a hub exists, the type admits only `{}`.
+`storage.ts` is the only module with a storage client, and `platformFor` builds a game's handles against that game's account only. `platform.tables` has only the declared keys, and `AzureService` has no storage member, so a game cannot spell another game's data. The host's identity holds data roles on every game account, since one process serves them all, so separate accounts stop accidents, such as a naming bug, but not hostile game code. Their reason is cost.
+
+Cross-game features, such as a joint scoreboard, would go through the manifest's reserved `exports`, which admits only `{}` until a hub exists.
+
+### Cost and usage by game
+
+**Tags.** Bicep tags every resource `app=games4kids`. Each game's storage account and `infra.bicep` resources, such as drawpad's Foundry and Event Grid and letterjoin's Vision, also get `game=<id>` through a `tags` parameter from gen. The Static Web App, both Function apps, the portal account, Log Analytics, and Application Insights get `game=shared`. Tags reach usage records only while applied and only for types that emit them ([Cost Management data](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/understand-cost-mgt-data)), so `tools/infra.mjs` fails on a missing tag. Splitting one storage account by game would need storage logs, whose ingestion could cost more than the storage (guess). Extra accounts cost nothing, since storage bills by data and operations (inferred).
+
+**Telemetry** goes to one workspace-based Application Insights. [`telemetry.ts`](sketch/telemetry.ts) defines the envelope `GameTelemetry = { game, route, user }`. `game` is a `GameId`, or `portal` for `/api/portal/*`, the admin app, and portal pages. `user` is the random `PortalUserId`, never an email.
+
+- The Functions host writes each invocation's request row itself, so `registerWithFunctions` names each function `<owner>_<route>`, and every request and worker-run row carries the owner.
+- The worker's dependencies, exceptions, and logs run inside `telemetry.within(envelope)`, and a span processor copies the envelope onto each record ([Functions OpenTelemetry](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto)). The host binds it before `run`, so a game cannot misreport itself.
+- The shell stamps `game` and the user on page views, and sends a `game_session` event each minute a game page is visible. Play minutes are a count of those events.
+
+**Sampling is off.** In OpenTelemetry mode `host.json` sampling no longer applies (verified), the worker samples always, and the shell sends 100 percent. The workspace and Application Insights cap ingestion at 0.2 GB a day, about ten times a guessed 10 to 30 MB. At the cap, collection stops for every table until the workspace's reset hour ([daily cap](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/daily-cap)), so every game loses the rest of that day. An alert on `_LogOperation` rows containing "OverQuota" emails you, and the workbook marks capped days.
+
+**The workbook**, `infra/workbook.json`, deploys with infra and groups every query by `game`, so a new game appears with no edit. It shows daily active players, play minutes, requests, errors, and p95 latency, Foundry and Vision calls, cost by tag `game`, and the host's compute split, with `portal` and `shared` as their own lines. `/admin/` gets no usage panel.
+
+**The compute split is an estimate.** Flex bills an instance's memory while it executes, plus executions, with a 1,000 ms minimum rounded up to 100 ms ([Flex billing](https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan#billing)). A KQL step returns `{ date, game, billedMs, share }` from request and worker durations after that rounding. A Cost Management step returns `{ date, costUsd }` for `func-g4k-host`, and a merge on `date` gives each game `costUsd * share`. The admin app's cost is all `portal`. Concurrent executions bill once but count per game, cold starts bill but belong to no request, and executions split by duration, not count. The workbook plots `OnDemandFunctionExecutionUnits` ([metrics](https://learn.microsoft.com/en-us/azure/azure-functions/monitor-functions-reference)) against `sum(billedMs) * 2048`, so the unattributed gap shows daily.
+
+**Cost data in the workbook.** Workbooks can POST to Azure Resource Manager when it answers 200 synchronously ([data sources](https://learn.microsoft.com/en-us/azure/azure-monitor/visualize/workbooks-data-sources)), the Cost Management query is such a POST ([Query Usage](https://learn.microsoft.com/en-us/rest/api/cost-management/query/usage)), and Cost Management supports Pay-As-You-Go, up to 72 hours late. Each fact is verified, but the combination is untested. The fallback is a daily cost export to the portal account, shown on an admin page.
 
 ### Registry and build checks
 
-The folder is the registry. `tools/gen.mjs` scans `games/*/manifest.ts` and writes `host/generated/games.ts`, `tsconfig.games.json`, `catalog.json`, the SWA routes, and `infra/generated/`, all gitignored, before every dev, build, test, and infra run. The build fails, listing every problem, on a folder that differs from its id, a duplicate, malformed, or reserved id (`portal`, `shell`, `admin`, `welcome`, `api`, `g`), a missing required file, a storage name Azure rejects, a `defaultRole` off the ladder, a rung named `none`, or non-empty `exports`.
+The folder is the registry. `tools/gen.mjs` scans `games/*/manifest.ts` and writes the host registry, project references, `catalog.json`, the SWA routes, and `infra/generated/`, all gitignored, before every dev, build, test, and infra run. The build fails, listing every problem, on a folder that differs from its id, a duplicate, malformed, or reserved id (`portal`, `shared`, `shell`, `admin`, `welcome`, `api`, `g`), a missing required file, a declared storage name Azure rejects, a `defaultRole` off the ladder, a rung named `none`, or non-empty `exports`. `tools/infra.mjs` fails on an untagged resource.
 
 ### Adding a game
 
 1. Create `games/<id>/manifest.ts` with `defineGame`.
 2. Add `web/index.html` that imports `/shell/v1.js`.
 3. Add `api/index.ts` that exports `createGameApi`.
-4. Add `infra.bicep` if the game needs its own Azure resources.
+4. Add `infra.bicep` if the game needs its own Azure resources, tagging each with the `tags` param.
 5. Run `npm test`. Gen runs first, and conformance covers the new game.
 6. Push to `main`. `deploy.yml` runs infra after your approval, then the APIs, then web, and checks health.
 7. In `/admin/`, grant the game to each child who should see it.
 
-This touches one new folder and edits no existing file. It needs no Entra change, no workflow change, and no Mac step.
+This touches one new folder and no Entra, workflow, or Mac step. Its storage account, tags, telemetry dimension, and workbook rows follow from the registry.
 
 ### Hosting and cost
 
 Everything sits in West Europe, except the Foundry account in Sweden Central.
 
 - Static Web App, Free.
-- Two Flex Consumption Function apps on Node 22 with maximum 1 instance. The game host has 2048 MB and a system-assigned identity, and one instance keeps drawpad's Foundry worker serial. `func-g4k-admin` has 512 MB and `id-g4k-graph`.
-- One storage account, shared keys off, no public blob access, holding all data and both deployment containers.
-- Log Analytics with a 0.1 GB daily cap, Application Insights, and each game's `infra.bicep` resources: drawpad's Foundry and Event Grid, letterjoin's Vision F0.
+- Two Flex Consumption Function apps on Node 22 with maximum 1 instance. The cap applies per function group, and a queue function scales alone (verified, [Flex scaling](https://learn.microsoft.com/en-us/azure/azure-functions/flex-consumption-plan#per-function-scaling)), so the HTTP routes share one instance and drawpad's Foundry worker runs serially on another. The game host has 2048 MB and a system-assigned identity. `func-g4k-admin` has 512 MB and `id-g4k-graph`.
+- A storage account per game and one for the portal, which also holds both deployment containers. Shared keys off, no public blob access.
+- Log Analytics, Application Insights, the workbook, and each game's `infra.bicep` resources.
 
-The monthly cost is a guess of 1 to 3 USD before Foundry calls, at 0.015 to 0.048 USD per redraw (drawpad measured), and before Entra ID P1.
+The monthly cost is a guess of 1 to 3 USD, telemetry included, before Foundry at 0.015 to 0.048 USD per redraw (drawpad measured).
 
 ### Pipelines and deploy identities
 
 `deploy.yml` runs lint, `tsc -b`, every test, and letterjoin's deploy guard on pull requests and pushes to `main`. `tools/changes.mjs` maps changed paths and gen output to layers, and `deploy.yml` calls the reusable `infra.yml`, `api.yml`, `admin-api.yml`, and `web.yml` in order, skipping unchanged layers.
 
-1. Infra runs Bicep `what-if` on a pull request and deploys on `main`, so a new game's tables exist before its api ships. Then it sets the SWA redirect URIs, writing only a difference.
-2. Api and admin-api run side by side. Each zip-deploys its app, and `tools/deploy.mjs verify` requires health at this commit: every game `ok` on the host, the admin seed done on the admin app.
-3. Web builds every page, writes `config.json` with both API origins and CSP, uploads the site, and verifies `/version.json`.
+1. Infra runs Bicep `what-if` on a pull request and deploys on `main`, so a new game's account exists before its api ships. Then it sets the SWA redirect URIs on the games4kids registration, writing only a difference.
+2. Api and admin-api zip-deploy side by side, and `tools/deploy.mjs verify` requires health at this commit: every game `ok`, the admin seed done.
+3. Web builds every page, writes `config.json` with both API origins, the telemetry connection string, and CSP, uploads the site, and verifies `/version.json`.
 
-Each layer has its own user-assigned identity, federated to its own GitHub environment, which only `main` may deploy to. GitHub holds no secret, only the client, tenant, and subscription ids, which `azure/login` uses with the job's OIDC token.
+Each layer has its own user-assigned identity, federated to its own GitHub environment, which only `main` may deploy to. GitHub holds only ids, which `azure/login` uses with the job's OIDC token.
 
-- `id-g4k-infra`, environments `infra` and `infra-plan`. Contributor on `rg-games4kids`, plus Role Based Access Control Administrator with a condition that allows only storage data roles, Cognitive Services User, and Monitoring Metrics Publisher for service principals, Website Contributor for `id-g4k-api` and `id-g4k-admin-api`, and Contributor for `id-g4k-web`. It owns the games4kids registration and holds Graph `Application.ReadWrite.OwnedBy`.
-- `id-g4k-api` and `id-g4k-admin-api`, environments `api` and `admin-api`. Website Contributor on their app and a blob role on its deployment container.
-- `id-g4k-web`, environment `web`. Contributor on the Static Web App, whose deployment token it reads at run time.
+- `id-g4k-infra`, environments `infra` and `infra-plan`. Contributor on `rg-games4kids`, plus Role Based Access Control Administrator with a condition that allows only storage data roles, Cognitive Services User, and Monitoring Metrics Publisher for service principals, Website Contributor for `id-g4k-api` and `id-g4k-admin-api`, and Contributor for `id-g4k-web`. Cloud Application Administrator scoped to the games4kids registration, for redirect URIs.
+- `id-g4k-api` and `id-g4k-admin-api`. Website Contributor on their app and a blob role on its deployment container.
+- `id-g4k-web`. Contributor on the Static Web App.
 
-`id-g4k-infra` and `id-g4k-admin-api` can both run code as `id-g4k-graph`, so `infra` and `admin-api` require your approval.
+`id-g4k-infra` and `id-g4k-admin-api` can both run code as `id-g4k-graph`, so their environments require your approval.
 
-Setting redirect URIs in the pipeline trades a second bootstrap run for `Application.ReadWrite.OwnedBy`. It changes only apps the identity owns, but on games4kids it can change anything, and a redirect URI it added could receive a child's token (inferred).
+### Bootstrap and the spike
 
-`tools/bootstrap.mjs` does the Mac column, since it needs tenant admin rights no pipeline should hold. It makes `id-g4k-infra` a registration owner and creates `id-g4k-graph`, which Bicep attaches as existing, so consent survives a rebuilt app.
+`tools/bootstrap.mjs` runs under your Owner and Global Administrator sign-in and never touches an individual user.
+
+1. Create the games4kids registration and service principal, the `access_as_user` scope, and assignment required. With no app roles defined, assignments use the default access role.
+2. Create the five identities, their federated credentials, and the GitHub environments and variables.
+3. Run the spike. A throwaway probe registration, its certificate held only in memory, gets Cloud Application Administrator scoped to the games4kids service principal and to the registration. With an app-only token, the probe assigns your account, lists assignments, removes yours, and rewrites the redirect URIs unchanged, retrying for ten minutes while roles propagate. Bootstrap then deletes the probe.
+4. If the spike passes, give `id-g4k-graph` the role on the service principal and `User.Invite.All` with admin consent, and `id-g4k-infra` the role on the registration.
+
+If Entra refuses the scope ("The given built-in role is not supported to be assigned to a single resource scope") or a probe call answers 403, bootstrap stops, names the call, and prints the fallbacks:
+
+1. Buy one Entra ID P1 licence (a guess of about 6 USD a month) and return to revision 3's group, whose Graph permission reaches every group that is not role-assignable.
+2. Grant `AppRoleAssignment.ReadWrite.All`, which can assign any app role, Graph's included, to any principal, itself included. That is control of the tenant.
+3. Assign the role tenant-wide, which reaches drawpad's and letterjoin's registrations.
+
+If only the registration write fails, infra returns to owning the registration with `Application.ReadWrite.OwnedBy`. If only the list fails, add the read-only `Application.Read.All`. The probe and `id-g4k-graph` are both service principals, so the result should carry over (inferred). Phase 7 proves it.
 
 ### Bringing the two games in
 
 Each game's web and api folders are copied, minus what the portal now owns, such as drawpad's auth and profile code and letterjoin's `gate.js`, `auth.js`, and `vendor/msal`.
 
-Content migrates at cutover, and player data gets a tested tool that waits for your word. Both only read the old accounts, and both old apps stay live. Every write is insert-if-absent at a key derived from the source, so reruns converge and never overwrite a portal row ([`migrate.ts`](sketch/migrate.ts)).
+Content migrates at cutover, and player data gets a tested tool that waits for your word. Both read the old accounts only, write each game's new account, and leave both old apps live. Every write is insert-if-absent at a key derived from the source, so reruns converge ([`migrate.ts`](sketch/migrate.ts)).
 
-- `tools/migrate/content.mjs` copies drawpad's pictures and settings tables and pictures container, including accepted AI-generated files, and letterjoin's activities table. drawpad's jobs expire in 7 days and stay.
-- `tools/migrate/player-data.mjs` re-keys each game's per-child tables and images, listed in `PLAYER_DATA`. It maps from member rows, so a child is mapped once invited. drawpad's `oid` is the member's Entra object id, and letterjoin's key is `sha256(email)`. The default is a dry-run report with unmapped keys. Writing needs `--apply --confirm-player-data`, and the type admits apply only with the confirmation that flag mints.
+- `tools/migrate/content.mjs` copies drawpad's pictures and settings tables and pictures container, including accepted AI-generated files, and letterjoin's activities table.
+- `tools/migrate/player-data.mjs` re-keys each game's per-child tables and images from member rows, so a child is mapped once invited. drawpad's `oid` is the member's Entra object id, and letterjoin's key is `sha256(email)`. The default is a dry run reporting unmapped keys. Writing needs `--apply --confirm-player-data`, and the type admits apply only with the confirmation that flag mints.
 
 ### Shared now, and deliberately not
 
-The portal owns sign-in, profiles, members, invites, grants, `<portal-bar>`, the API client, protected-image object URLs, `config.json` and CSP, the error shape, theme tokens, and the dev stack. Play-time limits stay in each game, since drawpad's hard daily limit (403 `time_up`) and letterjoin's soft practice goal are different products.
+The portal owns sign-in, profiles, members, invites, grants, `<portal-bar>`, the API client, `config.json` and CSP, the error shape, theme tokens, telemetry, the workbook, and the dev stack. Play-time limits stay in each game, since drawpad's hard daily limit and letterjoin's soft practice goal are different products.
 
 ### Local dev and tests
 
-`npm run dev` starts letterjoin's fake IdP as a trusted issuer, both apps on the node adapter with memory storage or Azurite, a fake Graph, and a site server with SWA headers and Vite. The real `verifyToken` runs.
+`npm run dev` starts letterjoin's fake IdP, both apps on the node adapter with memory storage or Azurite (one account per owner), a fake Graph, an in-memory telemetry sink, and a site server with SWA headers and Vite. The root `npm test` runs these suites:
 
-The root `npm test` runs these suites:
-
-- `identity.test` covers `decide`, including revoked members and a wrong `oid`, `effectiveRole` without a grant, and two racing claims. `host.test` drives the admission matrix through `host.handle`, and `gen.test` covers each `Problem` kind.
+- `identity.test`, `host.test`, and `gen.test` cover `decide`, `effectiveRole`, the admission matrix, and each `Problem` kind.
 - `boundaries.test` proves that game code importing host files, or admin code importing `games/*`, fails `tsc -b`.
-- `conformance.test` runs `runGameConformance` per game: 401 without a token, every access floor, `not_entitled` without a grant, declared storage only, and site-only CORS.
-- `admin.test` uses the fake Graph for `computeDrift`, a one-click drift fix, the seed, and invites and revokes that crash at each step.
-- `migrate.test` and `changes.test` cover the migration modes and the path-to-layer map, and each game keeps its own suite.
+- `conformance.test` runs per game: 401 without a token, every access floor, `not_entitled` without a grant, its own account and declared names only, site-only CORS, and the game's id on every telemetry record.
+- `admin.test` uses the fake Graph for drift, its fix, the seed, and invites and revokes that crash at each step.
+- `migrate.test` and `changes.test` cover the migration modes and the path-to-layer map.
 
 ## Synthesis decision
 
-Three designs went to a bakeoff. c1 mounted games in shadow roots of one SPA, c2 used iframes and a Function app per game, and c3 co-hosted pages on one host. A cross-judge scored c3 28, c1 25, and c2 18 out of 30. c3 is the base, because only it brings letterjoin in without a rewrite and still gives every game one host, one sign-in, and typed storage.
+Three designs went to a bakeoff. c1 mounted games in shadow roots of one SPA, c2 used iframes and a Function app per game, and c3 co-hosted pages on one host. A cross-judge scored c3 28, c1 25, and c2 18 out of 30. c3 is the base, because only it brings letterjoin in without a rewrite. It took c1's identity model, project references, lint bans, and containment, and c2's conformance suite and registry checks.
 
-Grafted in:
+### Earlier revisions
 
-- From c1, the identity model: `PortalUserId`, members as the gate, idempotent claims, per-game role ladders, `effectiveRole`, and `TrustedIssuer`. It replaces c3's `oid` key, which tied game data to one identity provider.
-- From c1, TS project references, the ESLint bans, and per-game startup containment.
-- From c2, per-game conformance and the registry build checks.
-- Generated files are gitignored, in place of c3's committed files with a CI diff check.
+Revision 2 moved to West Europe and added Entra assignment, the migrations, and per-layer pipelines. Revision 3 moved invites, grants, revokes, and live drift into `/admin/` on a separate admin app, and made no grant mean no access.
 
-Declined were per-game storage accounts (c1, c2), since in one process RBAC only stops accidents the typed handles already stop, and Bicep in CI with Owner (c3). c2's iframes stay the recorded next step for hostile third-party games, and c1's shadow-root mount would force a letterjoin port.
+### Revision 4: cost by game, and identity without P1
 
-### Revision 2: owner feedback
-
-Revision 2 moved to West Europe, added Entra assignment with invites from your laptop, made one sign-in per child explicit, added the migrations, and split pipelines by layer.
-
-### Revision 3: portal onboarding and the Mac
-
-Each change is folded in above as a day-one requirement.
-
-- Invites, grants, revokes, and drift moved from a laptop script to `/admin/`, reversing revision 2. Graph sits on a separate admin app with no game code.
-- Entra assignment is one group, because membership needs a far narrower Graph permission than per-account assignment.
-- No grant means no access. Earlier revisions let `defaultRole` grant access when read, so a new game appeared for every child.
-- Drift is computed live, reversing revision 2's report uploaded from the laptop.
-- Each portal table has one writer, and the member row replaces the invites table.
-- Bootstrap runs once. Infra sets redirect URIs, and `BOOTSTRAP_ADMINS` replaces `BOOTSTRAP_ADMIN_EMAILS` to carry your object id.
-- Deleted: the laptop tools, the Azure CLI authorized client, the `Invite` type, and `drift` on `Admission`.
+- Cost by game is a day-one requirement. Tags come from the registry, every telemetry record carries `game`, and a workbook labels the compute split an estimate.
+- Each game gets its own storage account, reversing the bakeoff's decline of c1's and c2's accounts, because tags make storage cost exact. The `<id>` and `portal` name prefixes are gone, ids cap at 16 characters, and `shared` is reserved.
+- The tenant has no Entra ID P1 (measured), so revision 3's `games4kids-players` group would have failed at bootstrap. Accounts are assigned directly, and the group, `GroupMember.ReadWrite.All`, and the group drift kinds are deleted.
+- Cloud Application Administrator, scoped to the games4kids objects, lets the admin identity assign users and the infra identity set redirect URIs, replacing ownership and `Application.ReadWrite.OwnedBy`. The spike proves it first.
 
 ## Tradeoffs accepted
 
-- We accept a page load between games for zero coupling between game runtimes.
-- We accept isolation by types, project references, and lint, not RBAC, for one game host and one api deploy.
-- We accept one Node process and one instance for every game, so a hang in one slows all, for drawpad's worker staying serial.
-- We accept that every deploy ships every game, with health blocking one that leaves a game unavailable.
-- We accept a second Function app and a Graph permission reaching every group that is not role-assignable, for portal onboarding with no Graph where game code runs.
-- We accept two lists of who may enter, for Entra refusing anyone you have not invited.
-- We accept an approval click per infra or admin-api deploy, and an infra identity that can change anything in `rg-games4kids` and on the registration, for deploys without the Mac.
-- We accept player history waiting in the old apps for no change to the old resource groups, and gitignored generated files that every npm entry point regenerates.
+Each item names the cost, then what it buys.
+
+- A page load between games, for zero coupling between game runtimes.
+- Isolation by types, project references, and lint, not RBAC, for one game host and one api deploy.
+- One instance for every game's HTTP routes, so a hang in one slows all, for drawpad's worker staying serial.
+- Every deploy ships every game, with health blocking one that leaves a game unavailable.
+- An estimated compute split, shown beside the billed metric, for not running a Function app per game.
+- A telemetry cap that can blind a day, alerted and marked, for a bounded bill.
+- An admin identity that can change any setting of the games4kids enterprise app, for onboarding with no Entra right where game code runs.
+- Two lists of who may enter, for Entra refusing anyone you have not invited.
+- An approval click per infra or admin-api deploy, for deploys without the Mac.
+- Player history waiting in the old apps, for no change to the old resource groups.
 
 ## Alternatives considered
 
-- **Entra app roles for game roles.** Each rung of each game would need an app role, and each new game an Entra change.
-- **Graph on the game host.** Every game's code would run under an identity that can invite guests and change groups.
-- **Assigning each account directly.** It needs the permission the admin app must not hold.
-- **Invites from the Mac.** Access would change in two places, and drift would be as fresh as the last script run.
-- **One deploy identity for all layers.** A bug in the web job could then change infra.
-- **The shell as an npm package bundled into each game.** letterjoin would need a bundler, and the browser would hold one MSAL per game.
+- **Entra app roles for game roles.** Each new game would need an Entra change.
+- **An assigned group, or `AppRoleAssignment.ReadWrite.All`.** These are the spike's fallbacks, for the reasons given there.
+- **One storage account split by logs.** The split costs ingestion and stays approximate.
+- **A usage panel in `/admin/`.** The workbook already shows usage beside cost.
+- **Graph on the game host.** Every game's code would run under an identity that can invite guests.
+- **Invites from the Mac, or one deploy identity.** Access would change in two places, and a web job bug could change infra.
+- **The shell as an npm package per game.** letterjoin would need a bundler.
 
 ## Open questions and risks
 
-- Group assignment needs Entra ID P1 ([Microsoft Learn](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/assign-user-or-group-access-portal)). On 2026-10-19 the tenant's enabled plans were Exchange Online, Windows Store, and To-Do (measured, read-only Graph). Will you buy one licence, a guess of about 6 USD a month? Assigning accounts directly needs the permission refused above, and turning assignment off reverses your directive.
-- The migrations run on your Mac because a pipeline would need read roles on the old storage accounts. Do you accept that, or would you rather grant a pipeline those reads?
-- Do you own a domain that would let bootstrap set redirect URIs once, so infra needs no Graph permission?
-- The invite assumes Graph returns the object id. drawpad keeps a fallback lookup needing `User.Read.All`. Is it ever needed? Untested.
-- drawpad's README says the Flex instance cap applies per function group. Recheck it here?
+- The design depends on the spike. If it fails, which fallback do you take?
+- Can the workbook query Cost Management on this Pay-As-You-Go subscription? Untested.
+- Is 0.2 GB a day right? The volume behind it is a guess until a week of real use.
+- The migrations run on your Mac because a pipeline would need read roles on the old storage accounts. Do you accept that?
+- drawpad keeps a fallback object-id lookup needing `User.Read.All`. Is it ever needed?
 - A game module that throws while it loads takes down every game, and only CI catches it. Is that enough?
-- Is `exports` the right door for a joint scoreboard, or should games write events to a portal table?
-- Could a Reader-only identity run the pull request what-if? Untested.
-- letterjoin deploys its Flex app with Website Contributor alone. Do the api deploy identities need the blob role?
-- Could an app outside this repo share the sign-in through `GET /api/portal/me`? Nothing here designs that.
-- Would a parent join as a guest in your tenant, or wait for External ID?
+- Is `exports` the right door for a joint scoreboard, and would a parent join as a guest or wait for External ID?
+- Could a Reader-only identity run the what-if? Do the api deploy identities need the blob role?
 
 ## Build plan
 
 Each phase starts only when the previous phase's named check is green.
 
-1. **Scaffold, host, and identity.** Done when `identity.test`, `host.test`, `gen.test`, `boundaries.test`, and fixture conformance pass, and a throwing fixture shows `unavailable`.
+1. **Scaffold, host, identity, and telemetry.** Done when the unit suites and fixture conformance pass, a throwing fixture shows `unavailable`, and every record in the telemetry sink carries the fixture's id.
 2. **Shell, portal pages, and admin app.** Done when `admin.test` passes and Playwright on the dev stack covers an invite with one game, the claim, home showing only that game, a revoke, and the not-invited screen.
 3. **drawpad port.** Done when its Vitest suite, conformance, and a Playwright smoke reaching `time_up` pass.
 4. **letterjoin port.** Done when its `node --test` suite, conformance, and Playwright e2e at `/g/letterjoin/` pass.
-5. **Bootstrap.** Done when a second `tools/bootstrap.mjs` run changes nothing and a pull request runs the infra what-if.
-6. **Pipelines.** Done when `changes.test` passes, a web-only push skips infra and both APIs, and a fixture-game push runs every layer in order with each verify passing.
+5. **Bootstrap.** Done when the spike passes, a second run changes nothing, and a pull request runs the infra what-if.
+6. **Pipelines and the workbook.** Done when `changes.test` passes, a web-only push skips infra and both APIs, a fixture-game push runs every layer, and after a Playwright smoke run of both games the workbook shows drawpad and letterjoin with non-zero players, play minutes, requests, and compute share. Cost tiles are checked 72 hours later.
 7. **Onboarding and content.** Done when a family member invited from `/admin/` sees only their granted games, drift is empty, a second content apply writes nothing, and the old pictures and activities show on the iPad.
-8. **Player-data migration, not applied.** Done when `migrate.test` passes and a dry-run reports counts and unmapped keys. Applying waits for your word.
+8. **Player-data migration, not applied.** Done when `migrate.test` passes and a dry run reports counts and unmapped keys. Applying waits for your word.
 
 ## Next implementation step
 
-Write `host/src/identity.ts` and `host/src/host.ts` against `test/identity.test.ts` and `test/host.test.ts`, with the node adapter and the fake IdP, so the admission matrix is green before any game is copied in.
+Write `host/src/identity.ts`, `host/src/host.ts`, and `host/src/telemetry.ts` against their tests, with the node adapter and the fake IdP, so the admission matrix and the telemetry stamping are green before any game is copied in.
