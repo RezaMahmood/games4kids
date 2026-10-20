@@ -11,7 +11,7 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURES = 'test/fixtures/games';
 
 test('each app has its own name, entry and compiled folders', () => {
-	assert.deepEqual(appPlan('portal'), { name: 'func-g4k-portal', main: 'apps/games/api/index.js', include: ['apps/games/api'], hostJson: 'apps/games/api/host.json' });
+	assert.deepEqual(appPlan('portal'), { name: 'func-g4k-portal', main: 'apps/games/api/index.js', include: ['apps/games/api', 'apps/games/.gen'], hostJson: 'apps/games/api/host.json' });
 	assert.deepEqual(appPlan('admin', FIXTURES), {
 		name: 'func-g4k-admin',
 		main: 'apps/admin/api/index.js',

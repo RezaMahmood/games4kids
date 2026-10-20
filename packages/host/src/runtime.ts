@@ -65,8 +65,8 @@ export function playerAppFromEnv<M extends GameManifest>(manifest: M, create: Cr
 	});
 }
 
-/** func-g4k-portal. */
-export function portalAppFromEnv(env: Env, credential: TokenCredential = new DefaultAzureCredential()): App {
+/** func-g4k-portal: `games` is every registered game, from the generated apps/games/.gen/registered.ts. */
+export function portalAppFromEnv(games: readonly GameId[], env: Env, credential: TokenCredential = new DefaultAzureCredential()): App {
 	const { TENANT_ID, GAMES_CLIENT_ID } = required(env, ['TENANT_ID', 'GAMES_CLIENT_ID']);
 	const accounts = accountsFor(env, credential);
 	const table = portalTables(accounts);
@@ -75,6 +75,7 @@ export function portalAppFromEnv(env: Env, credential: TokenCredential = new Def
 		telemetry: telemetryFor(env, 'portal'),
 		now: () => new Date(),
 		portal: portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') }),
+		games,
 	});
 }
 

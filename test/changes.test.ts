@@ -22,7 +22,6 @@ const adminApp: DeployTarget = { kind: 'admin-app' };
 const gamesSite: DeployTarget = { kind: 'games-site' };
 const adminSite: DeployTarget = { kind: 'admin-site' };
 
-const bothSidesOf = (game: GameId): DeployTarget[] => [player(game), adminApp, gamesSite, adminSite];
 const allApps = [player(drawpad), player(letterjoin), portal, adminApp];
 const allSites = [gamesSite, adminSite];
 // The shared deploy rewrites the admin and portal settings whole, so each game's infra follows it to merge its settings back.
@@ -34,7 +33,7 @@ const rows: readonly (readonly [name: string, paths: string[], expected: DeployT
 	['a game admin part', ['games/drawpad/admin/api/routes.ts'], [adminApp, adminSite]],
 	['a game admin web page', ['games/letterjoin/admin/web/admin.js'], [adminApp, adminSite]],
 	['a game data part', ['games/letterjoin/data/index.ts'], [player(letterjoin), adminApp, gamesSite, adminSite]],
-	['a game manifest', ['games/drawpad/manifest.ts'], [infraGame(drawpad), ...bothSidesOf(drawpad)]],
+	['a game manifest', ['games/drawpad/manifest.ts'], [infraGame(drawpad), player(drawpad), portal, adminApp, gamesSite, adminSite]],
 	['a game infra.bicep', ['games/drawpad/infra.bicep'], [infraGame(drawpad)]],
 	['a bicep module beside a game infra.bicep', ['games/drawpad/foundry.bicep'], [infraGame(drawpad)]],
 	['a file in a game folder no part owns', ['games/drawpad/README.md'], []],
@@ -72,7 +71,7 @@ for (const [name, paths, expected] of rows) {
 test('targetsFor: a new game folder creates its infra first, then deploys both sides', () => {
 	const fresh = 'puzzle' as GameId;
 	const paths = ['games/puzzle/manifest.ts', 'games/puzzle/data/index.ts', 'games/puzzle/play/api/index.ts', 'games/puzzle/play/web/index.html', 'games/puzzle/admin/api/index.ts', 'games/puzzle/infra.bicep'];
-	assert.deepEqual(targetsFor(paths, [...games, fresh]), [infraGame(fresh), player(fresh), adminApp, gamesSite, adminSite]);
+	assert.deepEqual(targetsFor(paths, [...games, fresh]), [infraGame(fresh), player(fresh), portal, adminApp, gamesSite, adminSite]);
 });
 
 test('targetsFor: several paths deduplicate and order infra, then apps, then sites', () => {
@@ -81,7 +80,7 @@ test('targetsFor: several paths deduplicate and order infra, then apps, then sit
 });
 
 test('targetsFor: a deleted game redeploys the sites and nothing that belongs to it', () => {
-	assert.deepEqual(targetsFor(['games/gone/play/api/index.ts', 'games/gone/manifest.ts', 'games/gone/admin/api/index.ts', 'games/gone/data/index.ts'], games), [adminApp, gamesSite, adminSite]);
+	assert.deepEqual(targetsFor(['games/gone/play/api/index.ts', 'games/gone/manifest.ts', 'games/gone/admin/api/index.ts', 'games/gone/data/index.ts'], games), [portal, adminApp, gamesSite, adminSite]);
 });
 
 test('targetsFor: a host change reaches every player app, however many games exist', () => {

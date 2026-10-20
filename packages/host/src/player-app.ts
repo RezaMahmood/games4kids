@@ -1,4 +1,4 @@
-import { HttpError, type CreatePlayApi, type GameManifest, type Method, type PlayRoute, type Profile } from '@g4k/sdk';
+import { HttpError, type CreatePlayApi, type GameId, type GameManifest, type Method, type PlayRoute, type Profile } from '@g4k/sdk';
 import { failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type HostReply, type HostRequest } from './http.ts';
 import { decide, meFor, verifyGamesToken, type Authentication, type PortalAdmission, type PortalReader, type PortalStore } from './identity.ts';
 import { playPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
@@ -89,8 +89,14 @@ export function parseProfile(raw: unknown): Profile | { readonly problems: reado
 
 type PortalTarget = 'health' | 'me' | 'profile';
 
-/** func-g4k-portal, serving /api/portal/*: GET me for home and /welcome/, and PUT profile. It knows no game. */
-export function createPortalApp(deps: AppEnv & { readonly portal: PortalStore }): App {
+export type PortalAppDeps = AppEnv & {
+	readonly portal: PortalStore;
+	/** Every registered game. GET me lists a member's granted games from it. */
+	readonly games: readonly GameId[];
+};
+
+/** func-g4k-portal, serving /api/portal/*: GET me for home and /welcome/, and PUT profile. It runs no game. */
+export function createPortalApp(deps: PortalAppDeps): App {
 	const prefix = '/api/portal/' as const;
 	const routes = [
 		{ name: 'health', method: 'GET', path: 'health', target: 'health' },
@@ -116,7 +122,7 @@ export function createPortalApp(deps: AppEnv & { readonly portal: PortalStore })
 			if ('status' in admitted) return admitted;
 			const { auth, admission } = admitted;
 			if (admission.kind === 'player') deps.telemetry.setUser(admission.caller.userId);
-			if (matched.target === 'me') return json(200, meFor(auth.identity, admission));
+			if (matched.target === 'me') return json(200, meFor(auth.identity, admission, deps.games));
 			if (admission.kind === 'not-invited') return refuse('not_invited');
 			const userId = admission.kind === 'player' ? admission.caller.userId : admission.userId;
 			const profile = parseProfile(await readJson(request));

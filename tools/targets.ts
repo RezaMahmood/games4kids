@@ -23,7 +23,7 @@ export const RULES: readonly Rule[] = [
 	{ pattern: /^games\/(?<game>[^/]+)\/play\//, emit: ['player-app', 'games-site'] },
 	{ pattern: /^games\/(?<game>[^/]+)\/admin\//, emit: ['admin-app', 'admin-site'] },
 	{ pattern: /^games\/(?<game>[^/]+)\/data\//, emit: SIDES },
-	{ pattern: /^games\/(?<game>[^/]+)\/manifest\.ts$/, emit: ['infra-game', ...SIDES] },
+	{ pattern: /^games\/(?<game>[^/]+)\/manifest\.ts$/, emit: ['infra-game', ...SIDES, 'portal-app'] },
 	{ pattern: /^games\/(?<game>[^/]+)\/[^/]+\.bicep$/, emit: ['infra-game'] },
 	{ pattern: /^apps\/games\/api\//, emit: ['portal-app'] },
 	{ pattern: /^apps\/games\//, emit: ['games-site'] },

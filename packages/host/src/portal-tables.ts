@@ -1,6 +1,6 @@
 import { parseEmail, parseEntraObjectId, parseGameId, parsePortalUserId, type EntraObjectId, type GameId, type PortalUserId, type Profile, type ReadTable, type Row, type Table } from '@g4k/sdk';
 import type { AdminRow, AdminStore, MemberView } from './admin.ts';
-import type { Found, Identity, Member, PortalReader, PortalStore } from './identity.ts';
+import { grants, type Found, type GameGrant, type Identity, type Member, type PortalReader, type PortalStore } from './identity.ts';
 import { ENTRA } from './token.ts';
 
 /**
@@ -15,20 +15,36 @@ export type PortalTableName = 'members' | 'identities' | 'emails' | 'profiles' |
 
 const identityKey = (issuer: string, subject: string) => `${issuer}|${subject}`;
 
+/** `*` is never a GameId, so a reader that predates the all-games grant grants nothing. */
+const ALL_GAMES = '*';
+
+function parseGrant(raw: unknown): GameGrant {
+	if (raw === ALL_GAMES) return { kind: 'all' };
+	const ids = (typeof raw === 'string' ? raw.split(',') : []).flatMap((id) => {
+		const parsed = parseGameId(id);
+		return typeof parsed === 'string' ? [parsed] : [];
+	});
+	return { kind: 'some', ids };
+}
+
+function grantColumn(grant: GameGrant): string {
+	switch (grant.kind) {
+		case 'all':
+			return ALL_GAMES;
+		case 'some':
+			return grant.ids.join(',');
+	}
+}
+
 function parseMember(row: Row | undefined): Member | undefined {
 	const userId = parsePortalUserId(row?.rowKey);
 	const state = row?.['state'];
 	if (!userId || (state !== 'active' && state !== 'revoked')) return undefined;
-	const raw = typeof row?.['games'] === 'string' ? row['games'].split(',') : [];
-	const games = raw.flatMap((id) => {
-		const parsed = parseGameId(id);
-		return typeof parsed === 'string' ? [parsed] : [];
-	});
-	return { userId, state, games };
+	return { userId, state, games: parseGrant(row?.['games']) };
 }
 
 function memberRow(member: Member): Row {
-	return { partitionKey: 'member', rowKey: member.userId, state: member.state, games: member.games.join(',') };
+	return { partitionKey: 'member', rowKey: member.userId, state: member.state, games: grantColumn(member.games) };
 }
 
 function parseProfile(row: Row | undefined): Profile | undefined {
@@ -136,7 +152,7 @@ export function rosterOf(store: AdminStore, game: GameId) {
 		async list() {
 			const rows = await store.rows();
 			return rows
-				.filter(({ member }) => member.state === 'active' && member.games.includes(game))
+				.filter(({ member }) => member.state === 'active' && grants(member.games, game))
 				.map(({ member, profile }) => ({ userId: member.userId, profile }));
 		},
 	};

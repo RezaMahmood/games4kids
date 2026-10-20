@@ -182,7 +182,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 			}),
 		),
 	);
-	const portalApp = createPortalApp({ ...common, issuers: [issuer(GAMES_CLIENT_ID)], portal: portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') }) });
+	const portalApp = createPortalApp({ ...common, issuers: [issuer(GAMES_CLIENT_ID)], portal: portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') }), games: registry.map((entry): GameId => entry.id) });
 	const modules = registry.flatMap((entry) => entry.use(({ manifest, admin }) => (admin ? [adminModule(manifest, admin)] : [])));
 	const adminApp = createAdminApp({
 		...common,

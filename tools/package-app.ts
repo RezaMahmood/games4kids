@@ -15,7 +15,7 @@ export const functionAppName = (app: string) => `func-g4k-${app}`;
 
 /** Where each app's compiled code sits under dist/, which mirrors the repo, and which file is its entry. */
 export function appPlan(app: string, gamesRoot = 'games') {
-	if (app === 'portal') return { name: functionAppName(app), main: 'apps/games/api/index.js', include: ['apps/games/api'], hostJson: 'apps/games/api/host.json' };
+	if (app === 'portal') return { name: functionAppName(app), main: 'apps/games/api/index.js', include: ['apps/games/api', 'apps/games/.gen'], hostJson: 'apps/games/api/host.json' };
 	if (app === 'admin') return { name: functionAppName(app), main: 'apps/admin/api/index.js', include: ['apps/admin/api', 'apps/admin/.gen', gamesRoot], hostJson: 'apps/admin/api/host.json' };
 	return { name: functionAppName(app), main: `${gamesRoot}/${app}/.gen/play-app.js`, include: [`${gamesRoot}/${app}`], hostJson: 'apps/games/api/host.json' };
 }

@@ -43,7 +43,7 @@ export async function seedPlayer(
 	w: World,
 	idp: FakeIdp,
 	{ games, state = 'active', profile = { displayName: `Kid ${randomUUID().slice(0, 4)}`, timeZone: 'Europe/London' } }: {
-		readonly games: readonly GameId[];
+		readonly games: readonly GameId[] | 'all';
 		readonly state?: Member['state'];
 		readonly profile?: Profile | null;
 	},
@@ -53,7 +53,7 @@ export async function seedPlayer(
 	if (!email) throw new Error('test email must parse');
 	const userId = await w.admin.userIdFor(email);
 	await w.admin.recordIdentity(objectId, userId);
-	await w.admin.putMember({ userId, state, games });
+	await w.admin.putMember({ userId, state, games: games === 'all' ? { kind: 'all' } : { kind: 'some', ids: games } });
 	if (profile) await w.portal.setProfile(userId, profile);
 	return { userId, objectId, email, token: await idp.gamesToken(objectId) };
 }

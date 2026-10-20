@@ -1,5 +1,5 @@
 import { HttpError, parseEmail, type Brand, type Email, type EntraObjectId, type GameId, type PortalUserId, type Profile } from '@g4k/sdk';
-import type { Member } from './identity.ts';
+import type { GameGrant, Member } from './identity.ts';
 import { verifyBearer, type TokenRejection, type TrustedIssuer } from './token.ts';
 
 export type AdminScope = 'admin.console' | 'admin.elevate';
@@ -82,32 +82,34 @@ export function elevate(session: AdminSession, now: Date): Elevation | StepUp {
 	return { session, until: new Date(authTime.getTime() + ELEVATION_MAX_AGE_SECONDS * 1000) } as Elevation;
 }
 
-export type MemberRequest = { readonly email: Email; readonly games: readonly GameId[] };
+export type MemberRequest = { readonly email: Email; readonly games: GameGrant };
 
 export type AccessChange = Pick<Member, 'state' | 'games'>;
 
 type Parsed<T> = T | { readonly problems: readonly string[] };
 
-function parseGrants(raw: unknown, known: readonly GameId[], problems: string[]): readonly GameId[] {
-	if (!Array.isArray(raw)) {
-		problems.push('games must be a list of game ids');
-		return [];
-	}
-	const granted = known.filter((id) => raw.includes(id));
-	for (const value of raw) if (!known.some((id) => id === value)) problems.push(`${String(value)} is not a game`);
-	return granted;
-}
-
 function fieldOf(raw: unknown, name: string): unknown {
 	return typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>)[name] : undefined;
 }
 
-/** Boundary parse: a valid email, every game a known GameId. An unticked game sends nothing and grants nothing. */
+function parseGrant(raw: unknown, known: readonly GameId[], problems: string[]): GameGrant {
+	const kind = fieldOf(raw, 'kind');
+	const ids = fieldOf(raw, 'ids');
+	if (kind === 'all' && ids === undefined) return { kind: 'all' };
+	if (kind !== 'some' || !Array.isArray(ids)) {
+		problems.push('games must be { kind: "all" } or { kind: "some", ids: [game ids] }');
+		return { kind: 'some', ids: [] };
+	}
+	for (const value of ids) if (!known.some((id) => id === value)) problems.push(`${String(value)} is not a game`);
+	return { kind: 'some', ids: known.filter((id) => ids.includes(id)) };
+}
+
+/** Boundary parse: a valid email and a grant whose every listed game is known. An unticked game sends nothing and grants nothing. */
 export function parseMemberRequest(raw: unknown, known: readonly GameId[]): Parsed<MemberRequest> {
 	const problems: string[] = [];
 	const email = parseEmail(fieldOf(raw, 'email'));
 	if (!email) problems.push('email is not a valid address');
-	const games = parseGrants(fieldOf(raw, 'games'), known, problems);
+	const games = parseGrant(fieldOf(raw, 'games'), known, problems);
 	return email && problems.length === 0 ? { email, games } : { problems };
 }
 
@@ -115,7 +117,7 @@ export function parseAccessChange(raw: unknown, known: readonly GameId[]): Parse
 	const problems: string[] = [];
 	const state = fieldOf(raw, 'state');
 	if (state !== 'active' && state !== 'revoked') problems.push('state must be active or revoked');
-	const games = parseGrants(fieldOf(raw, 'games'), known, problems);
+	const games = parseGrant(fieldOf(raw, 'games'), known, problems);
 	return (state === 'active' || state === 'revoked') && problems.length === 0 ? { state, games } : { problems };
 }
 

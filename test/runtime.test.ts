@@ -14,7 +14,7 @@ const EMULATOR = 'UseDevelopmentStorage=true';
 
 test('an app with missing settings fails at startup naming every one of them', () => {
 	assert.throws(() => playerAppFromEnv(fixture, createPlayApi, {}, credential), /missing app settings: TENANT_ID, GAMES_CLIENT_ID$/);
-	assert.throws(() => portalAppFromEnv({ TENANT_ID: TENANT, GAMES_CLIENT_ID: 'x' }, credential), /missing app settings: STORAGE_SUFFIX$/);
+	assert.throws(() => portalAppFromEnv([], { TENANT_ID: TENANT, GAMES_CLIENT_ID: 'x' }, credential), /missing app settings: STORAGE_SUFFIX$/);
 	assert.throws(() => adminAppFromEnv([], [], { AZURITE_CONNECTION_STRING: EMULATOR }, credential), /missing app settings: TENANT_ID, ADMIN_CLIENT_ID, GAMES_PRINCIPAL_ID, ADMIN_PRINCIPAL_ID, GAMES_ORIGIN$/);
 });
 
@@ -27,7 +27,7 @@ test('a player app built from settings serves its prefix and checks tokens', asy
 
 test('the portal app and the admin app are built from settings too, and refuse a request with no token', async () => {
 	const base = { TENANT_ID: TENANT, AZURITE_CONNECTION_STRING: EMULATOR };
-	const portal = portalAppFromEnv({ ...base, GAMES_CLIENT_ID: 'games-client' }, credential);
+	const portal = portalAppFromEnv([gameId('fixture')], { ...base, GAMES_CLIENT_ID: 'games-client' }, credential);
 	assert.equal(codeOf(await call(portal, 'GET', '/api/portal/me')), 'unauthenticated');
 	const admin = adminAppFromEnv(
 		[gameId('fixture')],
