@@ -375,6 +375,9 @@ describe('--apply --after-first-deploy', () => {
 		assert.deepEqual(admin.redirectUris, ['https://admin-two.4.azurestaticapps.net/', 'https://admin-two.4.azurestaticapps.net/redirect.html']);
 		const account = world.users.find((user) => user['employeeType'] === ADMIN_MARKER);
 		assert.deepEqual(world.entities.get(String(account?.['id'])), { PartitionKey: 'admin', RowKey: account?.['id'], email: 'g4k-admin@example.test' });
+		const reads = world.armRoles.map((row) => row['properties'] as { scope: string; principalId: string; roleDefinitionId: string }).find((row) => row.principalId === world.letterjoinPrincipalId);
+		assert.equal(reads?.scope, '/subscriptions/sub-0000/resourceGroups/rg-letterjoin/providers/Microsoft.CognitiveServices/accounts/cv-letterjoin-ul5nga', 'letterjoin may call the borrowed Vision account');
+		assert.match(reads?.roleDefinitionId ?? '', /a97b65f3-24c7-4388-baec-2e87135dc908$/);
 		const second = world.io();
 		const settled = world.snapshot();
 		assert.equal(await run(parseFlags(['--apply', '--after-first-deploy', ...APPLY.slice(1)]), second), 0);

@@ -63,7 +63,7 @@ The sites and the portal account exist now. Run bootstrap again.
 node tools/bootstrap.mjs --apply --after-first-deploy
 ```
 
-This adds both sites' redirect URIs (`/` and `/redirect.html`) to the registrations, gives you Storage Table Data Contributor on the `admins` table only, and writes the admin account's `admins` row. Pass `--seed-self` instead of creating an admin account if B5 fails and you fall back to administering as yourself.
+This adds both sites' redirect URIs (`/` and `/redirect.html`) to the registrations, gives you Storage Table Data Contributor on the `admins` table only, and writes the admin account's `admins` row. It also gives `func-g4k-letterjoin` Cognitive Services User on the old letterjoin's Vision account `cv-letterjoin-ul5nga`, which games4kids borrows until letterjoin's data has moved, because the subscription may hold only one free Vision account. Pass `--seed-self` instead of creating an admin account if B5 fails and you fall back to administering as yourself.
 
 Run `node tools/bootstrap.mjs --apply` once more. It must print `No changes.`
 
