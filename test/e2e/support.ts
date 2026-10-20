@@ -34,3 +34,16 @@ export function collectProblems(pages: readonly Page[]): string[] {
 	}
 	return problems;
 }
+
+export async function addAndSync(admin: Page, email: string, game: string): Promise<void> {
+	await admin.getByRole('button', { name: 'Add person' }).click();
+	const add = admin.getByRole('dialog', { name: 'Add a person' });
+	await add.getByLabel('Email').fill(email);
+	await add.getByLabel(game).check();
+	await add.getByRole('button', { name: 'Save person' }).click();
+	await expect(add.getByRole('status')).toHaveText(`Saved ${email}. Sync now so their sign-in works.`);
+	await add.getByRole('button', { name: 'Sync now' }).click();
+	await expect(add.getByRole('status')).toHaveText(`${email} is synced with Entra and can sign in now.`);
+	await add.getByRole('button', { name: 'Done' }).click();
+	await expect(add).toBeHidden();
+}

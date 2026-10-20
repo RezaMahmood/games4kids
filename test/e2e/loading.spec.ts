@@ -37,9 +37,9 @@ async function overlay(page: Page) {
 	});
 }
 
-async function typeIntoEmailByHand(page: Page, text: string): Promise<void> {
-	const box = await page.locator('#add-email').boundingBox();
-	expect(box, 'the email field is laid out').not.toBeNull();
+async function typeIntoSearchByHand(page: Page, text: string): Promise<void> {
+	const box = await page.locator('#search').boundingBox();
+	expect(box, 'the search field is laid out').not.toBeNull();
 	await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 	await page.keyboard.type(text);
 }
@@ -55,17 +55,17 @@ for (const { name, options } of SIZES) {
 			await page.reload();
 			await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
 			expect(await overlay(page), 'a grey layer and a spinning ring cover the page').toEqual({ shown: true, coversViewport: true, spinning: true });
-			await typeIntoEmailByHand(page, 'early@example.com');
-			await expect(page.locator('#add-email'), 'a tap on the form while loading does nothing').toHaveValue('');
-			await expect(page.locator('#add-email')).not.toBeFocused();
+			await typeIntoSearchByHand(page, 'early@example.com');
+			await expect(page.locator('#search'), 'a tap on the search while loading does nothing').toHaveValue('');
+			await expect(page.locator('#search')).not.toBeFocused();
 		} finally {
 			release();
 		}
 
 		await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
 		expect((await overlay(page)).shown, 'the grey layer is gone').toBe(false);
-		await typeIntoEmailByHand(page, 'later@example.com');
-		await expect(page.locator('#add-email'), 'the form takes input once the list is in').toHaveValue('later@example.com');
+		await typeIntoSearchByHand(page, 'later@example.com');
+		await expect(page.locator('#search'), 'the search takes input once the list is in').toHaveValue('later@example.com');
 		await context.close();
 	});
 
@@ -86,8 +86,8 @@ for (const { name, options } of SIZES) {
 
 		await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
 		await expect(page.getByRole('status')).toHaveText('The member list is unavailable.');
-		await typeIntoEmailByHand(page, 'still@example.com');
-		await expect(page.locator('#add-email'), 'the page is usable after the failure').toHaveValue('still@example.com');
+		await typeIntoSearchByHand(page, 'still@example.com');
+		await expect(page.locator('#search'), 'the page is usable after the failure').toHaveValue('still@example.com');
 		await context.close();
 	});
 }

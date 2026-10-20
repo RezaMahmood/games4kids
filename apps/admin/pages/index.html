@@ -12,44 +12,54 @@
 	<admin-bar></admin-bar>
 	<main class="page" inert>
 		<h1>Members</h1>
-		<p id="status" role="status" aria-live="polite">Loading members.</p>
-		<div id="sync-offer" aria-live="polite"></div>
-
-		<section aria-labelledby="add-title">
-			<h2 id="add-title">Add a member</h2>
-			<form id="add">
-				<div class="field">
-					<label for="add-email">Email</label>
-					<input id="add-email" name="email" type="email" autocomplete="off" required>
-				</div>
-				<fieldset class="field">
-					<legend>Games to switch on</legend>
-					<div id="add-games"></div>
-				</fieldset>
-				<button class="g4k-button" type="submit">Save member</button>
-			</form>
-		</section>
-
-		<section aria-labelledby="people-title">
-			<h2 id="people-title">People</h2>
-			<table>
-				<thead>
-					<tr><th scope="col">Person</th><th scope="col">State</th><th scope="col">Games</th><th scope="col">Entra</th><th scope="col">Actions</th></tr>
-				</thead>
-				<tbody id="people"></tbody>
-			</table>
-		</section>
-
-		<section aria-labelledby="entra-title">
-			<h2 id="entra-title">Entra</h2>
-			<p>Changes in Entra ask you to sign in again, in a window, every time.</p>
-			<p class="row">
-				<button id="check" class="g4k-button quiet" type="button">Check Entra</button>
-				<button id="sync-all" class="g4k-button" type="button">Sync everyone</button>
-			</p>
-			<ul id="drift" aria-live="polite"></ul>
-		</section>
+		<div class="toolbar">
+			<div class="toolbar-row">
+				<input id="search" type="search" aria-label="Search people" placeholder="Search email or name" autocomplete="off" spellcheck="false">
+				<button id="add-person" class="g4k-button" type="button">Add person</button>
+			</div>
+			<fieldset class="filters">
+				<legend class="visually-hidden">Show</legend>
+				<div id="filters" class="chips"></div>
+			</fieldset>
+			<p id="status" role="status" aria-live="polite">Loading members.</p>
+		</div>
+		<div id="attention" aria-live="polite"></div>
+		<ul id="people" class="people" aria-label="People"></ul>
 	</main>
+
+	<dialog id="person" class="sheet" aria-labelledby="person-title">
+		<header class="sheet-head">
+			<h2 id="person-title"></h2>
+			<button class="g4k-button quiet close" type="button" data-close>Close</button>
+		</header>
+		<p id="person-status" class="feedback" role="status" aria-live="polite"></p>
+		<div id="person-body" class="sheet-body"></div>
+	</dialog>
+
+	<dialog id="add" class="sheet" aria-labelledby="add-title">
+		<header class="sheet-head">
+			<h2 id="add-title">Add a person</h2>
+			<button class="g4k-button quiet close" type="button" data-close>Close</button>
+		</header>
+		<p id="add-status" class="feedback" role="status" aria-live="polite"></p>
+		<div id="add-body" class="sheet-body"></div>
+	</dialog>
+
+	<dialog id="report" class="sheet" aria-labelledby="report-title">
+		<header class="sheet-head">
+			<h2 id="report-title">Entra report</h2>
+			<button class="g4k-button quiet close" type="button" data-close>Close</button>
+		</header>
+		<p id="report-status" class="feedback" role="status" aria-live="polite"></p>
+		<div class="sheet-body">
+			<p>Changes in Entra ask you to sign in again, in a window, every time.</p>
+			<ul id="drift" class="drift" aria-label="What Entra reported"></ul>
+			<p id="report-actions" class="sheet-actions">
+				<button id="sync-all" class="g4k-button" type="button">Sync everyone</button>
+				<button id="check-again" class="g4k-button quiet" type="button">Check again</button>
+			</p>
+		</div>
+	</dialog>
 	<script type="module" src="/members.js"></script>
 </body>
 </html>

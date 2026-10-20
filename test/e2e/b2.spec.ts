@@ -50,26 +50,33 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 	});
 
 	await test.step('a member is saved with one game ticked and nothing else', async () => {
-		const add = admin.getByRole('region', { name: 'Add a member' });
+		await admin.getByRole('button', { name: 'Add person' }).click();
+		const add = admin.getByRole('dialog', { name: 'Add a person' });
 		await expect(add.getByLabel('Fixture')).not.toBeChecked();
 		await expect(add.getByLabel('Puzzle')).not.toBeChecked();
 		await add.getByLabel('Email').fill(KID_EMAIL);
 		await add.getByLabel('Fixture').check();
-		await add.getByRole('button', { name: 'Save member' }).click();
-		await expect(admin.getByRole('status')).toHaveText(`Saved ${KID_EMAIL}.`);
-		const row = admin.getByRole('row', { name: new RegExp(KID_EMAIL) });
-		await expect(row).toContainText('Active');
+		await add.getByRole('button', { name: 'Save person' }).click();
+		await expect(add.getByRole('status')).toHaveText(`Saved ${KID_EMAIL}. Sync now so their sign-in works.`);
+		await add.getByRole('button', { name: 'Close' }).click();
+		const row = admin.getByRole('button', { name: new RegExp(KID_EMAIL) });
 		await expect(row).toContainText('Not synced');
-		await expect(row.getByLabel('Fixture')).toBeChecked();
-		await expect(row.getByLabel('Puzzle')).not.toBeChecked();
+		await expect(row).toContainText('Fixture');
+		await row.click();
+		const person = admin.getByRole('dialog', { name: KID_EMAIL });
+		await expect(person.getByLabel('Fixture')).toBeChecked();
+		await expect(person.getByLabel('Puzzle')).not.toBeChecked();
 		expect(popups.opened(), 'saving a member needs no elevation').toBe(0);
 	});
 
 	await test.step('a sync opens a fake popup that asks for credentials again, then links the account', async () => {
 		const seen = (await authorizations(admin)).length;
-		await admin.getByRole('button', { name: `Sync ${KID_EMAIL} with Entra` }).click();
-		await expect(admin.getByRole('status')).toHaveText('Synced with Entra.');
-		await expect(admin.getByRole('row', { name: new RegExp(KID_EMAIL) })).toContainText('Linked');
+		const person = admin.getByRole('dialog', { name: KID_EMAIL });
+		await person.getByRole('button', { name: 'Sync with Entra' }).click();
+		await expect(person.getByRole('status')).toHaveText('Synced with Entra.');
+		await expect(person).toContainText('Linked to their Entra account.');
+		await person.getByRole('button', { name: 'Close' }).click();
+		await expect(admin.getByRole('button', { name: new RegExp(KID_EMAIL) })).toContainText('Active');
 		expect(popups.opened()).toBe(1);
 		const elevation = (await authorizations(admin)).slice(seen).filter((a) => a.scope.includes('admin.elevate'));
 		expect(elevation.map((a) => a.prompt)).toEqual(['login']);
@@ -109,19 +116,26 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 	});
 
 	await test.step('a revoke is refused on the child\'s very next call, with no reload', async () => {
-		await admin.getByRole('row', { name: new RegExp(KID_EMAIL) }).getByRole('button', { name: 'Revoke' }).click();
-		await expect(admin.getByRole('status')).toHaveText(`${KID_EMAIL} is revoked. Their next call is refused.`);
+		await admin.getByRole('button', { name: new RegExp(KID_EMAIL) }).click();
+		const person = admin.getByRole('dialog', { name: KID_EMAIL });
+		await person.getByRole('button', { name: 'Revoke access' }).click();
+		await person.getByRole('button', { name: 'Yes, revoke' }).click();
+		await expect(person.getByRole('status')).toContainText(`${KID_EMAIL} is revoked. Their next call is refused.`);
 		await kid.getByRole('button', { name: 'Look again' }).click();
 		await expect(kid.getByRole('alert')).toHaveText('Ask your grown-up to invite you.');
+		await person.getByRole('button', { name: 'Close' }).click();
 	});
 
 	await test.step('a sign-in 11 minutes old is refused for Entra, and the shell reopens the popup once', async () => {
 		await admin.request.post(`${IDP_CONTROL}/__control/stale-auth-time?minutes=11&count=1`);
 		const before = popups.opened();
 		await admin.getByRole('button', { name: 'Check Entra' }).click();
-		await expect(admin.getByRole('status')).toHaveText('Checked Entra.');
+		const report = admin.getByRole('dialog', { name: 'Entra report' });
+		await expect(report.getByRole('status')).toHaveText('Checked Entra.');
 		expect(popups.opened() - before, 'the stale token opened one popup and the retry opened one more').toBe(2);
-		await expect(admin.locator('#drift')).toContainText(`${KID_EMAIL} is revoked but still assigned in Entra`);
+		await expect(report.getByRole('list', { name: 'What Entra reported' })).toContainText(`${KID_EMAIL} is revoked but still assigned in Entra`);
+		await report.getByRole('button', { name: 'Close' }).click();
+		await expect(admin.getByRole('button', { name: new RegExp(KID_EMAIL) })).toContainText('Revoked, still in Entra');
 	});
 
 	await adminContext.close();
@@ -141,18 +155,24 @@ test('a member granted every game sees and plays each one, and the per-game boxe
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
 		await adminReady(admin);
-		const add = admin.getByRole('region', { name: 'Add a member' });
+		await admin.getByRole('button', { name: 'Add person' }).click();
+		const add = admin.getByRole('dialog', { name: 'Add a person' });
 		await add.getByLabel('Email').fill(everyEmail);
 		await add.getByLabel('Every game, including new ones').check();
 		await expect(add.getByLabel('Fixture')).toBeDisabled();
 		await expect(add.getByLabel('Puzzle')).toBeDisabled();
-		await add.getByRole('button', { name: 'Save member' }).click();
-		await expect(admin.getByRole('status')).toHaveText(`Saved ${everyEmail}.`);
-		const row = admin.getByRole('row', { name: new RegExp(everyEmail) });
-		await expect(row.getByLabel('Every game, including new ones')).toBeChecked();
-		await expect(row.getByLabel('Fixture')).toBeDisabled();
-		await admin.getByRole('button', { name: `Sync ${everyEmail} with Entra` }).click();
-		await expect(admin.getByRole('status')).toHaveText('Synced with Entra.');
+		await add.getByRole('button', { name: 'Save person' }).click();
+		await expect(add.getByRole('status')).toHaveText(`Saved ${everyEmail}. Sync now so their sign-in works.`);
+		await add.getByRole('button', { name: 'Sync now' }).click();
+		await expect(add.getByRole('status')).toHaveText(`${everyEmail} is synced with Entra and can sign in now.`);
+		await add.getByRole('button', { name: 'Done' }).click();
+		const row = admin.getByRole('button', { name: new RegExp(everyEmail) });
+		await expect(row).toContainText('All games');
+		await row.click();
+		const person = admin.getByRole('dialog', { name: everyEmail });
+		await expect(person.getByLabel('Every game, including new ones')).toBeChecked();
+		await expect(person.getByLabel('Fixture')).toBeDisabled();
+		await person.getByRole('button', { name: 'Close' }).click();
 	});
 
 	await test.step('the member sees every game on home and plays each one', async () => {
