@@ -12,7 +12,7 @@
  *                   ELEVATION_MAX_AGE_SECONDS after that sign-in, and only then runs OBO.
  * Its credential is id-g4k-admin, a user-assigned identity, as a federated identity credential: no secret. It holds
  * no Graph application permission and no directory role. Delegated Graph scopes, consented per user (consentType
- * Principal) for the admin account only: User.Invite.All, User.ReadBasic.All, AppRoleAssignment.ReadWrite.All,
+ * Principal) for the admin account only: User.Invite.All, User.Read.All, AppRoleAssignment.ReadWrite.All,
  * Application.Read.All. The admin account's own standing (Guest Inviter, and ownership of the games4kids service
  * principal) bounds what those scopes reach.
  *
@@ -100,7 +100,7 @@ export class EntraRefused extends Error {
 
 /** Graph as the elevated admin, for one request. Every method throws EntraRefused when Entra refuses. */
 export type OboGraph = {
-	/** GET /users?$filter=mail eq '<email>' or otherMails/any(m:m eq '<email>') or userPrincipalName eq '<email>', under User.ReadBasic.All. */
+	/** GET /users?$filter=mail eq '<email>' or otherMails/any(m:m eq '<email>') or userPrincipalName eq '<email>', under User.Read.All. */
 	findUser(email: Email): Promise<EntraObjectId | null>;
 	/** POST /invitations with sendInvitationMessage and a redirect to the games site. Only for someone findUser did not find. */
 	inviteGuest(email: Email, redirectUrl: string): Promise<EntraObjectId>;

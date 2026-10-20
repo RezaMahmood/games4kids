@@ -4,7 +4,7 @@ import type { AzureService, CreatePlayApi, GameId, GameManifest } from '@g4k/sdk
 import { azureAccounts } from './adapters/azure.ts';
 import { otelTelemetry, startAzureMonitor } from './adapters/telemetry.ts';
 import { createAdminApp, type AdminModule } from './admin-app.ts';
-import { graphAs } from './graph.ts';
+import { graphAs, type GraphConfig } from './graph.ts';
 import type { App } from './http.ts';
 import { createPlayerApp, createPortalApp } from './player-app.ts';
 import { requireGameId, type Env, type TokenSource } from './platform.ts';
@@ -84,7 +84,8 @@ export function adminAppFromEnv(games: readonly GameId[], modules: readonly Admi
 	const settings = required(env, ['TENANT_ID', 'ADMIN_CLIENT_ID', 'GAMES_PRINCIPAL_ID', 'ADMIN_PRINCIPAL_ID', 'GAMES_ORIGIN']);
 	const accounts = accountsFor(env, credential);
 	const table = portalTables(accounts);
-	const graphConfig = { tenantId: settings.TENANT_ID, clientId: settings.ADMIN_CLIENT_ID, gamesPrincipalId: settings.GAMES_PRINCIPAL_ID, adminPrincipalId: settings.ADMIN_PRINCIPAL_ID };
+	const telemetry = telemetryFor(env, 'admin');
+	const graphConfig: GraphConfig = { tenantId: settings.TENANT_ID, clientId: settings.ADMIN_CLIENT_ID, gamesPrincipalId: settings.GAMES_PRINCIPAL_ID, adminPrincipalId: settings.ADMIN_PRINCIPAL_ID, log: telemetry.log };
 	const clientAssertion = async () => {
 		const token = await credential.getToken('api://AzureADTokenExchange/.default');
 		if (!token) throw new Error('no federated token');
@@ -92,7 +93,7 @@ export function adminAppFromEnv(games: readonly GameId[], modules: readonly Admi
 	};
 	return createAdminApp({
 		issuer: entraIssuer(settings.TENANT_ID, settings.ADMIN_CLIENT_ID),
-		telemetry: telemetryFor(env, 'admin'),
+		telemetry,
 		now: () => new Date(),
 		store: adminStore({ members: table('members'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') }, randomUUID),
 		graph: (elevation) => graphAs(elevation, clientAssertion, graphConfig),

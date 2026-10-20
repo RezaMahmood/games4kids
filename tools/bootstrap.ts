@@ -28,9 +28,14 @@ const DEFAULT_ACCESS = '00000000-0000-0000-0000-000000000000';
 
 export const GRAPH_DELEGATED: Readonly<Record<string, string>> = {
 	'User.Invite.All': '63dd7cd9-b489-4adf-a28c-ac38b9a0f962',
-	'User.ReadBasic.All': 'b340eb25-3456-403f-be2f-af7a0d370277',
+	'User.Read.All': 'a154be20-db9c-4678-8ab7-66f6cc099a59',
 	'AppRoleAssignment.ReadWrite.All': '84bccea3-f856-4a8a-967b-dbe0a3d53a64',
 	'Application.Read.All': 'c79f8feb-a9db-4090-85f9-90d820caa0eb',
+};
+
+/** Scopes an earlier bootstrap requested. A re-run removes them from the registration. */
+export const RETIRED_GRAPH_DELEGATED: Readonly<Record<string, string>> = {
+	'User.ReadBasic.All': 'b340eb25-3456-403f-be2f-af7a0d370277',
 };
 
 export const DIRECTORY_ROLES = {
@@ -277,7 +282,8 @@ export function mergeResourceAccess(spec: AppSpec, existing: readonly ResourceAc
 	if (spec.graphScopes.length === 0) return existing;
 	const wanted = spec.graphScopes.map((name) => ({ id: GRAPH_DELEGATED[name] ?? '', type: 'Scope' }));
 	const graph = existing.find((entry) => entry.resourceAppId === MS_GRAPH_APP_ID);
-	const merged = { resourceAppId: MS_GRAPH_APP_ID, access: [...(graph?.access ?? []), ...wanted.filter((scope) => !graph?.access.some((have) => have.id === scope.id))] };
+	const kept = (graph?.access ?? []).filter((have) => !Object.values(RETIRED_GRAPH_DELEGATED).includes(have.id));
+	const merged = { resourceAppId: MS_GRAPH_APP_ID, access: [...kept, ...wanted.filter((scope) => !kept.some((have) => have.id === scope.id))] };
 	return [...existing.filter((entry) => entry.resourceAppId !== MS_GRAPH_APP_ID), merged];
 }
 
@@ -413,10 +419,11 @@ function planOneApp(spec: AppSpec, core: Core): Finding[] {
 	if (spec.graphScopes.length > 0) {
 		const have = app.resourceAccess.find((entry) => entry.resourceAppId === MS_GRAPH_APP_ID)?.access.map(({ id }) => id) ?? [];
 		const gaps = spec.graphScopes.filter((name) => !have.includes(GRAPH_DELEGATED[name] ?? ''));
+		const retired = Object.entries(RETIRED_GRAPH_DELEGATED).filter(([, id]) => have.includes(id)).map(([name]) => name);
 		rows.push(
-			gaps.length === 0
+			gaps.length === 0 && retired.length === 0
 				? fine(step, `${label}:graph-scopes`, `delegated ${spec.graphScopes.join(', ')}`)
-				: changing(step, `${label}:graph-scopes`, `missing delegated ${gaps.join(', ')}`, patch('the requested Graph scopes', { requiredResourceAccess: wireResourceAccess(mergeResourceAccess(spec, app.resourceAccess)) })),
+				: changing(step, `${label}:graph-scopes`, [...(gaps.length > 0 ? [`missing delegated ${gaps.join(', ')}`] : []), ...(retired.length > 0 ? [`retired ${retired.join(', ')} still requested`] : [])].join(', '), patch('the requested Graph scopes', { requiredResourceAccess: wireResourceAccess(mergeResourceAccess(spec, app.resourceAccess)) })),
 		);
 	}
 

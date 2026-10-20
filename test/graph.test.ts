@@ -47,10 +47,11 @@ async function elevation(authTime: Date = NOW): Promise<{ readonly elevation: El
 type TokenCall = { readonly form: URLSearchParams };
 
 /** Entra's token endpoint and Graph in one injected fetch: the token endpoint answers only a correct OBO grant. */
-function entra(options: { readonly pageSize?: number; readonly tokenReply?: (call: TokenCall) => Response | undefined } = {}) {
+function entra(options: { readonly pageSize?: number; readonly tokenReply?: (call: TokenCall) => Response | undefined; readonly graphReply?: (url: URL) => Response | undefined } = {}) {
 	const graph = createFakeGraph({ gamesPrincipalId: GAMES_SP, adminPrincipalId: ADMIN_SP, ...(options.pageSize ? { pageSize: options.pageSize } : {}) });
 	const tokenCalls: TokenCall[] = [];
 	const sleeps: number[] = [];
+	const logs: { readonly level: string; readonly line: string }[] = [];
 	const config = (assertion = 'federated-credential'): { readonly config: GraphConfig; readonly assertion: () => Promise<string> } => ({
 		assertion: async () => assertion,
 		config: {
@@ -59,9 +60,10 @@ function entra(options: { readonly pageSize?: number; readonly tokenReply?: (cal
 			gamesPrincipalId: GAMES_SP,
 			adminPrincipalId: ADMIN_SP,
 			sleep: async (ms) => void sleeps.push(ms),
+			log: (level, line) => void logs.push({ level, line }),
 			fetch: async (input, init) => {
 				const url = new URL(input instanceof Request ? input.url : String(input));
-				if (url.hostname !== 'login.microsoftonline.com') return graph.handle(input, init);
+				if (url.hostname !== 'login.microsoftonline.com') return options.graphReply?.(url) ?? graph.handle(input, init);
 				assert.equal(url.pathname, `/${TENANT}/oauth2/v2.0/token`);
 				const form = new URLSearchParams(String(init?.body));
 				tokenCalls.push({ form });
@@ -69,7 +71,7 @@ function entra(options: { readonly pageSize?: number; readonly tokenReply?: (cal
 			},
 		},
 	});
-	return { graph, tokenCalls, sleeps, config };
+	return { graph, tokenCalls, sleeps, logs, config };
 }
 
 test('graphAs exchanges the elevated token as an OBO grant for Graph with the federated client assertion', async () => {
@@ -216,6 +218,29 @@ test('a refused grant or a Graph 403 is entra_forbidden naming the call', async 
 		graphAs(e, forbidden.config().assertion, forbidden.config().config).assign(person.id),
 		(error) => error instanceof EntraRefused && error.refusal.kind === 'entra_forbidden' && error.refusal.call === 'assign',
 	);
+});
+
+test('a Graph 403 on find-user is still entra_forbidden and the log line carries Graph\'s error code and message', async () => {
+	const world = entra({
+		graphReply: () => Response.json({ error: { code: 'Authorization_RequestDenied', message: 'Insufficient privileges to complete the operation.' } }, { status: 403 }),
+	});
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	await assert.rejects(graphAs(e, assertion, config).findUser(email('riz74@hotmail.com')), (error) => error instanceof EntraRefused && error.refusal.kind === 'entra_forbidden' && error.refusal.call === 'find-user');
+	assert.equal(world.logs.length, 1);
+	assert.equal(world.logs[0]?.level, 'warn');
+	assert.match(world.logs[0]?.line ?? '', /find-user.*403.*Authorization_RequestDenied.*Insufficient privileges/);
+	assert.doesNotMatch(world.logs[0]?.line ?? '', new RegExp(FAKE_GRAPH_TOKEN_PREFIX));
+});
+
+test('a refused grant logs the token endpoint error and its AADSTS codes, never the assertion', async () => {
+	const world = entra({ tokenReply: () => Response.json({ error: 'invalid_grant', error_codes: [50013], error_description: 'AADSTS50013: assertion failed' }, { status: 400 }) });
+	const { elevation: e, token } = await elevation();
+	const { config, assertion } = world.config('federated-secret-value');
+	await assert.rejects(graphAs(e, assertion, config).findUser(email('a@example.com')), (error) => error instanceof EntraRefused && error.refusal.kind === 'entra_forbidden' && error.refusal.call === 'find-user');
+	assert.equal(world.logs.length, 1);
+	assert.match(world.logs[0]?.line ?? '', /find-user.*400.*invalid_grant.*AADSTS50013/);
+	assert.equal(world.logs[0]?.line.includes('federated-secret-value') || world.logs[0]?.line.includes(token), false);
 });
 
 test('a token endpoint outage is a 502, not a refusal', async () => {

@@ -14,6 +14,7 @@ import {
 	GRAPH_DELEGATED,
 	PASSWORD_SENTINEL,
 	PROVIDERS,
+	RETIRED_GRAPH_DELEGATED,
 	azCommand,
 	conditionKey,
 	githubSubject,
@@ -33,7 +34,7 @@ import {
 	type RepoFacts,
 } from '../tools/bootstrap.ts';
 import { parseFlags, run } from '../tools/bootstrap-shell.ts';
-import { World, fixture } from './support/bootstrap-world.ts';
+import { GRAPH_SP_ID, MS_GRAPH_APP, World, fixture } from './support/bootstrap-world.ts';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const APPLY = ['--apply', '--create-admin-account', '--admin-upn', 'g4k-admin@example.test', '--alert-email', 'owner@example.test'];
@@ -484,6 +485,75 @@ describe('the admin account plan', () => {
 		const scoped = { roleDefinitionId: '158c047a-c907-4556-b7ef-446551a6b5f7', directoryScopeId: '/g' };
 		const rows = planAdminAccount(core, { ...extras, admin: existing, directoryRoles: [{ roleDefinitionId: DIRECTORY_ROLES.guestInviter, directoryScopeId: '/' }, scoped] }, { create: true, upn: null, adopt: false });
 		assert.equal(rows.find((row) => row.id === 'role:no others')?.status, 'blocked');
+	});
+});
+
+describe('the delegated Graph scopes', () => {
+	const OLD = RETIRED_GRAPH_DELEGATED['User.ReadBasic.All'] ?? '';
+	const NEW = GRAPH_DELEGATED['User.Read.All'] ?? '';
+	const graphAccess = (world: World, name: string) => {
+		const app = world.applications.find((row) => row['displayName'] === name);
+		return (app?.['requiredResourceAccess'] as { resourceAppId: string; resourceAccess: { id: string }[] }[]).find((entry) => entry.resourceAppId === MS_GRAPH_APP)?.resourceAccess.map(({ id }) => id) ?? [];
+	};
+	const graphGrant = (world: World) => world.grants.find((grant) => grant['resourceId'] === GRAPH_SP_ID);
+
+	test('the admin app asks for User.Read.All, the read-only full profile, and not User.ReadBasic.All', () => {
+		assert.equal(NEW, 'a154be20-db9c-4678-8ab7-66f6cc099a59');
+		assert.equal(APP_SPECS.admin.graphScopes.includes('User.Read.All'), true);
+		assert.equal(APP_SPECS.admin.graphScopes.includes('User.ReadBasic.All'), false);
+	});
+
+	test('a fresh apply registers and consents to User.Read.All', async () => {
+		const world = new World();
+		assert.equal(await run(parseFlags(APPLY), world.io()), 0);
+		assert.equal(graphAccess(world, 'games4kids-admin').includes(NEW), true);
+		assert.equal(graphAccess(world, 'games4kids-admin').includes(OLD), false);
+		assert.deepEqual(String(graphGrant(world)?.['scope']).split(' ').sort(), Object.keys(GRAPH_DELEGATED).sort());
+	});
+
+	test('a grant that still holds User.ReadBasic.All is planned as a PATCH to the new scopes', () => {
+		const core: Core = {
+			subscription: { id: 's', tenantId: 't', user: 'u' },
+			rg: { exists: true, id: '/rg', location: 'westeurope' },
+			apps: { games: { kind: 'missing' }, admin: { kind: 'missing' } },
+			sps: { games: { id: 'g', appId: 'ga', appRoleAssignmentRequired: true, tags: [] }, admin: { id: 'a', appId: 'aa', appRoleAssignmentRequired: true, tags: [] } },
+			identities: {},
+			graph: { spId: 'graph', scopes: GRAPH_DELEGATED },
+		};
+		const stale = { id: 'grant-1', consentType: 'Principal', principalId: 'u', clientId: 'a', resourceId: 'graph', scope: ['User.Invite.All', 'User.ReadBasic.All', 'AppRoleAssignment.ReadWrite.All', 'Application.Read.All'] };
+		const account = { id: 'u', userPrincipalName: 'g4k-admin@example.test', employeeType: ADMIN_MARKER, mail: '' };
+		const row = planAdminAccount(core, { verifiedDomains: ['example.test'], admin: account, sameUpn: null, directoryRoles: [], assignedPrincipalIds: [], gamesOwnerIds: [], grants: [stale] }, { create: true, upn: null, adopt: false }).find((finding) => finding.id === 'consent:Microsoft Graph');
+		assert.equal(row?.status, 'change');
+		const patch = row?.fix[0]?.command;
+		assert.deepEqual([patch?.args.includes('PATCH'), patch?.args.some((arg) => arg.endsWith('/oauth2PermissionGrants/grant-1'))], [true, true]);
+		const scope = String((patch?.body as { scope: string }).scope).split(' ');
+		assert.equal(scope.includes('User.Read.All'), true);
+		assert.equal(scope.includes('User.ReadBasic.All'), false);
+	});
+
+	test('a tenant set up with User.ReadBasic.All is corrected by a re-run and then settles', async () => {
+		const world = new World();
+		assert.equal(await run(parseFlags(APPLY), world.io()), 0);
+		const grant = graphGrant(world);
+		assert.ok(grant);
+		grant['scope'] = String(grant['scope']).replace('User.Read.All', 'User.ReadBasic.All');
+		const admin = world.applications.find((app) => app['displayName'] === 'games4kids-admin');
+		assert.ok(admin);
+		for (const entry of admin['requiredResourceAccess'] as { resourceAppId: string; resourceAccess: { id: string; type: string }[] }[]) {
+			if (entry.resourceAppId === MS_GRAPH_APP) entry.resourceAccess = entry.resourceAccess.map((access) => (access.id === NEW ? { ...access, id: OLD } : access));
+		}
+
+		const fixing = world.io();
+		assert.equal(await run(parseFlags(APPLY), fixing), 0, fixing.lines.join('\n'));
+		assert.deepEqual(String(graphGrant(world)?.['scope']).split(' ').sort(), Object.keys(GRAPH_DELEGATED).sort());
+		assert.equal(graphAccess(world, 'games4kids-admin').includes(NEW), true);
+		assert.equal(graphAccess(world, 'games4kids-admin').includes(OLD), false);
+
+		const settled = world.snapshot();
+		const third = world.io();
+		assert.equal(await run(parseFlags(APPLY), third), 0);
+		assert.match(third.lines.join('\n'), /\nNo changes\.$/);
+		assert.equal(world.snapshot(), settled);
 	});
 });
 

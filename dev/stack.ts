@@ -196,6 +196,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 				adminPrincipalId: ADMIN_PRINCIPAL_ID,
 				authorityHost: idp.httpOrigin,
 				graphOrigin: graph.origin,
+				log: telemetry.log,
 			}),
 		games: registry.map((entry): GameId => entry.id),
 		modules,

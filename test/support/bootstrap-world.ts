@@ -33,7 +33,7 @@ export const REPO = 'octo-owner/games4kids';
 
 const scopeIds: Record<string, string> = {
 	'User.Invite.All': '63dd7cd9-b489-4adf-a28c-ac38b9a0f962',
-	'User.ReadBasic.All': 'b340eb25-3456-403f-be2f-af7a0d370277',
+	'User.Read.All': 'a154be20-db9c-4678-8ab7-66f6cc099a59',
 	'AppRoleAssignment.ReadWrite.All': '84bccea3-f856-4a8a-967b-dbe0a3d53a64',
 	'Application.Read.All': 'c79f8feb-a9db-4090-85f9-90d820caa0eb',
 };
@@ -220,7 +220,7 @@ export class World {
 			return input;
 		}
 		if (path === '/oauth2PermissionGrants' && method === 'POST') {
-			const grant = { id: this.next(), ...input };
+			const grant = { id: Buffer.from(this.next()).toString('base64url'), ...input };
 			this.grants.push(grant);
 			return grant;
 		}
