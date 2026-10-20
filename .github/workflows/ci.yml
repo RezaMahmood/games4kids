@@ -32,7 +32,7 @@ jobs:
       - name: Bicep builds and lints clean
         run: |
           set -euo pipefail
-          for file in infra/main.bicep infra/game.bicep test/fixtures/games/fixture/infra.bicep; do
+          for file in infra/main.bicep infra/game.bicep test/fixtures/games/fixture/infra.bicep games/*/infra.bicep; do
             az bicep build --file "$file" --outfile /dev/null
             findings=$(az bicep lint --file "$file" 2>&1)
             if [ -n "$findings" ]; then echo "$findings"; exit 1; fi

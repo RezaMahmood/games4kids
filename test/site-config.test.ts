@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { composeSite, fillSite, telemetryOrigin } from '../tools/site-config.ts';
+import { composeSite, fillSite, telemetryOrigin, widenCsp, withGameCsp } from '../tools/site-config.ts';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURES = 'test/fixtures/games';
@@ -17,7 +17,7 @@ const tree = (dir: string): string[] => readdirSync(dir, { recursive: true, enco
 const read = (dir: string, path: string) => readFileSync(join(dir, path), 'utf8');
 const compose = (kind: 'games' | 'admin') => {
 	const out = mkdtempSync(join(tmpdir(), `g4k-site-${kind}-`));
-	composeSite(repo, kind, out, { gamesRoot: FIXTURES, catalog: generated(kind === 'games' ? 'catalog.json' : 'admin-catalog.json') });
+	composeSite(repo, kind, out, { gamesRoot: FIXTURES, catalog: generated(kind === 'games' ? 'catalog.json' : 'admin-catalog.json'), csp: generated(kind === 'games' ? 'csp.json' : 'admin-csp.json') });
 	return out;
 };
 
@@ -99,4 +99,26 @@ test('a placeholder nothing fills stops the deploy', { skip }, () => {
 test('the telemetry origin comes from the ingestion endpoint, or falls back to self', () => {
 	assert.equal(telemetryOrigin(GAMES.telemetryConnectionString), 'https://westeurope-5.in.applicationinsights.azure.com');
 	assert.equal(telemetryOrigin(''), "'self'");
+});
+
+test('a game widens the policy for its own pages only, on the games site and on the admin site', { skip }, () => {
+	const routes = (out: string) => (JSON.parse(read(out, 'staticwebapp.config.json')) as { routes: { route: string; headers?: Record<string, string> }[] }).routes;
+	const games = routes(compose('games')).filter((row) => row.route.startsWith('/g/'));
+	assert.deepEqual(games.map((row) => row.route), ['/g/fixture/*']);
+	assert.match(games[0]?.headers?.['Content-Security-Policy'] ?? '', /img-src 'self' data: blob: https:\/\/cdn\.example;/);
+	const admin = routes(compose('admin')).filter((row) => row.route.startsWith('/g/'));
+	assert.deepEqual(admin.map((row) => row.route), ['/g/fixture/*']);
+	assert.match(admin[0]?.headers?.['Content-Security-Policy'] ?? '', /frame-ancestors 'none'; worker-src 'self' blob:$/);
+	const filled = mkdtempSync(join(tmpdir(), 'g4k-site-csp-'));
+	composeSite(repo, 'games', filled, { gamesRoot: FIXTURES, catalog: generated('catalog.json'), csp: generated('csp.json') });
+	fillSite(filled, GAMES);
+	assert.doesNotMatch(read(filled, 'staticwebapp.config.json'), /__[A-Z_]+__/, 'the origins reach the game routes too');
+});
+
+test('widening a policy adds sources once, and starts a directive it lacks from self', () => {
+	const policy = "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'";
+	assert.equal(widenCsp(policy, { 'img-src': ['blob:', 'data:'], 'worker-src': ['blob:'] }), "default-src 'self'; img-src 'self' data: blob:; frame-ancestors 'none'; worker-src 'self' blob:");
+	assert.equal(widenCsp(policy, {}), policy);
+	assert.equal(JSON.parse(withGameCsp(JSON.stringify({ globalHeaders: { 'Content-Security-Policy': policy } }), {})).routes.length, 0);
+	assert.throws(() => withGameCsp('{}', { a: {} }), /no global Content-Security-Policy/);
 });
