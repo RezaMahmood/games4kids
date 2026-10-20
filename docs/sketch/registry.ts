@@ -54,14 +54,13 @@ export type ResourceTags = { readonly app: 'games4kids'; readonly game: GameId |
  * identity's roles ('play' names: Data Contributor; 'admin' names: Data Reader), id-g4k-admin's roles ('admin' and
  * 'admin-private' names: Data Contributor; 'play' names: Data Reader), Table Data Reader on members, identities and
  * profiles for the player app, and the game's own games/<id>/infra.bicep with GameModuleParams.
+ * params.json is an ARM parameters file with one entry per field below. Bicep derives the tags from the id and reads
+ * id-g4k-admin as an existing resource, so gen writes neither, and the pipeline adds gamesClientId.
  */
 export type GameInfraParams = {
 	readonly id: GameId;
-	readonly tags: ResourceTags & { readonly game: GameId };
 	readonly storage: GameManifest['storage'];
 	readonly hosting: Required<Hosting>;
-	/** id-g4k-admin's principal id, from a repository variable that bootstrap set. */
-	readonly adminPrincipalId: string;
 };
 
 /** What games/<id>/infra.bicep receives, so drawpad's Foundry module can grant and wire without guessing names. */
@@ -73,6 +72,9 @@ export type GameModuleParams = {
 	readonly adminPrincipalId: string;
 	readonly queues: readonly string[];
 };
+
+/** What games/<id>/infra.bicep returns as outputs. The pipeline merges playSettings into the player app as they are, and adminSettings into the admin app with each name prefixed by the upper-case game id, as the host reads them. */
+export type GameModuleOutputs = { readonly playSettings: Readonly<Record<string, string>>; readonly adminSettings: Readonly<Record<string, string>> };
 
 export type GameParts<M extends GameManifest> = { readonly manifest: M; readonly play: CreatePlayApi<M>; readonly admin: CreateAdminApi<M> | null };
 
@@ -86,7 +88,7 @@ export type RegistryEntry = { readonly id: GameId; use<R>(visit: <M extends Game
 export function renderPlayApp(game: ScannedGame): string {
 	throw new Error('not implemented');
 }
-export function renderGameParams(game: ScannedGame, adminPrincipalId: string): GameInfraParams {
+export function renderGameParams(game: ScannedGame): GameInfraParams {
 	throw new Error('not implemented');
 }
 export function renderCatalog(games: readonly ScannedGame[]): readonly Omit<CatalogEntry, 'apiBaseUrl'>[] {

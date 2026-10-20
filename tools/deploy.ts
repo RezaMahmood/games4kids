@@ -207,7 +207,7 @@ export async function deployApp(app: string, zipPath: string): Promise<void> {
 export async function deploySite(kind: SiteKind, dir: string, swaCli: string): Promise<void> {
 	const games = kind === 'games';
 	const telemetryConnectionString = await retrying(() => az(['functionapp', 'config', 'appsettings', 'list', '-g', RESOURCE_GROUP, '-n', functionAppName(games ? 'portal' : 'admin'), '--query', "[?name=='APPLICATIONINSIGHTS_CONNECTION_STRING'].value | [0]", '-o', 'tsv']), propagation);
-	const common = { tenantId: need('AZURE_TENANT_ID'), telemetryConnectionString };
+	const common = { tenantId: az(['account', 'show', '--query', 'tenantId', '-o', 'tsv']), telemetryConnectionString };
 	const deployment: Deployment = games
 		? await gamesDeployment(common, dir)
 		: { kind: 'admin', ...common, clientId: need('ADMIN_CLIENT_ID'), adminOrigin: await retrying(() => originOf('admin'), propagation) };
