@@ -157,7 +157,8 @@ function openForm(activity) {
   refreshForm();
   pristine = formState();
   dialog.showModal();
-  field('title').focus();
+  const touch = matchMedia('(pointer: coarse)').matches;
+  (touch ? $('form-heading') : field('title')).focus({ preventScroll: true });
 }
 
 /** Brings a saved activity's card to the middle of the screen and flashes it. */
@@ -460,6 +461,8 @@ dialog.addEventListener('close', () => {
 });
 $('activity-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const saveButton = field('save');
+  if (saveButton.disabled) return;
   const parsed = parseActivityInput(readForm());
   if (!parsed.ok) {
     refreshForm();
@@ -467,6 +470,7 @@ $('activity-form').addEventListener('submit', async (e) => {
     return;
   }
   const wasEditing = editing;
+  saveButton.disabled = true;
   try {
     const saved = wasEditing ? await api.updateActivity(wasEditing.id, parsed.value, wasEditing.etag) : await api.createActivity(parsed.value);
     sections.choose(parsed.value.level, true);
@@ -480,6 +484,8 @@ $('activity-form').addEventListener('submit', async (e) => {
       await reload(api);
     }
     failed(err);
+  } finally {
+    saveButton.disabled = false;
   }
 });
 $('review-filter').addEventListener('submit', (e) => {

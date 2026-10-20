@@ -243,7 +243,11 @@ for (const [size, options] of Object.entries(DIALOG_SIZES)) {
 			await newButton.click();
 			await expect(dialog).toBeVisible();
 			await expect(dialog).toBeInViewport({ ratio: 1 });
-			await expect(page.locator('#f-title')).toBeFocused();
+			if (size === 'phone') {
+				const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, inDialog: document.getElementById('activity-dialog')!.contains(document.activeElement) }));
+				expect(focus.tag).not.toMatch(/^(INPUT|TEXTAREA|SELECT)$/);
+				expect(focus.inDialog).toBe(true);
+			} else await expect(page.locator('#f-title')).toBeFocused();
 			const box = (await dialog.boundingBox())!;
 			if (size === 'phone') expect([box.width, box.height]).toEqual([390, 844]);
 			else {
@@ -324,6 +328,47 @@ for (const [size, options] of Object.entries(DIALOG_SIZES)) {
 			await expect(page.getByRole('dialog')).toBeHidden();
 		});
 
+		expect(problems).toEqual([]);
+		await context.close();
+	});
+}
+
+for (const [size, options] of Object.entries(DIALOG_SIZES)) {
+	test(`on ${size}, a double click on Save creates one activity`, async ({ browser }) => {
+		const context = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
+		const page = await context.newPage();
+		answerPopups(page);
+		const problems = collectProblems([page]);
+		const title = `Once ${size}-${RUN}`;
+		const posts: string[] = [];
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(/\/activities$/, async (route) => {
+			if (route.request().method() !== 'POST') return route.continue();
+			posts.push(route.request().url());
+			await held;
+			await route.continue();
+		});
+
+		await page.goto(`${ADMIN}/`);
+		await signInAtFakeEntra(page, ADMIN_EMAIL);
+		await adminReady(page);
+		await page.goto(`${ADMIN}/g/letterjoin/#activities`);
+		await adminReady(page);
+		await page.locator('#new-activity').click();
+		await page.locator('#f-type').selectOption('sentence');
+		await page.locator('#f-title').fill(title);
+		await page.locator('#f-sentence').fill('Only one of me.');
+		const save = page.locator('#f-save');
+		await save.dblclick();
+		await expect(save).toBeDisabled();
+		await page.locator('#activity-form').evaluate((form: HTMLFormElement) => form.requestSubmit());
+		expect(posts).toHaveLength(1);
+		release();
+		await expect(page.getByRole('dialog')).toBeHidden();
+		await expect(page.locator('#activities .card', { hasText: title })).toHaveCount(1);
+		expect(posts).toHaveLength(1);
+		await expect(save).toBeEnabled();
 		expect(problems).toEqual([]);
 		await context.close();
 	});
