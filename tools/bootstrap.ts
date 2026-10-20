@@ -35,7 +35,6 @@ export const GRAPH_DELEGATED: Readonly<Record<string, string>> = {
 
 export const DIRECTORY_ROLES = {
 	guestInviter: '95e79109-95c0-4d8e-aee3-d01accf2d47b',
-	cloudApplicationAdministrator: '158c047a-c907-4556-b7ef-446551a6b5f7',
 } as const;
 
 export const AZURE_ROLES = {
@@ -589,6 +588,7 @@ export type AdminExtras = {
 	readonly sameUpn: UserRow | null;
 	readonly directoryRoles: readonly DirectoryRoleRow[];
 	readonly assignedPrincipalIds: readonly string[];
+	readonly gamesOwnerIds: readonly string[];
 	readonly grants: readonly GrantRow[];
 };
 
@@ -617,7 +617,7 @@ export function planAdminAccount(core: Core, extras: AdminExtras, goal: AdminGoa
 					step,
 					'admin-account',
 					`missing, create ${name} as a member with a random password that is never shown`,
-					action('create the admin account', `create the admin account ${name}. Its password is random and discarded, so reset it in the Entra admin center before the first sign-in`, graphCommand('POST', '/users', { accountEnabled: true, displayName: 'games4kids admin', mailNickname: (upn ?? 'g4k-admin').split('@')[0], userPrincipalName: name, employeeType: ADMIN_MARKER, passwordProfile: { forceChangePasswordNextSignIn: true, password: PASSWORD_SENTINEL } }), { awaits: upn ? [] : ['the UPN'], remember: { kind: 'user', key: ADMIN_MARKER } }),
+					action('create the admin account', `create the admin account ${name}. Its password is random and discarded, so set one from your terminal before the first sign-in: az ad user update --id ${name} --password <temporary> --force-change-password-next-sign-in true`, graphCommand('POST', '/users', { accountEnabled: true, displayName: 'games4kids admin', mailNickname: (upn ?? 'g4k-admin').split('@')[0], userPrincipalName: name, employeeType: ADMIN_MARKER, passwordProfile: { forceChangePasswordNextSignIn: true, password: PASSWORD_SENTINEL } }), { awaits: upn ? [] : ['the UPN'], remember: { kind: 'user', key: ADMIN_MARKER } }),
 				),
 			);
 			userAwaits = ['the admin account'];
@@ -629,13 +629,13 @@ export function planAdminAccount(core: Core, extras: AdminExtras, goal: AdminGoa
 	const roleFix = (name: string, role: string, scope: string, awaits: readonly string[]) => action(`assign ${name}`, `assign ${name} to the admin account at scope ${scope}`, graphCommand('POST', '/roleManagement/directory/roleAssignments', { principalId: userId, roleDefinitionId: role, directoryScopeId: scope }), { awaits: [...userAwaits, ...awaits], retry: 'quick' });
 	const guestScope = '/';
 	rows.push(have(DIRECTORY_ROLES.guestInviter, guestScope) ? fine(step, 'role:Guest Inviter', 'tenant-wide') : changing(step, 'role:Guest Inviter', 'missing', roleFix('Guest Inviter', DIRECTORY_ROLES.guestInviter, guestScope, [])));
-	const appScope = `/${games?.id ?? '<games4kids service principal id>'}`;
+	const gamesId = games?.id ?? '<games4kids service principal id>';
 	rows.push(
-		have(DIRECTORY_ROLES.cloudApplicationAdministrator, appScope)
-			? fine(step, 'role:Cloud Application Administrator', `scoped to the games4kids service principal ${games?.id}`)
-			: changing(step, 'role:Cloud Application Administrator', 'missing, assign it scoped to the games4kids service principal', roleFix('Cloud Application Administrator', DIRECTORY_ROLES.cloudApplicationAdministrator, appScope, games ? [] : ['the games4kids enterprise application'])),
+		account && extras.gamesOwnerIds.includes(account.id)
+			? fine(step, 'owner:games4kids', `owner of the games4kids service principal ${gamesId}`)
+			: changing(step, 'owner:games4kids', 'not an owner, add it as an owner of the games4kids service principal', action('make the admin account an owner of games4kids', 'make the admin account an owner of the games4kids enterprise application', graphCommand('POST', `/servicePrincipals/${gamesId}/owners/$ref`, { '@odata.id': `${GRAPH}/directoryObjects/${userId}` }), { awaits: [...userAwaits, ...(games ? [] : ['the games4kids enterprise application'])], retry: 'quick' })),
 	);
-	const allowed = new Set([`${DIRECTORY_ROLES.guestInviter}|${guestScope}`, `${DIRECTORY_ROLES.cloudApplicationAdministrator}|${appScope}`]);
+	const allowed = new Set([`${DIRECTORY_ROLES.guestInviter}|${guestScope}`]);
 	const extra = extras.directoryRoles.filter((row) => !allowed.has(`${row.roleDefinitionId}|${row.directoryScopeId}`));
 	rows.push(extra.length === 0 ? fine(step, 'role:no others', 'the account holds no other directory role') : blocked(step, 'role:no others', `the account also holds ${extra.map((row) => `${row.roleDefinitionId} at ${row.directoryScopeId}`).join(', ')}. Remove it in the Entra admin center`));
 
@@ -659,7 +659,7 @@ export function planAdminAccount(core: Core, extras: AdminExtras, goal: AdminGoa
 	rows.push(grantFor(core.graph.spId, 'Microsoft Graph', Object.keys(GRAPH_DELEGATED)));
 	rows.push(grantFor(adminSp?.id ?? null, 'games4kids-admin', APP_SPECS.admin.scopes.map(({ value }) => value)));
 
-	rows.push(todo(step, 'B5', 'sign in as the admin account and prove the scoped Cloud Application Administrator role can POST and DELETE an assignment on games4kids and is refused on another app'));
+	rows.push(todo(step, 'B5', 'sign in as the admin account and prove the account owning the games4kids enterprise application can POST and DELETE an assignment on games4kids and is refused on another app'));
 	return rows;
 }
 
