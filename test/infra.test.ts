@@ -9,6 +9,8 @@ import { workerConnection } from '@g4k/host';
 import { CHAT_DEPLOYMENT } from '../games/drawpad/admin/api/titles.ts';
 import { REDRAWS } from '../games/drawpad/admin/api/redraw.ts';
 import manifest from '../games/drawpad/manifest.ts';
+import letterjoin from '../games/letterjoin/manifest.ts';
+import { AZURE_ROLES } from '../tools/bootstrap.ts';
 import { gameId } from './support/ids.ts';
 import { moduleParameters, prefixed } from '../tools/deploy.ts';
 
@@ -86,4 +88,24 @@ test('drawpad deploys every model its code names, starts a job from the ready bl
 	const settings = Object.keys(prefixed('drawpad', (template.outputs['adminSettings']?.value ?? {}) as Record<string, string>));
 	assert.ok(settings.includes('DRAWPAD_FOUNDRY_ENDPOINT'));
 	for (const name of ['queueServiceUri', 'credential', 'clientId']) assert.ok(settings.includes(`${workerConnection(gameId('drawpad'))}__${name}`), `the worker connection needs ${name}`);
+});
+
+test('letterjoin reads handwriting with a free AI Vision account in West Europe, which only its player app may call, and hands that app the endpoint its manifest declares', { skip }, () => {
+	const template = compile('games/letterjoin/infra.bicep');
+	assert.deepEqual(required(template).sort(), ['adminPrincipalId', 'location', 'playPrincipalId', 'queues', 'storageAccountName', 'tags']);
+	assert.equal(template.parameters['visionLocation']?.defaultValue, 'westeurope');
+	assert.equal(template.parameters['visionSku']?.defaultValue, 'F0');
+
+	const account = template.resources.find((resource) => resource.type === 'Microsoft.CognitiveServices/accounts');
+	assert.equal(account?.['kind' as keyof typeof account], 'ComputerVision');
+	assert.equal(account?.properties?.['disableLocalAuth'], true);
+	assert.equal(account?.['tags' as keyof typeof account], "[parameters('tags')]");
+
+	const assignment = template.resources.find((resource) => resource.type === 'Microsoft.Authorization/roleAssignments');
+	assert.equal(assignment?.properties?.['principalId'], "[parameters('playPrincipalId')]");
+	assert.equal(template.variables?.['cognitiveServicesUser'], AZURE_ROLES.cognitiveServicesUser);
+
+	const settings = Object.keys(template.outputs['playSettings']?.value ?? {});
+	assert.deepEqual(settings, Object.keys(letterjoin.play.settings));
+	assert.deepEqual(letterjoin.play.services, ['cognitiveServices']);
 });
