@@ -4,6 +4,6 @@
 		"rootDir": "..",
 		"outDir": "../dist"
 	},
-	"include": ["*.ts"],
-	"references": [{ "path": "../packages/sdk" }]
+	"include": ["*.ts", "migrate/*.ts"],
+	"references": [{ "path": "../packages/sdk" }, { "path": "../packages/host" }, { "path": "../games/tsconfig.data.json" }]
 }
