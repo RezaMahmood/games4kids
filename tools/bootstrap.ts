@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
+import { guestHomeEmail } from '@g4k/host';
 import { parseEmail, type Email } from '@g4k/sdk';
 import { functionAppName } from './package-app.ts';
 
@@ -726,10 +727,9 @@ export type SpaExtras = {
 	readonly row: { readonly state: 'present' | 'absent' | 'unknown'; readonly email: string | null };
 	readonly vision: { readonly playPrincipalId: string | null; readonly roles: readonly RoleAssignment[] };
 };
-/** A guest's UPN encodes its home address with the @ turned into the last _, and the admin app reads the admins row's email only if it parses. */
+/** The admin app reads the admins row's email only if it parses. */
 export function signInEmail(user: { readonly mail: string; readonly userPrincipalName: string }): Email | null {
-	const guest = /^(.+)_([^_]+)#ext#@/i.exec(user.userPrincipalName);
-	return parseEmail(user.mail) ?? (guest ? parseEmail(`${guest[1]}@${guest[2]}`) : parseEmail(user.userPrincipalName));
+	return parseEmail(user.mail) ?? guestHomeEmail(user.userPrincipalName) ?? parseEmail(user.userPrincipalName);
 }
 
 export type SpaGoal = { readonly adminAccount: UserRow | null; readonly seedSelf: boolean };

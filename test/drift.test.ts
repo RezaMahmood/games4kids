@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseEmail, type Email, type EntraObjectId } from '@g4k/sdk';
-import { computeDrift, ENTRA, parseAssignmentId, syncEntra, type Assignment, type Drift, type Member, type MemberView } from '@g4k/host';
+import { computeDrift, ENTRA, parseAssignmentId, syncEntra, type Assignment, type Drift, type Member, type MemberView, type UserLookup } from '@g4k/host';
 import { fakeGraph } from './support/graph.ts';
 import { gameId, portalUserId } from './support/ids.ts';
 import { newObjectId, world } from './support/world.ts';
@@ -32,11 +32,60 @@ const view = (userId: typeof ada, state: Member['state'], objectId: EntraObjectI
 	profile: null,
 });
 
+const found = (objectId: EntraObjectId): UserLookup => ({ kind: 'found', objectId });
+const otherOid = newObjectId();
+
 const grant = { resourceDisplayName: 'Microsoft Graph', appRoleId: '1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9' };
 
-const cases: readonly { readonly name: string; readonly assignments: readonly Assignment[]; readonly rows: readonly MemberView[]; readonly grants?: readonly (typeof grant)[]; readonly expected: readonly Drift[] }[] = [
+const cases: readonly {
+	readonly name: string;
+	readonly assignments: readonly Assignment[];
+	readonly rows: readonly MemberView[];
+	readonly lookups?: readonly (readonly [typeof ada, UserLookup])[];
+	readonly grants?: readonly (typeof grant)[];
+	readonly expected: readonly Drift[];
+}[] = [
 	{ name: 'nothing anywhere', assignments: [], rows: [], expected: [] },
-	{ name: 'active member with no account yet', assignments: [], rows: [view(ada, 'active', null)], expected: [{ kind: 'needs-account', userId: ada, email: email('a@example.com') }] },
+	{ name: 'active member with no account yet', assignments: [], rows: [view(ada, 'active', null)], expected: [{ kind: 'needs-account', userId: ada, email: email('a@example.com'), account: null }] },
+	{ name: 'active member whose email finds an existing account', assignments: [], rows: [view(ada, 'active', null)], lookups: [[ada, found(adaOid)]], expected: [{ kind: 'needs-account', userId: ada, email: email('a@example.com'), account: adaOid }] },
+	{ name: 'active member linked to the account their email finds', assignments: [assignment(adaOid)], rows: [view(ada, 'active', adaOid)], lookups: [[ada, found(adaOid)]], expected: [] },
+	{
+		name: 'active member linked to another account than their email finds',
+		assignments: [assignment(adaOid)],
+		rows: [view(ada, 'active', adaOid)],
+		lookups: [[ada, found(otherOid)]],
+		expected: [{ kind: 'wrong-account', userId: ada, email: email('a@example.com'), linked: adaOid, account: otherOid, assignment: assignment(adaOid) }],
+	},
+	{
+		name: 'a wrongly linked member whose old account is not assigned',
+		assignments: [],
+		rows: [view(ada, 'active', adaOid)],
+		lookups: [[ada, found(otherOid)]],
+		expected: [{ kind: 'wrong-account', userId: ada, email: email('a@example.com'), linked: adaOid, account: otherOid, assignment: null }],
+	},
+	{
+		name: 'an email with two matching accounts changes nothing, linked or not',
+		assignments: [assignment(adaOid)],
+		rows: [view(ada, 'active', adaOid), view(ben, 'active', null)],
+		lookups: [
+			[ada, { kind: 'ambiguous', userPrincipalNames: ['a1@example.com', 'a2@example.com'] }],
+			[ben, { kind: 'ambiguous', userPrincipalNames: ['b1@example.com', 'b2@example.com'] }],
+		],
+		expected: [
+			{ kind: 'ambiguous-account', userId: ada, email: email('a@example.com'), userPrincipalNames: ['a1@example.com', 'a2@example.com'] },
+			{ kind: 'ambiguous-account', userId: ben, email: email('b@example.com'), userPrincipalNames: ['b1@example.com', 'b2@example.com'] },
+		],
+	},
+	{
+		name: 'an email that finds another member\'s sign-in is reported and never linked',
+		assignments: [assignment(adaOid), assignment(benOid)],
+		rows: [view(ada, 'revoked', adaOid), view(ben, 'active', benOid)],
+		lookups: [[ben, found(adaOid)]],
+		expected: [
+			{ kind: 'assigned-revoked', userId: ada, assignment: assignment(adaOid) },
+			{ kind: 'account-taken', userId: ben, email: email('b@example.com'), account: adaOid, owner: ada },
+		],
+	},
 	{ name: 'active member assigned', assignments: [assignment(adaOid)], rows: [view(ada, 'active', adaOid)], expected: [] },
 	{ name: 'active member Entra does not admit', assignments: [], rows: [view(ada, 'active', adaOid)], expected: [{ kind: 'not-assigned', userId: ada, objectId: adaOid }] },
 	{ name: 'revoked member still assigned', assignments: [assignment(adaOid)], rows: [view(ada, 'revoked', adaOid)], expected: [{ kind: 'assigned-revoked', userId: ada, assignment: assignment(adaOid) }] },
@@ -69,9 +118,9 @@ const cases: readonly { readonly name: string; readonly assignments: readonly As
 	{ name: 'an app role held by the admin app is an alarm', assignments: [], rows: [], grants: [grant], expected: [{ kind: 'admin-app-grant', grant }] },
 ];
 
-for (const { name, assignments, rows, grants = [], expected } of cases) {
+for (const { name, assignments, rows, lookups = [], grants = [], expected } of cases) {
 	test(`computeDrift: ${name}`, () => {
-		assert.deepEqual(computeDrift(assignments, grants, rows), expected);
+		assert.deepEqual(computeDrift(assignments, grants, rows, new Map(lookups)), expected);
 	});
 }
 
@@ -168,6 +217,40 @@ test('a second sync after a relink changes nothing', async () => {
 	const drift = await syncEntra(entra.graph, w.admin, null, 'https://games.example/');
 	assert.equal(entra.writes().length, before);
 	assert.deepEqual(drift.map((d) => d.kind), ['unmanaged']);
+});
+
+test('a relink cut short after the old link is forgotten converges on the next run', async () => {
+	const { w, entra, userId, member, guest } = await wronglyLinked();
+	let failOnce = true;
+	const crashing = {
+		...w.admin,
+		async recordIdentity(...args: Parameters<typeof w.admin.recordIdentity>) {
+			if (failOnce) {
+				failOnce = false;
+				throw new Error('crashed after forgetting the old link');
+			}
+			return w.admin.recordIdentity(...args);
+		},
+	};
+	await assert.rejects(syncEntra(entra.graph, crashing, null, 'https://games.example/'));
+	const drift = await syncEntra(entra.graph, crashing, null, 'https://games.example/');
+	assert.deepEqual(drift.map((d) => d.kind), ['unmanaged']);
+	assert.equal((await w.admin.rows()).find((row) => row.member.userId === userId)?.objectId, guest);
+	assert.deepEqual([entra.assignments.has(guest), entra.assignments.has(member)], [true, false]);
+	assert.equal(entra.calls.filter((call) => call === 'invite').length, 0);
+});
+
+test('an email that matches two accounts sends no invite, assigns nothing, and is reported with both UPNs', async () => {
+	const w = world();
+	const entra = fakeGraph();
+	const riz = email('riz74@hotmail.com');
+	const userId = await w.admin.userIdFor(riz);
+	await w.admin.putMember({ userId, state: 'active', games: { kind: 'all' } });
+	entra.ambiguous.set(riz, ['riz74@hotmail.com', 'riz74_hotmail.com#EXT#@tenant.onmicrosoft.com']);
+	const drift = await syncEntra(entra.graph, w.admin, null, 'https://games.example/');
+	assert.deepEqual(drift, [{ kind: 'ambiguous-account', userId, email: riz, userPrincipalNames: ['riz74@hotmail.com', 'riz74_hotmail.com#EXT#@tenant.onmicrosoft.com'] }]);
+	assert.deepEqual(entra.writes(), []);
+	assert.equal((await w.admin.rows())[0]?.objectId, null);
 });
 
 test('a sync for one member touches only that member', async () => {

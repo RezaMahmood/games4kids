@@ -116,6 +116,9 @@ export function adminStore(tables: AdminTables, newId: () => string): AdminStore
 		async recordIdentity(objectId, userId) {
 			await tables.identities.insertIfAbsent({ partitionKey: 'identity', rowKey: identityKey(ENTRA, objectId), userId });
 		},
+		async forgetIdentity(objectId) {
+			await tables.identities.remove('identity', identityKey(ENTRA, objectId));
+		},
 		async rows(): Promise<readonly MemberView[]> {
 			const [members, emails, identities, profiles] = await Promise.all([
 				tables.members.inPartition('member'),

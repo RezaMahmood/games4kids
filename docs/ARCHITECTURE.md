@@ -187,7 +187,7 @@ Gone from the games: drawpad's admin area, letterjoin's `admin.html`, drafts sho
 ### Onboarding and revoking
 
 1. On the members page, you enter the child's email and tick games. Nothing is ticked by default. `saveMember` (`admin.console`) writes the `emails` row, which fixes the `PortalUserId`, and the active member row.
-2. The page asks to sync with Entra. After the popup, `syncEntra` looks the person up by `mail`, `otherMails`, or `userPrincipalName` and records an existing account's object id. Only a member with no recorded object id is looked up (review N2), and only a new person gets `POST /invitations`. Invites are for guests only, because an address in one of the tenant's verified domains cannot be B2B-invited (inferred, review W1). It writes the identity row and assigns the account to games4kids, retrying after 2, 4, 8, and 16 seconds while Entra replicates a new guest (guess).
+2. The page asks to sync with Entra. After the popup, `syncEntra` looks up every active member with `findUser` and records an existing account's object id. A user matches when their `mail` equals the email, their `userPrincipalName` equals it, or they are a guest whose UPN encodes it as `<local>_<domain>#EXT#@<tenant domain>`. Every criterion counts the same. One match is the account. No match means a new person, and only a new person gets `POST /invitations`. Two or more matches are ambiguous, and nothing changes until Entra has one. `findUser` is one Graph call per active member for each check or sync. Invites are for guests only, because an address in one of the tenant's verified domains cannot be B2B-invited (inferred, review W1). It writes the identity row and assigns the account to games4kids, retrying after 2, 4, 8, and 16 seconds while Entra replicates a new guest (guess).
 3. The child signs in, chooses a name on `/welcome/`, and home shows the granted games.
 
 To revoke, set the member revoked (`admin.console`). Every games-side app refuses the next request. The page then offers a sync, which removes the assignment.
@@ -198,6 +198,9 @@ To revoke, set the member revoked (`admin.console`). Every games-side app refuse
 | --- | --- |
 | `needs-account`: active member, no identity row | find, else invite; record; assign |
 | `not-assigned`: active member Entra refuses | assign |
+| `wrong-account`: active member whose identity row names another account than `findUser` finds | unassign the old account; delete its identity row; record the found account; assign it |
+| `ambiguous-account`: more than one account matches an active member's email | none; shown as an alarm with each match's UPN |
+| `account-taken`: an active member's email finds another member's account | none; shown as an alarm, because one account signs in as one member |
 | `assigned-revoked`: revoked member still assigned | unassign |
 | `unmanaged`: an assignment with no identity row, such as one bootstrap made | none, ever (review W2) |
 | `admin-app-grant`: games4kids-admin's principal holds an app role | none; shown as an alarm |

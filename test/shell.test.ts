@@ -296,3 +296,22 @@ test('the members page reads rows defensively and describes each drift in plain 
 	assert.match(lines[1]?.text ?? '', /old@example\.com is revoked but still assigned/);
 	assert.match(lines[2]?.text ?? '', /Microsoft Graph/);
 });
+
+test('the members page names the Entra accounts an ambiguous address matches and says nothing changed', () => {
+	const rows = parseMembers([
+		{ member: { userId: 'u1', state: 'active', games: { kind: 'all' } }, email: 'riz74@hotmail.com', objectId: 'o1', profile: null },
+		{ member: { userId: 'u2', state: 'active', games: { kind: 'all' } }, email: 'mum@example.com', objectId: 'o2', profile: null },
+	]);
+	const lines = describeDrift(
+		[
+			{ kind: 'ambiguous-account', userId: 'u1', userPrincipalNames: ['a@tenant.example', 'b@tenant.example'] },
+			{ kind: 'wrong-account', userId: 'u1' },
+			{ kind: 'account-taken', userId: 'u1', owner: 'u2' },
+		],
+		rows,
+	);
+	assert.deepEqual(lines.map((line) => line.alarm), [true, false, true]);
+	assert.equal(lines[0]?.text, 'riz74@hotmail.com matches more than one Entra account: a@tenant.example, b@tenant.example. Nothing was changed.');
+	assert.match(lines[1]?.text ?? '', /riz74@hotmail\.com is linked to an Entra account that does not match/);
+	assert.match(lines[2]?.text ?? '', /mum@example\.com signs in with\. Nothing was changed/);
+});
