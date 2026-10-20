@@ -29,7 +29,7 @@ void dpAdmin.tables.drawings.list();
 void dpAdmin.queues['stencil-jobs'].send({ jobId: 'j1' });
 void ljAdmin.tables.reviews.put(row);
 const vision: string | undefined = lj.settings.VISION_ENDPOINT;
-const foundry: string = dpAdmin.settings.FOUNDRY_ENDPOINT;
+const foundry: string | undefined = dpAdmin.settings.FOUNDRY_ENDPOINT;
 void lj.tokens.cognitiveServices();
 void playStore(dp);
 void adminStore(dpAdmin);

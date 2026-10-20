@@ -83,11 +83,6 @@ input[type='range'] { width: 100%; height: 44px; accent-color: var(--primary); }
   .scene-stage .figure-box { width: 100%; height: auto; aspect-ratio: 1 / 1; }
 }
 
-.users { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 24px; padding: 32px 36px 36px; }
-.users > .stack-md { gap: 24px; }
-.users > .stack-md > .panel:last-child { flex: 1; overflow-y: auto; }
-.users form.panel h2 { font-size: 26px; }
-.person-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface); }
 .person { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .person strong { font-size: 17px; }
 .table-scroll { overflow: auto; }

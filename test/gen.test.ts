@@ -122,3 +122,27 @@ test('gen writes each game the ARM parameters for infra/game.bicep, with the man
 		maxInstances: { value: 3 },
 	});
 });
+
+test('gen needs a vite.config.ts for each part built with Vite, and writes the csp each site widens and the web projects tsc builds', () => {
+	const missing = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	game(missing, 'alpha', { id: 'alpha', play: { ...part, web: { kind: 'vite' } } });
+	const refused = gen(missing);
+	assert.equal(refused.status, 1);
+	assert.deepEqual(refused.problems, ['gen: missing-file: alpha: play/web/vite.config.ts']);
+
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	const vite = { ...part, web: { kind: 'vite' } };
+	game(root, 'alpha', { id: 'alpha', play: { ...vite, csp: { 'img-src': ['https://cdn.example'] } }, admin: { ...vite, csp: { 'worker-src': ['blob:'] } } }, [
+		'data/index.ts',
+		'play/api/index.ts',
+		'admin/api/index.ts',
+		'play/web/vite.config.ts',
+		'play/web/tsconfig.json',
+		'admin/web/vite.config.ts',
+	]);
+	game(root, 'beta', { id: 'beta' });
+	assert.equal(gen(root).status, 0);
+	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/games/.gen/csp.json'), 'utf8')), { alpha: { 'img-src': ['https://cdn.example'] } });
+	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/admin/.gen/csp.json'), 'utf8')), { alpha: { 'worker-src': ['blob:'] } });
+	assert.deepEqual(JSON.parse(readFileSync(join(root, 'tsconfig.games.json'), 'utf8')), { files: [], references: [{ path: 'games/alpha/play/web' }] });
+});

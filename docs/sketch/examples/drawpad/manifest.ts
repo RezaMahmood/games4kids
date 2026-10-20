@@ -15,12 +15,10 @@ export default defineGame({
 		web: { kind: 'vite' },
 		settings: {},
 		services: [],
-		csp: { 'img-src': ['blob:'], 'style-src': ['https://fonts.googleapis.com'], 'font-src': ['https://fonts.gstatic.com'] },
 	},
 	admin: {
 		web: { kind: 'vite' },
-		settings: { FOUNDRY_ENDPOINT: { kind: 'url' } },
+		settings: { FOUNDRY_ENDPOINT: { kind: 'url', optional: true }, LOCAL_JOB_EVENTS: { kind: 'int', min: 0, max: 1, default: 0 } },
 		services: ['cognitiveServices'],
-		csp: { 'img-src': ['blob:'], 'worker-src': ["'self'"], 'style-src': ['https://fonts.googleapis.com'], 'font-src': ['https://fonts.gstatic.com'] },
 	},
 });

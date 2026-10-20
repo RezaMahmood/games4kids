@@ -21,7 +21,7 @@ test('each app has its own name, entry and compiled folders', () => {
 	assert.deepEqual(appPlan('drawpad'), { name: 'func-g4k-drawpad', main: 'games/drawpad/.gen/play-app.js', include: ['games/drawpad'], hostJson: 'apps/games/api/host.json' });
 });
 
-const built = existsSync(join(repo, 'dist/apps/games/api/index.js')) && existsSync(join(repo, 'dist', FIXTURES, 'fixture/.gen/play-app.js'));
+const built = existsSync(join(repo, 'dist/apps/games/api/index.js')) && existsSync(join(repo, 'dist', FIXTURES, 'fixture/.gen/play-app.js')) && existsSync(join(repo, 'dist/games/drawpad/.gen/play-app.js'));
 const tools = ['zip', 'unzip'].every((tool) => spawnSync(tool, ['-v'], { stdio: 'ignore' }).status !== null);
 const skip = !built ? 'dist/ is missing; run npx tsc -b' : !tools ? 'zip and unzip are missing' : false;
 
@@ -30,14 +30,14 @@ const unpackedApps = new Map<string, string>();
 function unpacked(app: string) {
 	const known = unpackedApps.get(app);
 	if (known) return known;
-	const zip = packageApp(app, mkdtempSync(join(tmpdir(), 'g4k-zip-')), FIXTURES);
+	const zip = packageApp(app, mkdtempSync(join(tmpdir(), 'g4k-zip-')), app === 'fixture' ? FIXTURES : 'games');
 	const dir = mkdtempSync(join(tmpdir(), 'g4k-app-'));
 	assert.equal(spawnSync('unzip', ['-q', zip, '-d', dir]).status, 0);
 	unpackedApps.set(app, dir);
 	return dir;
 }
 
-for (const app of ['portal', 'admin', 'fixture']) {
+for (const app of ['portal', 'admin', 'fixture', 'drawpad']) {
 	test(`the ${app} zip starts on its own and stops only for its missing settings`, { skip }, () => {
 		const dir = unpacked(app);
 		const { main } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
@@ -65,4 +65,11 @@ test('the admin app packs before any game exists, with no games folder in dist',
 	assert.equal(spawnSync('unzip', ['-q', zip, '-d', dir]).status, 0);
 	assert.ok(existsSync(join(dir, 'apps/admin/.gen/modules.js')));
 	assert.equal(existsSync(join(dir, 'no-such-games')), false);
+});
+
+test('the admin zip carries each game\'s admin part and data, and neither a test nor the page sources', { skip }, () => {
+	const dir = unpacked('admin');
+	for (const path of ['games/drawpad/manifest.js', 'games/drawpad/data/stores.js', 'games/drawpad/admin/api/worker.js', 'apps/admin/.gen/modules.js']) assert.ok(existsSync(join(dir, path)), `${path} is packed`);
+	const files = spawnSync('find', [join(dir, 'games'), '-type', 'f'], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+	assert.deepEqual(files.filter((file) => file.endsWith('.test.js') || file.includes('/web/') || file.endsWith('.tsx')), []);
 });
