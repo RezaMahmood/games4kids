@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GAME_ID, type Refusal } from '@g4k/sdk';
 import { parseAdminCatalog, parseAdminConfig } from '../apps/admin/shell/v1/config.ts';
-import { describeDrift, parseMembers } from '../apps/admin/pages/members-model.ts';
+import { describeDrift, gamesSummary, membersView, parseMembers, type DriftReport, type MemberRow } from '../apps/admin/pages/members-model.ts';
 import { parseCatalog, parseGamesConfig } from '../apps/games/shell/v1/config.ts';
 import { parseCaller, parseMe } from '../apps/games/shell/v1/me.ts';
 import { onRefusal } from '../apps/games/shell/v1/refusal.ts';
@@ -295,4 +295,87 @@ test('the members page reads rows defensively and describes each drift in plain 
 	assert.match(lines[0]?.text ?? '', /kid@example\.com has no Entra account yet/);
 	assert.match(lines[1]?.text ?? '', /old@example\.com is revoked but still assigned/);
 	assert.match(lines[2]?.text ?? '', /Microsoft Graph/);
+});
+
+const CATALOG = [
+	{ id: 'drawpad', title: 'Draw Pad' },
+	{ id: 'letterjoin', title: 'Letter Tracing' },
+	{ id: 'chess', title: 'Chess' },
+	{ id: 'maze', title: 'Maze' },
+];
+
+function member(userId: string, email: string, extra: Partial<MemberRow> = {}): MemberRow {
+	return { userId, email, state: 'active', games: { kind: 'some', ids: [] }, linked: true, displayName: null, ...extra };
+}
+
+const ROWS: readonly MemberRow[] = [
+	member('u-zoe', 'zoe@example.com', { displayName: 'Zoe' }),
+	member('u-amy', 'amy@example.com', { linked: false }),
+	member('u-ben', 'ben@example.com', { displayName: 'Ben', state: 'revoked' }),
+	member('u-cal', 'cal@example.com', { state: 'revoked' }),
+	member('u-dan', 'dan@example.com', { displayName: 'Daniel' }),
+];
+const UNCHECKED: DriftReport = { kind: 'unchecked' };
+const emails = (view: ReturnType<typeof membersView>) => view.listed.map(({ row }) => row.email);
+
+test('the members list searches email and name, puts who needs a sync first, then sorts by name', () => {
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'all')), ['amy@example.com', 'ben@example.com', 'cal@example.com', 'dan@example.com', 'zoe@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '  DANI ', 'all')), ['dan@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, 'zoe@', 'all')), ['zoe@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, 'nobody', 'all')), []);
+});
+
+test('each filter shows its people and every chip counts within the search', () => {
+	const view = membersView(ROWS, UNCHECKED, CATALOG, '', 'all');
+	assert.deepEqual(view.counts, { all: 5, active: 3, revoked: 2, 'needs-sync': 1 });
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'active')), ['amy@example.com', 'dan@example.com', 'zoe@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'revoked')), ['ben@example.com', 'cal@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'needs-sync')), ['amy@example.com']);
+	assert.deepEqual(membersView(ROWS, UNCHECKED, CATALOG, 'b', 'all').counts, { all: 1, active: 0, revoked: 1, 'needs-sync': 0 });
+});
+
+test('the last Entra answer marks who a sync would fix, and ignores drift that no longer fits the row', () => {
+	const report: DriftReport = {
+		kind: 'checked',
+		lines: describeDrift(
+			[
+				{ kind: 'assigned-revoked', userId: 'u-cal' },
+				{ kind: 'not-assigned', userId: 'u-dan' },
+				{ kind: 'assigned-revoked', userId: 'u-zoe' },
+			],
+			ROWS,
+		),
+	};
+	const view = membersView(ROWS, report, CATALOG, '', 'all');
+	assert.deepEqual(
+		view.listed.map(({ row, standing }) => [row.email, standing]),
+		[
+			['amy@example.com', 'not-synced'],
+			['cal@example.com', 'revoked-assigned'],
+			['dan@example.com', 'not-synced'],
+			['ben@example.com', 'revoked'],
+			['zoe@example.com', 'active'],
+		],
+	);
+	assert.deepEqual(view.attention, { kind: 'needs-sync', people: 3 });
+});
+
+test('the banner raises an alarm over a sync, and stays quiet when nothing needs doing', () => {
+	const alarm: DriftReport = { kind: 'checked', lines: describeDrift([{ kind: 'admin-app-grant', grant: { resourceDisplayName: 'Microsoft Graph' } }], ROWS) };
+	const raised = membersView(ROWS, alarm, CATALOG, '', 'all').attention;
+	assert.equal(raised.kind, 'alarm');
+	assert.equal(raised.kind === 'alarm' && raised.people, 1);
+	assert.match(raised.kind === 'alarm' ? (raised.alarms[0]?.text ?? '') : '', /Microsoft Graph/);
+	const synced = ROWS.map((row) => ({ ...row, linked: true }));
+	assert.deepEqual(membersView(synced, UNCHECKED, CATALOG, '', 'all').attention, { kind: 'quiet', report: 'unchecked' });
+	assert.deepEqual(membersView(synced, { kind: 'checked', lines: [] }, CATALOG, 'zoe', 'all').attention, { kind: 'quiet', report: 'checked' });
+	assert.deepEqual(membersView(ROWS, UNCHECKED, CATALOG, 'zoe', 'all').attention, { kind: 'needs-sync', people: 1 }, 'a search does not hide who needs a sync');
+});
+
+test('the games summary names up to two games by title, then counts the rest', () => {
+	assert.equal(gamesSummary({ kind: 'all' }, CATALOG), 'All games');
+	assert.equal(gamesSummary({ kind: 'some', ids: [] }, CATALOG), 'No games');
+	assert.equal(gamesSummary({ kind: 'some', ids: ['gone'] }, CATALOG), 'No games');
+	assert.equal(gamesSummary({ kind: 'some', ids: ['letterjoin', 'drawpad'] }, CATALOG), 'Draw Pad, Letter Tracing');
+	assert.equal(gamesSummary({ kind: 'some', ids: ['maze', 'drawpad', 'chess', 'letterjoin'] }, CATALOG), 'Draw Pad, Letter Tracing and 2 more');
 });
