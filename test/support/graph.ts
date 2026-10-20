@@ -6,13 +6,18 @@ import { newObjectId } from './world.ts';
 /** Entra as Graph shows it to the elevated admin: users by email, games4kids's assignments, and grants to the admin app. */
 export function fakeGraph() {
 	const users = new Map<Email, EntraObjectId>();
+	/** Emails that match more than one account, with their UPNs. */
+	const ambiguous = new Map<Email, readonly string[]>();
 	const assignments = new Map<EntraObjectId, Assignment>();
 	const grants: AppRoleGrant[] = [];
 	const calls: EntraCall[] = [];
 	const graph: OboGraph = {
 		async findUser(email) {
 			calls.push('find-user');
-			return users.get(email) ?? null;
+			const userPrincipalNames = ambiguous.get(email);
+			if (userPrincipalNames) return { kind: 'ambiguous', userPrincipalNames };
+			const objectId = users.get(email);
+			return objectId ? { kind: 'found', objectId } : { kind: 'none' };
 		},
 		async inviteGuest(email) {
 			calls.push('invite');
@@ -40,5 +45,5 @@ export function fakeGraph() {
 	};
 	const writes = () => calls.filter((call) => call === 'invite' || call === 'assign' || call === 'unassign');
 	const assign = (objectId: EntraObjectId) => graph.assign(objectId);
-	return { graph, users, assignments, grants, calls, writes, assign };
+	return { graph, users, ambiguous, assignments, grants, calls, writes, assign };
 }

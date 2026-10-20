@@ -123,7 +123,7 @@ The script cannot run these, because each needs a sign-in as the admin account.
 
 - **B4.** A token from the elevation popup carries `auth_time`, and a silently refreshed `admin.console` token carries the old value.
 - **B5.** The admin account, as an owner of the games4kids enterprise application, can POST and DELETE an assignment on games4kids and is refused on another app. If it fails, administer from your Global Administrator account (see [Who you are when you administer](ARCHITECTURE.md#who-you-are-when-you-administer)).
-- **B6.** `findUser` finds one real existing guest under `User.Read.All`, including through `otherMails`, and a sync for that guest sends no invitation.
+- **B6.** `findUser` finds one real existing guest under `User.ReadBasic.All` by its mail or its encoded guest UPN, and a sync for that guest sends no invitation.
 - **B7.** A run of `deploy.yml` from a branch cannot enter `infra` or `deploy`.
 
 ## Options

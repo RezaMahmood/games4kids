@@ -33,7 +33,7 @@ export const REPO = 'octo-owner/games4kids';
 
 const scopeIds: Record<string, string> = {
 	'User.Invite.All': '63dd7cd9-b489-4adf-a28c-ac38b9a0f962',
-	'User.Read.All': 'a154be20-db9c-4678-8ab7-66f6cc099a59',
+	'User.ReadBasic.All': 'b340eb25-3456-403f-be2f-af7a0d370277',
 	'AppRoleAssignment.ReadWrite.All': '84bccea3-f856-4a8a-967b-dbe0a3d53a64',
 	'Application.Read.All': 'c79f8feb-a9db-4090-85f9-90d820caa0eb',
 };

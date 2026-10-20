@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
-import { createDirectory, type Directory } from './directory.ts';
+import { createDirectory, type Directory, type DirectoryUser } from './directory.ts';
 
 export const FAKE_GRAPH_TOKEN_PREFIX = 'fake-graph-token:';
 
@@ -24,6 +24,22 @@ export type FakeGraphControls = {
 export type RecordedCall = { readonly method: string; readonly path: string; readonly oid: string };
 
 const error = (status: number, code: string, message: string) => Response.json({ error: { code, message } }, { status });
+
+const CLAUSE = /^(?:(mail|userPrincipalName) eq '((?:[^']|'')*)'|startswith\(userPrincipalName,'((?:[^']|'')*)'\))$/;
+
+/** Graph's user $filter for the clauses findUser sends, case-insensitive as Graph is. undefined for any other clause. */
+function usersMatching(directory: Directory, filter: string): readonly DirectoryUser[] | undefined {
+	const tests = filter.split(' or ').map((clause): ((user: DirectoryUser) => boolean) | undefined => {
+		const match = CLAUSE.exec(clause);
+		if (!match) return undefined;
+		const [, property, equals, prefix] = match;
+		const value = (equals ?? prefix ?? '').replaceAll("''", "'").toLowerCase();
+		if (prefix !== undefined) return (user) => user.upn.toLowerCase().startsWith(value);
+		return property === 'mail' ? (user) => user.mail.toLowerCase() === value : (user) => user.upn.toLowerCase() === value;
+	});
+	if (tests.some((test) => !test)) return undefined;
+	return [...directory.users.values()].filter((user) => tests.some((test) => test?.(user)));
+}
 
 /** The Graph REST subset the admin app uses, over an in-memory directory. `handle` is the fetch the app is given. */
 export function createFakeGraph(options: FakeGraphOptions) {
@@ -54,13 +70,9 @@ export function createFakeGraph(options: FakeGraphOptions) {
 		if (write && controls.refuseWrites) return error(controls.refuseWrites, 'Authorization_RequestDenied', 'Insufficient privileges to complete the operation.');
 
 		if (request.method === 'GET' && url.pathname === '/v1.0/users') {
-			const filter = url.searchParams.get('$filter') ?? '';
-			if (filter.includes('otherMails') && (request.headers.get('consistencylevel') !== 'eventual' || url.searchParams.get('$count') !== 'true')) {
-				return error(400, 'Request_UnsupportedQuery', 'Advanced query capabilities need ConsistencyLevel eventual and $count=true.');
-			}
-			const wanted = /'((?:[^']|'')*)'/.exec(filter)?.[1]?.replaceAll("''", "'") ?? '';
-			const user = wanted ? directory.byEmail(wanted) : undefined;
-			return Response.json({ value: user ? [{ id: user.id }] : [] });
+			const matching = usersMatching(directory, url.searchParams.get('$filter') ?? '');
+			if (!matching) return error(400, 'Request_UnsupportedQuery', 'The fake answers only mail eq, userPrincipalName eq and startswith(userPrincipalName) clauses joined by or.');
+			return Response.json({ value: matching.map((user) => ({ id: user.id, mail: user.mail || null, userPrincipalName: user.upn })) });
 		}
 
 		if (request.method === 'POST' && url.pathname === '/v1.0/invitations') {

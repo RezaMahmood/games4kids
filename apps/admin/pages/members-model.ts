@@ -48,6 +48,14 @@ export function describeDrift(raw: unknown, members: readonly MemberRow[]): read
 				return line(`${nameOf(userId)} has no Entra account yet. Sync will find or invite one.`);
 			case 'not-assigned':
 				return line(`${nameOf(userId)} has an account but is not assigned to the games app. Sync will assign them.`);
+			case 'wrong-account':
+				return line(`${nameOf(userId)} is linked to an Entra account that does not match their address. Sync will link the matching account and remove the old one's access.`);
+			case 'ambiguous-account': {
+				const names = Array.isArray(drift['userPrincipalNames']) ? drift['userPrincipalNames'].join(', ') : '';
+				return line(`${nameOf(userId)} matches more than one Entra account: ${names}. Nothing was changed.`, true);
+			}
+			case 'account-taken':
+				return line(`${nameOf(userId)} matches the Entra account ${nameOf(drift['owner'])} signs in with. Nothing was changed.`, true);
 			case 'assigned-revoked':
 				return line(`${nameOf(userId)} is revoked but still assigned in Entra. Sync will remove the assignment.`);
 			case 'unmanaged':
