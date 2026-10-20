@@ -212,8 +212,10 @@ for (const [size, options] of Object.entries(DIALOG_SIZES)) {
 
 		await page.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(page, ADMIN_EMAIL);
+		await adminReady(page);
 		await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
 		await page.goto(`${ADMIN}/g/letterjoin/#activities`);
+		await adminReady(page);
 		await expect(page.locator('#activities .group').first()).toBeVisible();
 
 		const fill = async (name: string, sentence = 'The quick brown fox.') => {
