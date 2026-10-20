@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Letter Tracing</title>
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Tracing">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <portal-bar></portal-bar>
+  <div id="app">
+    <header class="bar">
+      <h1>Letter Tracing</h1>
+      <span id="practice" class="practice-pill" role="timer" aria-live="off" hidden><span class="practice-cue" aria-hidden="true"></span><span id="practice-text"></span></span>
+      <button id="score-chip" type="button" class="score-chip" aria-label="Open my scoreboard"><span class="chip-star" aria-hidden="true">★</span><span id="score-chip-text">Start collecting points</span></button>
+    </header>
+
+    <main id="list-screen">
+      <div class="list-head">
+        <h2>Choose an activity</h2>
+        <div class="list-tools">
+          <button id="hard-all" type="button" class="hard-switch" role="switch" aria-checked="false" aria-labelledby="hard-all-label" aria-describedby="hard-all-hint">
+            <span class="hard-track" aria-hidden="true"></span>
+            <span class="hard-words"><span id="hard-all-label" class="hard-label">Hard mode</span><span id="hard-all-hint" class="hard-hint">Write it yourself, no outline</span></span>
+          </button>
+          <button id="progress-open" type="button" class="link-button">My progress</button>
+        </div>
+      </div>
+      <ol id="activity-list" class="activity-list"></ol>
+      <p id="list-empty" class="empty" hidden>There are no activities yet. Ask your administrator to publish some.</p>
+    </main>
+
+    <section id="scoreboard-screen" hidden aria-labelledby="sb-heading">
+      <div class="sb-bar">
+        <button id="sb-back" type="button" class="link-button">Back to activities</button>
+        <h2 id="sb-heading">My scoreboard</h2>
+      </div>
+      <div class="sb-scroll">
+        <div class="sb-hero">
+          <span class="sparkle s1" aria-hidden="true">✦</span><span class="sparkle s2" aria-hidden="true">★</span><span class="sparkle s3" aria-hidden="true">✦</span><span class="sparkle s4" aria-hidden="true">★</span>
+          <div class="sb-points-row"><span id="sb-points" class="sb-points">0</span><span class="sb-points-label">points</span></div>
+          <p id="sb-message" class="sb-message"></p>
+          <div class="sb-progress" role="img" id="sb-progress-img"><div id="sb-progress-bar"></div></div>
+          <p id="sb-progress-text" class="sb-progress-text"></p>
+          <button id="sb-next" type="button" class="primary" hidden>Try something new</button>
+        </div>
+        <ol id="sb-list" class="sb-list"></ol>
+      </div>
+    </section>
+
+    <section id="progress-screen" hidden aria-labelledby="pg-heading">
+      <div class="sb-bar">
+        <button id="pg-back" type="button" class="link-button">Back to activities</button>
+        <h2 id="pg-heading">My progress</h2>
+      </div>
+      <div class="sb-scroll">
+        <p id="pg-status" class="pg-status"></p>
+        <ol id="pg-days" class="pg-days"></ol>
+        <p id="pg-note" class="note pg-note" hidden>Score is your average for the day. Speed is how many letters you trace in a minute.</p>
+      </div>
+    </section>
+
+    <section id="trace-screen" hidden>
+      <div class="trace-bar">
+        <button id="back" type="button" class="link-button">Back to list</button>
+        <h2 id="activity-title"></h2>
+        <div id="styles" class="styles" role="group" aria-label="Letter style"></div>
+        <div id="sizes" class="styles sizes" role="group" aria-label="Letter size">
+          <button id="size-down" type="button" aria-label="Smaller letters"><span class="size-a" aria-hidden="true">A</span>−</button>
+          <button id="size-up" type="button" aria-label="Bigger letters"><span class="size-a" aria-hidden="true">A</span>+</button>
+        </div>
+        <div id="clock" data-state="waiting" aria-live="off"></div>
+      </div>
+      <p id="copy-model" hidden><span class="label">Write this:</span> <span id="copy-text"></span></p>
+      <div id="stage">
+        <svg id="sheet" role="img" aria-label="Text to trace. Draw with the pencil, scroll with a finger."></svg>
+      </div>
+      <section id="result" role="status" data-tone="idle">
+        <div id="score" aria-hidden="true"></div>
+        <div class="result-text">
+          <div id="message"></div>
+          <div id="breakdown"></div>
+          <div id="time-taken"></div>
+          <div id="save-status" hidden><span id="save-message"></span> <button id="save-retry" type="button" class="link-button" hidden>Retry</button></div>
+          <div id="copy-status" hidden></div>
+        </div>
+      </section>
+      <nav id="controls" class="controls">
+        <button id="clear" type="button">Clear</button>
+        <button id="finish" type="button" class="primary">Finish</button>
+      </nav>
+      <nav id="copy-controls" class="controls" hidden>
+        <button id="copy-clear" type="button">Clear</button>
+        <button id="copy-done" type="button" class="primary">Done</button>
+      </nav>
+      <nav id="after" class="controls" hidden>
+        <button id="guide-toggle" type="button">Hide guides</button>
+        <button id="back-to-list" type="button">Back to list</button>
+        <button id="start-copy" type="button" class="primary" hidden>Now write it yourself</button>
+        <button id="copy-retry" type="button" class="primary" hidden>Retry sending</button>
+        <button id="next-activity" type="button" class="primary">Next activity</button>
+        <p id="last-note" hidden>That was the last activity.</p>
+      </nav>
+    </section>
+
+    <section id="write-screen" hidden aria-labelledby="write-title">
+      <div class="trace-bar">
+        <button id="write-back" type="button" class="link-button">Back to list</button>
+        <h2 id="write-title"></h2>
+        <span class="badge hard">Hard mode</span>
+        <div id="write-clock" data-state="waiting" aria-live="off">0:00</div>
+      </div>
+      <div id="write-prompt" class="write-prompt" aria-label="Write this"></div>
+      <div id="write-stage">
+        <svg id="write-pad" role="img" aria-label="Lines to write on. Write with the pencil. The page moves up a line when you reach the end."></svg>
+      </div>
+      <nav id="write-controls" class="controls">
+        <button id="write-newline" type="button">New line</button>
+        <button id="write-done" type="button" class="primary">Done</button>
+      </nav>
+      <section id="write-results" role="status" data-tone="ok" hidden>
+        <div id="wr-score"></div>
+        <div class="result-text">
+          <div id="wr-read"></div>
+          <div id="wr-lines"></div>
+          <div id="wr-points" hidden></div>
+          <div id="wr-note" hidden></div>
+          <ul id="wr-misses"></ul>
+          <div id="wr-save" hidden><span id="wr-save-message"></span> <button id="wr-save-retry" type="button" class="link-button" hidden>Retry</button></div>
+        </div>
+        <div class="wr-buttons">
+          <button id="wr-again" type="button">Try again</button>
+          <button id="wr-back" type="button">Back to list</button>
+          <button id="wr-next" type="button" class="primary">Next activity</button>
+        </div>
+      </section>
+    </section>
+  </div>
+  <canvas id="fireworks" aria-hidden="true"></canvas>
+  <div id="practice-notice" class="practice-notice" role="alertdialog" aria-modal="true" aria-labelledby="practice-notice-title" aria-describedby="practice-notice-text" hidden>
+    <div class="practice-card">
+      <div class="practice-badge" aria-hidden="true">✓</div>
+      <h2 id="practice-notice-title">Time's up!</h2>
+      <p id="practice-notice-text">Great practice today. You can stop now and go and do something else.</p>
+      <button id="practice-notice-ok" type="button" class="primary">OK</button>
+    </div>
+  </div>
+  <div id="cheer" aria-hidden="true" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
