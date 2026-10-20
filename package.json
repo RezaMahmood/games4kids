@@ -20,7 +20,7 @@
 		"prebuild": "npm run gen",
 		"build": "tsc -b && npm run build:web",
 		"build:web": "node tools/build-web.mjs",
-		"pretest": "npm run gen",
+		"pretest": "npm run gen && npm run build:web",
 		"test": "node --conditions=source --test \"test/**/*.test.ts\" && vitest run",
 		"lint": "eslint ."
 	},

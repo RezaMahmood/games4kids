@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { adminModule, createAdminApp, createPlayerApp, type App, type Env } from '@g4k/host';
-import { deliverQueues } from '@g4k/host/node';
+import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
+import { readFileSync } from 'node:fs';
+import { MAX_ATTEMPTS } from '../games/drawpad/admin/api/worker.ts';
+import { jobReadyEvent } from '../games/drawpad/data/job-event.ts';
 import { createAdminApi } from '../games/drawpad/admin/api/index.ts';
 import { createPlayApi } from '../games/drawpad/play/api/index.ts';
 import manifest from '../games/drawpad/manifest.ts';
@@ -45,7 +48,7 @@ async function setup(env: Env = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAW
 	const asKid = (method: string, path: string, send: Send = {}) => call(player, method, `/api/g/drawpad/${path}`, { token: kid.token, ...send });
 	const asAdmin = (method: string, path: string, send: Send = {}) => call(admin, method, `/api/admin/g/drawpad/${path}`, { token: adminToken, ...send });
 	const settled = () => accounts.idle();
-	return { w, player, kid, asKid, asAdmin, settled, account: w.accounts.open(drawpad), exceptions: w.telemetry.exceptions };
+	return { w, player, kid, asKid, asAdmin, settled, queue: accounts.open(drawpad).queue('stencil-jobs'), account: w.accounts.open(drawpad), exceptions: w.telemetry.exceptions };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -331,11 +334,71 @@ test('a job cannot be queued without a Foundry account, or past 20 at work, and 
 test('a queue message that is not the ready event of a job is ignored, and an event for a missing job is dropped', async () => {
 	const s = await setup();
 	const before = foundry.calls.length;
-	const queue = s.w.accounts.open(drawpad).queue('stencil-jobs');
-	await queue.send({ eventType: 'Microsoft.Storage.BlobDeleted', subject: '/blobServices/default/containers/jobs/blobs/gone/ready' });
-	await queue.send('not json');
-	await queue.send({ eventType: 'Microsoft.Storage.BlobCreated', subject: '/blobServices/default/containers/jobs/blobs/gone/ready' });
+	await s.queue.send({ eventType: 'Microsoft.Storage.BlobDeleted', subject: '/blobServices/default/containers/jobs/blobs/gone/ready' });
+	await s.queue.send('not json');
+	await s.queue.send({ eventType: 'Microsoft.Storage.BlobCreated', subject: '/blobServices/default/containers/jobs/blobs/gone/ready' });
 	await s.settled();
 	assert.equal(foundry.calls.length, before);
 	assert.deepEqual(s.exceptions, []);
+});
+
+test('a rate limit is waited out once, and a job deleted while it is at work is not brought back by the worker', async () => {
+	const s = await setup();
+	foundry.rateLimitNext(1);
+	const before = foundry.calls.length;
+	const limited = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	assert.equal(statusOf(await s.asAdmin('GET', `jobs/${limited.id}`)), 'done');
+	assert.equal(foundry.calls.slice(before).filter((entry) => entry.path === 'images/generations').length, 4, 'three scenes and one repeat after the 429');
+	assert.deepEqual(((await s.asAdmin('GET', `jobs/${limited.id}`)).data as { steps: { state: string }[] }).steps.map((step) => step.state), ['done', 'done', 'done', 'done']);
+
+	const hold = foundry.holdNext();
+	const doomed = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await hold.arrived;
+	assert.equal((await s.asAdmin('DELETE', `jobs/${doomed.id}`)).status, 204);
+	hold.release();
+	await s.settled();
+	assert.equal((await s.asAdmin('GET', `jobs/${doomed.id}`)).status, 404, 'the worker saved nothing after the delete');
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('a photo job whose photo has expired settles every step as failed without calling Foundry', async () => {
+	const s = await setup();
+	const before = foundry.calls.length;
+	const steps = [{ key: 'titles', state: 'pending' }, { key: 'trace-best', state: 'pending' }];
+	await s.account.table('jobs').put({ partitionKey: 'jobs', rowKey: 'old', source: 'photo', width: 3, height: 2, status: 'queued', steps: JSON.stringify(steps), createdAt: NOW.toISOString(), attempts: 0 });
+	await s.queue.send(jobReadyEvent('old', NOW));
+	await s.settled();
+	const row = (await s.asAdmin('GET', 'jobs/old')).data as { status: string; steps: { key: string; state: string; error?: string }[] };
+	assert.equal(row.status, 'done');
+	assert.deepEqual(row.steps, [{ key: 'titles', state: 'failed', error: 'title_failed' }, { key: 'trace-best', state: 'failed', error: 'redraw_failed' }]);
+	assert.equal(foundry.calls.length, before);
+});
+
+test('the job list shows the last 7 days, newest first and at most 50, and each queued job knows how many are ahead of it', async () => {
+	const s = await setup();
+	const jobs = s.account.table('jobs');
+	const at = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+	const day = 24 * 60;
+	const row = (rowKey: string, status: string, createdAt: string) => ({ partitionKey: 'jobs', rowKey, source: 'description', description: 'x', quality: 'best', status, steps: '[]', createdAt, attempts: 0 });
+	await jobs.put(row('ancient', 'done', at(8 * day)));
+	await jobs.put(row('working', 'processing', at(30)));
+	await jobs.put(row('first', 'queued', at(20)));
+	await jobs.put(row('second', 'queued', at(10)));
+	await jobs.put(row('finished', 'done', at(2 * day)));
+	const list = (await s.asAdmin('GET', 'jobs')).data as { id: string; ahead: number }[];
+	assert.deepEqual(list.map(({ id, ahead }) => [id, ahead]), [['second', 2], ['first', 1], ['working', 0], ['finished', 0]]);
+	assert.equal(((await s.asAdmin('GET', 'jobs/second')).data as { ahead: number }).ahead, 2);
+
+	for (let n = 0; n < 60; n++) await jobs.put(row(`bulk-${n}`, 'done', at(60 + n)));
+	assert.equal(((await s.asAdmin('GET', 'jobs')).data as unknown[]).length, 50);
+});
+
+test('the admin app runs the queue one message at a time and gives up after the attempts the worker settles its job on', () => {
+	const host = JSON.parse(readFileSync(new URL('../apps/admin/api/host.json', import.meta.url), 'utf8')) as { extensionBundle?: { id: string }; extensions: { queues: Record<string, unknown> } };
+	assert.equal(host.extensionBundle?.id, 'Microsoft.Azure.Functions.ExtensionBundle');
+	assert.equal(host.extensions.queues['batchSize'], 1);
+	assert.equal(host.extensions.queues['newBatchThreshold'], 0);
+	assert.equal(host.extensions.queues['maxDequeueCount'], MAX_ATTEMPTS);
+	assert.equal(MAX_DEQUEUE_COUNT, MAX_ATTEMPTS, 'the dev stack tries a message as often as Azure does');
 });

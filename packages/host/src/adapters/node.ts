@@ -78,7 +78,7 @@ export async function serveWithNode(apps: readonly App[], options: NodeServerOpt
 }
 
 /** The queue extension's default: the message is tried three times, and the third failure moves it aside. */
-const MAX_DEQUEUE_COUNT = 3;
+export const MAX_DEQUEUE_COUNT = 3;
 
 export type QueueDelivery = Accounts & {
 	/** Resolves when every message sent so far has been tried. */

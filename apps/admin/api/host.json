@@ -1,5 +1,9 @@
 {
 	"version": "2.0",
 	"telemetryMode": "OpenTelemetry",
-	"logging": { "logLevel": { "default": "Information" } }
+	"logging": { "logLevel": { "default": "Information" } },
+	"extensionBundle": { "id": "Microsoft.Azure.Functions.ExtensionBundle", "version": "[4.0.0, 5.0.0)" },
+	"extensions": {
+		"queues": { "batchSize": 1, "newBatchThreshold": 0, "maxDequeueCount": 3, "visibilityTimeout": "00:01:00" }
+	}
 }
