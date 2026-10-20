@@ -1,0 +1,604 @@
+{
+ "applications": [
+  {
+   "api": {
+    "acceptMappedClaims": null,
+    "knownClientApplications": [],
+    "oauth2PermissionScopes": [],
+    "preAuthorizedApplications": [],
+    "requestedAccessTokenVersion": null
+   },
+   "appId": "c0b146a6-3390-41e9-a9e3-d50cea1e54b4",
+   "displayName": "Draw Pad GitHub deploy",
+   "id": "b3508237-2523-46d7-aac8-736246169b01",
+   "identifierUris": [],
+   "optionalClaims": null,
+   "requiredResourceAccess": [],
+   "signInAudience": "AzureADMyOrg",
+   "spa": {
+    "redirectUris": []
+   },
+   "tags": [],
+   "uniqueName": null
+  },
+  {
+   "api": {
+    "acceptMappedClaims": null,
+    "knownClientApplications": [],
+    "oauth2PermissionScopes": [
+     {
+      "adminConsentDescription": "Lets the Letter Tracing site call its API as the signed-in user.",
+      "adminConsentDisplayName": "Use Letter Tracing",
+      "id": "519f0e37-48b6-4ae3-a485-4b8f9d1206c3",
+      "isEnabled": true,
+      "type": "User",
+      "userConsentDescription": "Lets the Letter Tracing site call its API as you.",
+      "userConsentDisplayName": "Use Letter Tracing",
+      "value": "access_as_user"
+     }
+    ],
+    "preAuthorizedApplications": [
+     {
+      "appId": "8daed136-0dc1-4c20-a5c7-d93ae1b5255f",
+      "delegatedPermissionIds": [
+       "519f0e37-48b6-4ae3-a485-4b8f9d1206c3"
+      ]
+     }
+    ],
+    "requestedAccessTokenVersion": 2
+   },
+   "appId": "8daed136-0dc1-4c20-a5c7-d93ae1b5255f",
+   "displayName": "Letter Tracing",
+   "id": "fc4800b8-f865-426d-af0e-15ee42cb1cb5",
+   "identifierUris": [
+    "api://8daed136-0dc1-4c20-a5c7-d93ae1b5255f"
+   ],
+   "optionalClaims": {
+    "accessToken": [
+     {
+      "additionalProperties": [],
+      "essential": false,
+      "name": "email",
+      "source": null
+     },
+     {
+      "additionalProperties": [],
+      "essential": false,
+      "name": "upn",
+      "source": null
+     }
+    ],
+    "idToken": [],
+    "saml2Token": []
+   },
+   "requiredResourceAccess": [
+    {
+     "resourceAccess": [
+      {
+       "id": "519f0e37-48b6-4ae3-a485-4b8f9d1206c3",
+       "type": "Scope"
+      }
+     ],
+     "resourceAppId": "8daed136-0dc1-4c20-a5c7-d93ae1b5255f"
+    },
+    {
+     "resourceAccess": [
+      {
+       "id": "12426b1a-2a7a-4a9c-af23-e35e18869c87",
+       "type": "Scope"
+      },
+      {
+       "id": "e281cd0e-7116-47af-ae70-e84c722b95bb",
+       "type": "Scope"
+      },
+      {
+       "id": "c7e9e5b1-c5a4-47e3-ac8f-e7b55c7b2fa5",
+       "type": "Scope"
+      },
+      {
+       "id": "823461d1-d116-4930-a1cd-2f37e5ce8872",
+       "type": "Scope"
+      }
+     ],
+     "resourceAppId": "00000003-0000-0000-c000-000000000000"
+    }
+   ],
+   "signInAudience": "AzureADMyOrg",
+   "spa": {
+    "redirectUris": [
+     "https://blue-hill-0a1b2c3d4.4.azurestaticapps.net/redirect.html",
+     "https://blue-hill-0a1b2c3d4.4.azurestaticapps.net/"
+    ]
+   },
+   "tags": [],
+   "uniqueName": null
+  },
+  {
+   "api": {
+    "acceptMappedClaims": null,
+    "knownClientApplications": [],
+    "oauth2PermissionScopes": [
+     {
+      "adminConsentDescription": "Lets the app call the Draw Pad API on behalf of the signed-in user.",
+      "adminConsentDisplayName": "Use Draw Pad as the signed-in user",
+      "id": "c086daff-6ef2-496a-a5bb-eb51d6bd08cb",
+      "isEnabled": true,
+      "type": "User",
+      "userConsentDescription": "Lets the app call the Draw Pad API on your behalf.",
+      "userConsentDisplayName": "Use Draw Pad as you",
+      "value": "access_as_user"
+     }
+    ],
+    "preAuthorizedApplications": [
+     {
+      "appId": "01c5b6f8-a7bf-467b-a4a0-5c6836c79db8",
+      "delegatedPermissionIds": [
+       "c086daff-6ef2-496a-a5bb-eb51d6bd08cb"
+      ]
+     }
+    ],
+    "requestedAccessTokenVersion": 2
+   },
+   "appId": "01c5b6f8-a7bf-467b-a4a0-5c6836c79db8",
+   "displayName": "Draw Pad",
+   "id": "098687ab-b8a3-4134-aa46-75c5dbe67ebe",
+   "identifierUris": [
+    "api://01c5b6f8-a7bf-467b-a4a0-5c6836c79db8"
+   ],
+   "optionalClaims": {
+    "accessToken": [
+     {
+      "additionalProperties": [],
+      "essential": false,
+      "name": "email",
+      "source": null
+     },
+     {
+      "additionalProperties": [],
+      "essential": false,
+      "name": "upn",
+      "source": null
+     }
+    ],
+    "idToken": [],
+    "saml2Token": []
+   },
+   "requiredResourceAccess": [
+    {
+     "resourceAccess": [
+      {
+       "id": "c086daff-6ef2-496a-a5bb-eb51d6bd08cb",
+       "type": "Scope"
+      }
+     ],
+     "resourceAppId": "01c5b6f8-a7bf-467b-a4a0-5c6836c79db8"
+    },
+    {
+     "resourceAccess": [
+      {
+       "id": "12426b1a-2a7a-4a9c-af23-e35e18869c87",
+       "type": "Scope"
+      },
+      {
+       "id": "e281cd0e-7116-47af-ae70-e84c722b95bb",
+       "type": "Scope"
+      },
+      {
+       "id": "c7e9e5b1-c5a4-47e3-ac8f-e7b55c7b2fa5",
+       "type": "Scope"
+      },
+      {
+       "id": "823461d1-d116-4930-a1cd-2f37e5ce8872",
+       "type": "Scope"
+      }
+     ],
+     "resourceAppId": "00000003-0000-0000-c000-000000000000"
+    }
+   ],
+   "signInAudience": "AzureADMyOrg",
+   "spa": {
+    "redirectUris": [
+     "http://localhost:5173/redirect.html",
+     "http://localhost:5173/",
+     "https://blue-hill-0a1b2c3d4.4.azurestaticapps.net/redirect.html",
+     "https://blue-hill-0a1b2c3d4.4.azurestaticapps.net/"
+    ]
+   },
+   "tags": [],
+   "uniqueName": null
+  },
+  {
+   "api": {
+    "acceptMappedClaims": null,
+    "knownClientApplications": [],
+    "oauth2PermissionScopes": [],
+    "preAuthorizedApplications": [],
+    "requestedAccessTokenVersion": null
+   },
+   "appId": "b64edbb9-f2e6-45b1-a2c2-5ba25823b0cd",
+   "displayName": "exampleblog",
+   "id": "15f6412b-575d-4717-a107-a56574fc7acc",
+   "identifierUris": [],
+   "optionalClaims": null,
+   "requiredResourceAccess": [
+    {
+     "resourceAccess": [
+      {
+       "id": "e8622b79-f0bb-457f-a3b0-e463057627d9",
+       "type": "Scope"
+      }
+     ],
+     "resourceAppId": "00000003-0000-0000-c000-000000000000"
+    }
+   ],
+   "signInAudience": "AzureADMyOrg",
+   "spa": {
+    "redirectUris": []
+   },
+   "tags": [],
+   "uniqueName": null
+  },
+  {
+   "api": {
+    "acceptMappedClaims": null,
+    "knownClientApplications": [],
+    "oauth2PermissionScopes": [
+     {
+      "adminConsentDescription": "Allow the application to access the llm-dungeon backend API on behalf of the signed-in user.",
+      "adminConsentDisplayName": "Access llm-dungeon API",
+      "id": "eb0e892b-2575-4895-af4f-b4f899ce073c",
+      "isEnabled": true,
+      "type": "User",
+      "userConsentDescription": "Allow the application to access the llm-dungeon backend on your behalf.",
+      "userConsentDisplayName": "Access llm-dungeon",
+      "value": "access_as_user"
+     }
+    ],
+    "preAuthorizedApplications": [],
+    "requestedAccessTokenVersion": 2
+   },
+   "appId": "a81db165-f034-4016-a957-c6c7ddb4d0bf",
+   "displayName": "LLM Dungeon Login",
+   "id": "96670f34-5161-4b6c-aa5f-55f96bbbf8e4",
+   "identifierUris": [
+    "api://a81db165-f034-4016-a957-c6c7ddb4d0bf"
+   ],
+   "optionalClaims": {
+    "accessToken": [
+     {
+      "additionalProperties": [],
+      "essential": false,
+      "name": "email",
+      "source": null
+     }
+    ],
+    "idToken": [],
+    "saml2Token": []
+   },
+   "requiredResourceAccess": [],
+   "signInAudience": "AzureADandPersonalMicrosoftAccount",
+   "spa": {
+    "redirectUris": [
+     "http://localhost:5173/redirect.html",
+     "https://blue-hill-0a1b2c3d4.4.azurestaticapps.net/redirect.html"
+    ]
+   },
+   "tags": [],
+   "uniqueName": null
+  }
+ ],
+ "servicePrincipals": [
+  {
+   "appId": "01c5b6f8-a7bf-467b-a4a0-5c6836c79db8",
+   "appRoleAssignmentRequired": true,
+   "displayName": "Draw Pad",
+   "id": "68d3def5-752f-4f43-a36d-9a8f46b687f7",
+   "tags": []
+  }
+ ],
+ "providers": [
+  {
+   "namespace": "Microsoft.ManagedIdentity",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Devices",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.CognitiveServices",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.EventGrid",
+   "state": "Registered"
+  },
+  {
+   "namespace": "microsoft.insights",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.OperationalInsights",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Web",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Cdn",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.KeyVault",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Storage",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Authorization",
+   "state": "Registered"
+  },
+  {
+   "namespace": "Microsoft.Resources",
+   "state": "Registered"
+  }
+ ],
+ "identities": [
+  {
+   "clientId": "e01a05f7-c17d-4102-a86d-4332d163251c",
+   "id": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-letterjoin-ul5nga",
+   "name": "id-letterjoin-ul5nga",
+   "principalId": "85d48c2e-4c22-4620-a7ba-6594886e553d",
+   "resourceGroup": "rg-letterjoin",
+   "location": "westeurope",
+   "tenantId": "11f0055b-e6bd-453b-a35f-68678d78eb4c",
+   "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+  }
+ ],
+ "roleAssignments": [
+  {
+   "id": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga/providers/Microsoft.Authorization/roleAssignments/872c6185-d1a6-49af-a600-56d85bb7b651",
+   "name": "872c6185-d1a6-49af-a600-56d85bb7b651",
+   "properties": {
+    "condition": null,
+    "conditionVersion": null,
+    "createdBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "createdOn": "2026-10-16T21:46:43.3841684Z",
+    "delegatedManagedIdentityResourceId": null,
+    "description": null,
+    "principalId": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "principalType": "User",
+    "roleDefinitionId": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/providers/Microsoft.Authorization/roleDefinitions/a59815eb-0d8e-4830-a672-4bbb9a86358b",
+    "scope": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga",
+    "updatedBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "updatedOn": "2026-10-18T18:48:44.0327708Z"
+   },
+   "type": "Microsoft.Authorization/roleAssignments"
+  },
+  {
+   "id": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga/providers/Microsoft.Authorization/roleAssignments/76e6b9ce-9776-4053-a40e-c7e4add890c4",
+   "name": "76e6b9ce-9776-4053-a40e-c7e4add890c4",
+   "properties": {
+    "condition": null,
+    "conditionVersion": null,
+    "createdBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "createdOn": "2026-10-16T21:46:43.4115025Z",
+    "delegatedManagedIdentityResourceId": null,
+    "description": null,
+    "principalId": "85d48c2e-4c22-4620-a7ba-6594886e553d",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/providers/Microsoft.Authorization/roleDefinitions/a59815eb-0d8e-4830-a672-4bbb9a86358b",
+    "scope": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga",
+    "updatedBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "updatedOn": "2026-10-18T18:48:44.0280757Z"
+   },
+   "type": "Microsoft.Authorization/roleAssignments"
+  },
+  {
+   "id": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga/providers/Microsoft.Authorization/roleAssignments/59f5a9d7-8228-4e23-a547-cb269f3de098",
+   "name": "59f5a9d7-8228-4e23-a547-cb269f3de098",
+   "properties": {
+    "condition": null,
+    "conditionVersion": null,
+    "createdBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "createdOn": "2026-10-16T21:46:43.4292069Z",
+    "delegatedManagedIdentityResourceId": null,
+    "description": null,
+    "principalId": "85d48c2e-4c22-4620-a7ba-6594886e553d",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/providers/Microsoft.Authorization/roleDefinitions/9b8d4541-16cb-419e-a244-ba781a0a5720",
+    "scope": "/subscriptions/e362e619-90d5-492d-ae94-cd1a3d29522e/resourcegroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga",
+    "updatedBy": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+    "updatedOn": "2026-10-18T18:48:44.0513420Z"
+   },
+   "type": "Microsoft.Authorization/roleAssignments"
+  }
+ ],
+ "users": [
+  {
+   "id": "928ffbbb-7ab2-47bb-af2e-504564ea6d7c",
+   "userPrincipalName": "owner@example.test",
+   "displayName": "Owner",
+   "mail": "owner@example.test",
+   "employeeType": null
+  },
+  {
+   "id": "a9311362-0ead-484a-aaaa-df301615d289",
+   "userPrincipalName": "guest1_example.com#EXT#@example.onmicrosoft.com",
+   "displayName": "Guest One",
+   "mail": null,
+   "employeeType": null
+  },
+  {
+   "id": "a1fbce96-9a91-40cb-a7bd-e5418e93464e",
+   "userPrincipalName": "guest2_example.com#EXT#@example.onmicrosoft.com",
+   "displayName": "Guest Two",
+   "mail": null,
+   "employeeType": null
+  },
+  {
+   "id": "2813fa96-d5fa-4a54-a45d-1387bc76eb16",
+   "userPrincipalName": "guest3_example.com#EXT#@example.onmicrosoft.com",
+   "displayName": "Guest Three",
+   "mail": null,
+   "employeeType": null
+  },
+  {
+   "id": "12d6e298-b40d-44dc-a49e-20ae2fa9ec4c",
+   "userPrincipalName": "guest4_example.com#EXT#@example.onmicrosoft.com",
+   "displayName": "Member Five",
+   "mail": null,
+   "employeeType": null
+  }
+ ],
+ "organization": [
+  {
+   "id": "11f0055b-e6bd-453b-a35f-68678d78eb4c",
+   "verifiedDomains": [
+    {
+     "capabilities": "Email, OfficeCommunicationsOnline",
+     "isDefault": false,
+     "isInitial": true,
+     "name": "example.onmicrosoft.com",
+     "type": "Managed"
+    },
+    {
+     "capabilities": "Email",
+     "isDefault": true,
+     "isInitial": false,
+     "name": "example.test",
+     "type": "Managed"
+    }
+   ]
+  }
+ ],
+ "grants": [
+  {
+   "clientId": "ce0787a1-f01c-4f0c-aba3-628cd4a0ae97",
+   "consentType": "AllPrincipals",
+   "id": "P-yWL1dCQEG-EutxmWPTHHeEMcQpyohNp_aplIuEXIU",
+   "principalId": null,
+   "resourceId": "3a981bda-3735-4a66-ab64-9a46cee16fc0",
+   "scope": " offline_access openid EWS.AccessAsUser.All EAS.AccessAsUser.All"
+  }
+ ],
+ "appRoleAssignedTo": [
+  {
+   "appRoleId": "dae24b9e-3eaa-4275-a721-a97b066aa846",
+   "createdDateTime": "2026-10-17T18:05:28.7949509Z",
+   "deletedDateTime": null,
+   "id": "zG-7wpddhkmx8yHy-emVGXR-cINeLu1GlanJ_-wK88o",
+   "principalDisplayName": "Guest One",
+   "principalId": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+   "principalType": "User",
+   "resourceDisplayName": "Draw Pad",
+   "resourceId": "68d3def5-752f-4f43-a36d-9a8f46b687f7"
+  },
+  {
+   "appRoleId": "dae24b9e-3eaa-4275-a721-a97b066aa846",
+   "createdDateTime": "2026-10-17T19:18:17.9148867Z",
+   "deletedDateTime": null,
+   "id": "8ShjcT4yb0yHo3zGQiaBdRpzVDilbthAgPhYB4yOGYk",
+   "principalDisplayName": "Guest One",
+   "principalId": "2813fa96-d5fa-4a54-a45d-1387bc76eb16",
+   "principalType": "User",
+   "resourceDisplayName": "Draw Pad",
+   "resourceId": "68d3def5-752f-4f43-a36d-9a8f46b687f7"
+  }
+ ],
+ "directoryRoleAssignments": [
+  {
+   "directoryScopeId": "/",
+   "id": "lAPpYvVpN0KRkAEhdxReEPEoY3E-Mm9Mh6N8xkImgXU-1",
+   "principalId": "2813fa96-d5fa-4a54-a45d-1387bc76eb16",
+   "principalOrganizationId": "11f0055b-e6bd-453b-a35f-68678d78eb4c",
+   "roleDefinitionId": "5ae3bc1c-9a13-43bb-a8b3-5659d8a8e9d1"
+  },
+  {
+   "directoryScopeId": "/",
+   "id": "lAPpYvVpN0KRkAEhdxReEMxvu8KXXYZJsfMh8vnplRk-1",
+   "principalId": "a92eb0af-ff8b-4301-a3ef-6926e011b7ab",
+   "principalOrganizationId": "11f0055b-e6bd-453b-a35f-68678d78eb4c",
+   "roleDefinitionId": "5ae3bc1c-9a13-43bb-a8b3-5659d8a8e9d1"
+  }
+ ],
+ "githubOidc": {
+  "use_default": true,
+  "use_immutable_subject": true,
+  "sub_claim_prefix": "repo:octo-owner@1001/games4kids@2002"
+ },
+ "githubRepo": {
+  "default_branch": "main",
+  "full_name": "octo-owner/games4kids",
+  "id": 2002,
+  "name": "games4kids",
+  "owner": {
+   "id": 1001,
+   "login": "octo-owner"
+  },
+  "private": true
+ },
+ "githubEnvironments": {
+  "total_count": 1,
+  "environments": [
+   {
+    "id": 24628161629,
+    "node_id": "EN_kwDOVNnQTM8AAAAFu_PsXQ",
+    "name": "production",
+    "url": "https://api.github.com/repos/octo-owner/drawpad/environments/production",
+    "html_url": "https://github.com/octo-owner/drawpad/deployments/activity_log?environments_filter=production",
+    "created_at": "2026-10-18T11:25:36Z",
+    "updated_at": "2026-10-18T11:25:36Z",
+    "can_admins_bypass": true,
+    "protection_rules": [
+     {
+      "id": 69214647,
+      "node_id": "GA_kwDOVNnQTM4EICG3",
+      "type": "branch_policy"
+     }
+    ],
+    "deployment_branch_policy": {
+     "protected_branches": false,
+     "custom_branch_policies": true
+    }
+   }
+  ]
+ },
+ "githubBranchPolicies": {
+  "total_count": 1,
+  "branch_policies": [
+   {
+    "id": 63461442,
+    "node_id": "MDE2OkdhdGVCcmFuY2hQb2xpY3k2MzQ2MTQ0Mg==",
+    "name": "main",
+    "type": "branch"
+   }
+  ]
+ },
+ "staticWebApps": [
+  {
+   "name": "swa-letterjoin-ul5nga",
+   "defaultHostname": "blue-hill-0a1b2c3d4.4.azurestaticapps.net",
+   "resourceGroup": "rg-letterjoin"
+  },
+  {
+   "name": "swa-drawpad",
+   "defaultHostname": "blue-hill-0a1b2c3d4.4.azurestaticapps.net",
+   "resourceGroup": "rg-drawpad"
+  },
+  {
+   "name": "exampleblog",
+   "defaultHostname": "white-forest-0d1290503.azurestaticapps.net",
+   "resourceGroup": "blog-rg"
+  }
+ ],
+ "me": {
+  "id": "928ffbbb-7ab2-47bb-af2e-504564ea6d7c",
+  "mail": "owner@example.test",
+  "userPrincipalName": "owner@example.test",
+  "displayName": "Owner"
+ }
+}
