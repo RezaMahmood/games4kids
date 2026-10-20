@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { AdminPlatform, CreateAdminApi, Ctx, CreatePlayApi, GameManifest, Ownership, PlayPlatform, RouteOf, SettingSpec, StorageDeclaration } from '@g4k/sdk';
 import { adminFunctionName, adminModule, createAdminApp, createPlayerApp, requireGameId, type App, type Env, type HostReply, type TokenSource } from '@g4k/host';
-import { call, codeOf, PNG, type Send } from './support/http.ts';
+import { call, codeOf, JPEG, PNG, type Send } from './support/http.ts';
 import { fakeIdp } from './support/idp.ts';
 import { newObjectId, seedAdmin, seedPlayer, world } from './support/world.ts';
 
@@ -26,11 +26,13 @@ function spy<Who>(route: RouteOf<Who>, ran: string[]): RouteOf<Who> {
 			return { ...route, run: (ctx: Ctx<Who, unknown>) => (ran.push(route.name), route.run(ctx)) };
 		case 'png':
 			return { ...route, run: (ctx: Ctx<Who, Uint8Array>) => (ran.push(route.name), route.run(ctx)) };
+		case 'jpeg':
+			return { ...route, run: (ctx: Ctx<Who, Uint8Array>) => (ran.push(route.name), route.run(ctx)) };
 	}
 }
 
 function probe(prefix: string, route: RouteOf<unknown>): Probe {
-	const send: Send = route.body === 'json' ? { json: {} } : route.body === 'png' ? { png: PNG } : {};
+	const send: Send = route.body === 'json' ? { json: {} } : route.body === 'png' ? { png: PNG } : route.body === 'jpeg' ? { jpeg: JPEG } : {};
 	return { name: route.name, method: route.method, path: `${prefix}${route.path.replace(/\{\w+\}/g, 'probe')}`, send };
 }
 

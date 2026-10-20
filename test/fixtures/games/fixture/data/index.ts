@@ -1,4 +1,4 @@
-import type { Caller, PortalUserId, Row, StorageFor } from '@g4k/sdk';
+import type { Blob, Caller, PortalUserId, Row, StorageFor } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
 
 type Fixture = typeof manifest;
@@ -34,6 +34,7 @@ export type PlayStore = {
 	level(id: string): Promise<Level | undefined>;
 	saveScore(caller: Caller, score: Score): Promise<void>;
 	saveUpload(caller: Caller, id: string, png: Uint8Array): Promise<void>;
+	art(name: string, ifNoneMatch: string | undefined): Promise<Blob | 'not-modified' | undefined>;
 };
 
 export function playStore(storage: StorageFor<Fixture, 'play'>): PlayStore {
@@ -51,6 +52,7 @@ export function playStore(storage: StorageFor<Fixture, 'play'>): PlayStore {
 		async saveUpload(caller, id, png) {
 			await storage.blobs.uploads.put(`${caller.userId}/${id}.png`, png, 'image/png');
 		},
+		art: (name, ifNoneMatch) => storage.blobs.art.get(name, ifNoneMatch),
 	};
 }
 
@@ -58,6 +60,9 @@ export type AdminStore = {
 	putLevel(level: Level): Promise<void>;
 	scores(): Promise<readonly (Score & { readonly userId: PortalUserId })[]>;
 	addNote(id: string, text: string): Promise<void>;
+	putArt(name: string, jpeg: Uint8Array): Promise<void>;
+	note(id: string): Promise<{ readonly text: string; readonly done: boolean } | undefined>;
+	finishNote(id: string): Promise<void>;
 };
 
 export function adminStore(storage: StorageFor<Fixture, 'admin'>): AdminStore {
@@ -72,6 +77,15 @@ export function adminStore(storage: StorageFor<Fixture, 'admin'>): AdminStore {
 		async addNote(id, text) {
 			await storage.tables.notes.put({ partitionKey: 'note', rowKey: id, text });
 			await storage.queues.jobs.send({ noteId: id });
+		},
+		putArt: (name, jpeg) => storage.blobs.art.put(name, jpeg, 'image/jpeg'),
+		async note(id) {
+			const row = await storage.tables.notes.get('note', id);
+			return row && { text: String(row['text']), done: row['done'] === true };
+		},
+		async finishNote(id) {
+			const row = await storage.tables.notes.get('note', id);
+			if (row) await storage.tables.notes.put({ partitionKey: 'note', rowKey: id, text: String(row['text']), done: true });
 		},
 	};
 }

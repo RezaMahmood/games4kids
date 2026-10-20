@@ -24,7 +24,7 @@ export function toResponse(reply: HostReply): HttpResponseInit {
 	return { status: reply.status, headers: reply.headers, ...(reply.body === null ? {} : { body: reply.body }) };
 }
 
-/** One app.http per route, so each route is its own function name in telemetry. */
+/** One app.http per route, so each route is its own function name in telemetry, and one app.storageQueue per worker. */
 export function registerWithFunctions(app: App): void {
 	for (const fn of app.functions) {
 		azureFunctions.app.http(fn.name, {
@@ -32,6 +32,13 @@ export function registerWithFunctions(app: App): void {
 			route: fn.route,
 			authLevel: 'anonymous',
 			handler: async (request) => toResponse(await app.handle(toHostRequest(request))),
+		});
+	}
+	for (const worker of app.workers ?? []) {
+		azureFunctions.app.storageQueue(worker.name, {
+			queueName: worker.queue,
+			connection: worker.connection,
+			handler: async (message, context) => worker.run(message, { dequeueCount: Number(context.triggerMetadata?.['dequeueCount'] ?? 1) }),
 		});
 	}
 }

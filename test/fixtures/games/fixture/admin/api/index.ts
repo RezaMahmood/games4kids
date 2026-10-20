@@ -42,6 +42,37 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					return { status: 201, json: { id } };
 				},
 			},
+			{
+				name: 'putArt',
+				method: 'POST',
+				path: 'art/{name}',
+				body: 'jpeg',
+				async run({ params, body }) {
+					await store.putArt(params['name'] ?? '', body);
+					return { status: 204 };
+				},
+			},
+			{
+				name: 'note',
+				method: 'GET',
+				path: 'notes/{id}',
+				body: 'none',
+				async run({ params }) {
+					const note = await store.note(params['id'] ?? '');
+					if (!note) throw new HttpError(404, 'not_found', 'That note is not there.');
+					return { status: 200, json: note };
+				},
+			},
+		],
+		workers: [
+			{
+				queue: 'jobs',
+				async run(message, { dequeueCount }) {
+					const noteId = typeof message === 'object' && message !== null && 'noteId' in message ? String(message.noteId) : '';
+					if (typeof message === 'object' && message !== null && 'failFirst' in message && dequeueCount <= Number(message.failFirst)) throw new Error('not yet');
+					await store.finishNote(noteId);
+				},
+			},
 		],
 	};
 });
