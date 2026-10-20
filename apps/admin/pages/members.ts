@@ -69,7 +69,7 @@ function grantOf(container: HTMLElement): GameGrant {
 async function load(): Promise<void> {
 	rows = parseMembers(await api.get('members'));
 	people.replaceChildren(...rows.map(rowFor));
-	if (rows.length === 0) say('No one has been added yet.');
+	say(rows.length === 0 ? 'No one has been added yet.' : '');
 }
 
 function offerSync(userId: string, email: string): void {

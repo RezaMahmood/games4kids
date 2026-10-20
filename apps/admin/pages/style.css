@@ -80,7 +80,24 @@ thead th {
 	gap: var(--space-sm);
 }
 
+#status {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	margin: 0 calc(-1 * var(--space-md)) var(--space-md);
+	padding: var(--space-sm) var(--space-md);
+	border-bottom: 2px solid var(--color-line);
+	background: var(--color-paper);
+}
+
+#status:empty {
+	padding: 0;
+	border: 0;
+}
+
 #status.problem {
+	border-color: var(--color-danger);
+	background: var(--color-danger-tint);
 	color: var(--color-danger);
 	font-weight: 700;
 }
@@ -99,4 +116,44 @@ thead th {
 
 .tick:has(input:disabled) {
 	opacity: 0.5;
+}
+
+@media (max-width: 40rem) {
+	table,
+	tbody,
+	tr,
+	th,
+	td {
+		display: block;
+	}
+
+	thead {
+		display: none;
+	}
+
+	tr {
+		margin-bottom: var(--space-md);
+		border: 2px solid var(--color-line);
+		border-radius: var(--radius-card);
+		overflow: hidden;
+		background: var(--color-surface);
+	}
+
+	th,
+	td {
+		border: 0;
+		overflow-wrap: anywhere;
+	}
+
+	tbody th {
+		background: var(--color-chip);
+	}
+
+	td:nth-child(4)::before {
+		content: 'Entra: ';
+	}
+
+	table {
+		background: transparent;
+	}
 }
