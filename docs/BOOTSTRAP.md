@@ -67,6 +67,50 @@ This adds both sites' redirect URIs (`/` and `/redirect.html`) to the registrati
 
 Run `node tools/bootstrap.mjs --apply` once more. It must print `No changes.`
 
+## Move the content
+
+Run this after `--after-first-deploy`, once the game accounts exist and before you hand the site to anyone. It copies what you authored in the old apps: drawpad's pictures (the table and every file in the container) and default limit, and letterjoin's activities with their order and the practice minutes setting. It reads the old accounts and never writes to them, and a row or file already in the new account is left alone.
+
+The old accounts are `stdp2qnzjgj6a3qtq` (drawpad) and `stletterjoinul5nga` (letterjoin), the defaults of both tools. The new accounts are `g4k<game><suffix>`. Read the suffix from the Azure portal or with `az storage account list -g rg-games4kids --query "[].name" -o tsv`, and use the five characters after `g4kdrawpad`.
+
+Your `az login` needs Storage Table Data Reader and Storage Blob Data Reader on both old accounts. On the new `g4kdrawpad<suffix>` and `g4kletterjoin<suffix>` accounts it needs Storage Table Data Contributor and Storage Blob Data Contributor, and the portal account `g4kportal<suffix>` needs Storage Table Data Reader for the player-data mapping. Bootstrap does not grant these data roles, so give them to yourself before the first apply:
+
+```
+az role assignment create --assignee <your object id> --role "Storage Blob Data Contributor" --scope $(az storage account show -n g4kdrawpad<suffix> --query id -o tsv)
+```
+
+Repeat for each role and account. A plan with no `--suffix` needs only the two read roles on the old accounts. When last checked, the `az login` on the Mac could read both old accounts' tables and drawpad's containers, and could not list letterjoin's `submissions` container, so grant Storage Blob Data Reader there before running the player-data plan.
+
+1. Read the plan. It writes nothing.
+
+	```
+	node tools/migrate/content.mjs --suffix <suffix>
+	```
+
+	Check the counts. A picture is held back, and listed under `rejected`, when a file the player needs is missing, and an activity is held back when the new app would not accept it.
+
+2. Copy.
+
+	```
+	node tools/migrate/content.mjs --suffix <suffix> --apply
+	```
+
+3. Run the apply again. Every table and container must say `to write 0`.
+
+Without `--suffix` the tool plans against empty new accounts, which is how to check what the old accounts hold before anything is deployed.
+
+## Player data waits for your word
+
+`node tools/migrate/player-data.mjs --suffix <suffix>` is safe to run at any time. It reads the old accounts and the portal tables, writes nothing, and reports how many rows each table would move and which old keys have no PortalUserId yet. A child appears in the mapping once you have invited and synced them. drawpad's object id maps through the `identities` table, and letterjoin's key (the SHA-256 of the email, as the old app made it) maps through the `emails` table. Keys with no match are counted and never written.
+
+Applying needs both flags and your say-so:
+
+```
+node tools/migrate/player-data.mjs --suffix <suffix> --apply --confirm-player-data
+```
+
+Without both, the run is a plan and ends with a refusal line. Rows a child has already made in the new apps are never overwritten, and a second apply writes nothing. drawpad names and time zones are not moved, so each child chooses them again on `/welcome/`. letterjoin reviews keep reviewed, note and time but not who reviewed.
+
 ## Build checks to run by hand
 
 The script cannot run these, because each needs a sign-in as the admin account.
