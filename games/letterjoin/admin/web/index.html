@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Letter Tracing Admin</title>
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <admin-bar></admin-bar>
+  <div id="app">
+    <div class="sticky">
+      <header class="top">
+        <h1>Letter Tracing Admin</h1>
+      </header>
+      <nav class="tabs" aria-label="Admin sections">
+        <a href="#activities" data-tab="activities">Activities <span id="count-activities" class="count"></span></a>
+        <a href="#review" data-tab="review">Review <span id="count-review" class="count"></span></a>
+        <a href="#practice" data-tab="practice">Practice</a>
+        <a href="#progress" data-tab="progress">Progress</a>
+        <a href="#settings" data-tab="settings">Settings</a>
+      </nav>
+    </div>
+
+    <main>
+      <section id="tab-activities" data-tab="activities" aria-labelledby="activities-heading">
+        <div class="row">
+          <h2 id="activities-heading">Activities</h2>
+          <button id="new-activity" type="button" class="primary">New activity</button>
+        </div>
+        <ol id="activities" class="groups"></ol>
+
+        <form id="activity-form" class="panel" hidden novalidate>
+          <h3 id="form-heading">New activity</h3>
+          <div class="grid">
+            <label>Type
+              <select id="f-type">
+                <option value="letters">Letters</option>
+                <option value="words">Words</option>
+                <option value="sentence">Sentence</option>
+                <option value="paragraph">Paragraph</option>
+              </select>
+            </label>
+            <label>Level
+              <select id="f-level">
+                <option value="starter">Starter (ages 8 to 9)</option>
+                <option value="explorer">Explorer (ages 9 to 10)</option>
+                <option value="champion">Champion (ages 10 to 11)</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="f-status">
+                <option value="draft">Draft (only admins see it)</option>
+                <option value="published">Published</option>
+              </select>
+            </label>
+            <label class="wide">Title <input id="f-title" type="text" maxlength="80" required></label>
+            <label class="wide">Description (optional) <input id="f-description" type="text" maxlength="200"></label>
+            <label>Timer
+              <select id="f-timed">
+                <option value="no">No timer</option>
+                <option value="yes">Timed</option>
+              </select>
+            </label>
+            <label id="f-time-label">Time limit (m:ss or seconds) <input id="f-time" type="text" inputmode="numeric" value="1:00"></label>
+            <p id="f-timer-summary" class="note wide"></p>
+            <label class="wide">After tracing
+              <select id="f-mode">
+                <option value="trace">Nothing more (trace only)</option>
+                <option value="traceThenCopy">Copy it unaided on a blank sheet, saved for review (not scored)</option>
+              </select>
+            </label>
+            <label>Letter style the child starts with
+              <select id="f-style">
+                <option value="print">Print</option>
+                <option value="precursive">Pre-cursive</option>
+                <option value="joined">Joined</option>
+              </select>
+            </label>
+            <fieldset id="f-allowed">
+              <legend>Styles the child may pick</legend>
+              <label class="check"><input id="f-allowed-print" type="checkbox" value="print"> Print</label>
+              <label class="check"><input id="f-allowed-precursive" type="checkbox" value="precursive"> Pre-cursive</label>
+              <label class="check"><input id="f-allowed-joined" type="checkbox" value="joined"> Joined</label>
+            </fieldset>
+            <label>Paper
+              <select id="f-paper">
+                <option value="baseline">Baseline only</option>
+                <option value="threeLine">Three lines</option>
+                <option value="fourLine">Four lines</option>
+                <option value="highlighted">Highlighted x-height</option>
+              </select>
+            </label>
+            <label>Line size
+              <select id="f-linesize">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
+
+            <label class="type-letters">Letters, separated by spaces <input id="f-sequence" type="text" placeholder="a b c"></label>
+            <label class="type-letters">Repeat the whole sequence <input id="f-repeat" type="number" min="1" max="20" value="1"></label>
+            <label class="type-words">Category <input id="f-category" type="text" maxlength="40" placeholder="Animals"></label>
+            <label class="type-words wide">Words, separated by spaces or new lines <textarea id="f-words" rows="3"></textarea></label>
+            <label class="type-sentence wide">Sentence <input id="f-sentence" type="text" maxlength="200"></label>
+            <label class="type-paragraph wide">Paragraph <textarea id="f-paragraph" rows="5" maxlength="2000"></textarea></label>
+          </div>
+          <div class="preview">
+            <strong>The child will trace (as laid out on an 11 inch iPad in landscape)</strong>
+            <div class="sheet-preview"><svg id="f-preview" role="img" aria-label="Preview of the sheet"></svg></div>
+            <ul id="f-problems" class="problems"></ul>
+          </div>
+          <div class="row">
+            <button id="f-save" type="submit" class="primary">Save</button>
+            <button id="f-cancel" type="button">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="tab-review" data-tab="review" aria-labelledby="review-heading" hidden>
+        <h2 id="review-heading">Review</h2>
+        <p class="note">Unaided copies from activities set to copy after tracing. They are not scored. Each child keeps the newest three per activity, and a copy stays until you delete it.</p>
+        <form id="review-filter" class="row">
+          <select id="r-child" aria-label="Filter by child"><option value="">All children</option></select>
+          <select id="r-activity" aria-label="Filter by activity"><option value="">All activities</option></select>
+          <label class="check"><input id="r-unreviewed" type="checkbox"> Not reviewed yet</label>
+          <button type="submit">Show</button>
+        </form>
+        <ul id="submissions" class="cards review-grid"></ul>
+        <p id="review-empty" class="note" hidden>No copies match.</p>
+        <button id="review-more" type="button" hidden>Load more</button>
+        <dialog id="viewer" aria-label="Copy at full size">
+          <img id="viewer-image" alt="">
+          <form method="dialog"><button type="submit">Close</button></form>
+        </dialog>
+      </section>
+
+      <section id="tab-practice" data-tab="practice" aria-labelledby="practice-heading" hidden>
+        <div class="row">
+          <h2 id="practice-heading">Practice, last 7 days</h2>
+          <button id="practice-refresh" type="button">Refresh</button>
+        </div>
+        <p id="practice-goal" class="note"></p>
+        <div class="table-wrap">
+          <table id="practice-table" class="practice-table">
+            <caption class="visually-hidden">Minutes each child practised on each of the last seven days</caption>
+            <thead id="practice-head"></thead>
+            <tbody id="practice-body"></tbody>
+          </table>
+        </div>
+        <p id="practice-empty" class="note" hidden>Nobody has practised yet. Children show here once they write with a daily practice time set, or once you add them in Users.</p>
+        <p class="note">Minutes are whole minutes counted by each child's device while they were writing or using the app. A day is the child's own calendar day.</p>
+      </section>
+
+      <section id="tab-progress" data-tab="progress" aria-labelledby="progress-heading" hidden>
+        <h2 id="progress-heading">Progress</h2>
+        <p class="note">Every finished tracing from the last 120 days, grouped by day in your time zone. History starts from when progress tracking was added.</p>
+        <form id="progress-filter" class="row">
+          <select id="p-child" aria-label="Child" required><option value="">Choose a child</option></select>
+          <button type="submit" class="primary">Show</button>
+        </form>
+        <p id="progress-status" class="note"></p>
+        <div id="progress-trend" class="panel trend" hidden>
+          <p id="verdict" class="verdict"></p>
+          <p id="verdict-accuracy"></p>
+          <p id="verdict-speed"></p>
+          <h3>By level</h3>
+          <ul id="progress-levels" class="trend-levels"></ul>
+          <p id="trend-note" class="note"></p>
+        </div>
+        <div class="table-wrap">
+          <table id="progress-table" class="days" hidden>
+            <caption class="visually-hidden">Each day the child traced, with a row for each level used that day</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">Activities</th><th scope="col">Accuracy</th><th scope="col">Speed</th></tr></thead>
+            <tbody id="progress-days"></tbody>
+          </table>
+        </div>
+        <p id="progress-note" class="note" hidden>Accuracy is the average score from 0 to 100. Speed is characters traced per minute, over all the day's tracing.</p>
+      </section>
+
+      <section id="tab-settings" data-tab="settings" aria-labelledby="settings-heading" hidden>
+        <h2 id="settings-heading">Settings</h2>
+        <form id="settings-form" class="panel" novalidate>
+          <h3>Daily practice time</h3>
+          <p class="note">Every child gets the same daily practice time. Their clock starts with their first pen stroke of the day, counts down while they use the app, pauses after 30 seconds without a touch, and tells them when they are done. It starts again at midnight on each child's own device. Set 0 to turn it off.</p>
+          <div class="row">
+            <label for="s-minutes" class="setting-label">Daily practice time (minutes)</label>
+            <input id="s-minutes" type="number" inputmode="numeric" min="0" max="240" step="1" required>
+            <button id="s-save" type="submit" class="primary">Save</button>
+          </div>
+          <p id="s-summary" class="note"></p>
+          <label class="check"><input id="s-hard" type="checkbox"> Hard mode starts on for children</label>
+          <p class="note">Hard mode asks the child to write a word, sentence or passage themselves with no outline. This is where each device starts. A child can still turn it on or off for themselves, and that choice sticks on their device.</p>
+        </form>
+      </section>
+    </main>
+    <div id="status" role="status" hidden></div>
+  </div>
+  <script type="module" src="admin.js"></script>
+</body>
+</html>
