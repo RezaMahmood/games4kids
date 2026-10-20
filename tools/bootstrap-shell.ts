@@ -126,6 +126,7 @@ const APP_FIELDS = 'id,appId,displayName,signInAudience,tags,identifierUris,api,
 const SP_FIELDS = 'id,appId,appRoleAssignmentRequired,tags';
 const MAX_ROUNDS = 4;
 const TRANSIENT = /PrincipalNotFound|does not exist|not found|ResourceNotFound|Request_ResourceNotFound|replicat|AuthorizationFailed|Forbidden|\b403\b|Insufficient privileges|RoleAssignmentExists/i;
+const LICENCE_REFUSAL = /purchased AAD Premium/i;
 const RETRY = { quick: { tries: 8, wait: 5_000 }, propagation: { tries: 40, wait: 30_000 } } as const;
 
 const azGet = (url: string, ...headers: string[]): Command => azCommand('rest', '--method', 'GET', '--url', url, ...(headers.length > 0 ? ['--headers', ...headers] : []));
@@ -276,8 +277,9 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 				const adminSp = c.sps.admin;
 				const directoryRoles = account ? (await graphList(`/roleManagement/directory/roleAssignments?$filter=principalId eq '${account.id}'`)).map((row) => ({ roleDefinitionId: text(rec(row)['roleDefinitionId']), directoryScopeId: text(rec(row)['directoryScopeId']) })) : [];
 				const assigned = adminSp ? (await graphList(`/servicePrincipals/${adminSp.id}/appRoleAssignedTo?$top=100`)).map((row) => text(rec(row)['principalId'])) : [];
+				const gamesOwnerIds = c.sps.games ? (await graphList(`/servicePrincipals/${c.sps.games.id}/owners?$select=id`)).map((row) => text(rec(row)['id'])) : [];
 				const grants = adminSp ? (await graphList(`/oauth2PermissionGrants?$filter=clientId eq '${adminSp.id}'`)).map(parseGrant) : [];
-				return planAdminAccount(c, { verifiedDomains: domains, admin, sameUpn, directoryRoles, assignedPrincipalIds: assigned, grants }, { create: flags.createAdminAccount, upn: adminUpn, adopt: flags.adoptAdminAccount });
+				return planAdminAccount(c, { verifiedDomains: domains, admin, sameUpn, directoryRoles, assignedPrincipalIds: assigned, gamesOwnerIds, grants }, { create: flags.createAdminAccount, upn: adminUpn, adopt: flags.adoptAdminAccount });
 			}
 			case 'github': {
 				const name = await repoName();
@@ -341,7 +343,7 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 				}
 				return;
 			}
-			if (attemptNo >= budget.tries || !TRANSIENT.test(result.stderr)) throw new Error(`${item.summary} failed: ${result.stderr.trim()}`);
+			if (attemptNo >= budget.tries || !TRANSIENT.test(result.stderr) || LICENCE_REFUSAL.test(result.stderr)) throw new Error(`${item.summary} failed: ${result.stderr.trim()}`);
 			io.log(`          retrying in ${budget.wait / 1000}s: ${result.stderr.trim().split('\n')[0]}`);
 			await io.sleep(budget.wait);
 		}

@@ -13,8 +13,8 @@
  * Its credential is id-g4k-admin, a user-assigned identity, as a federated identity credential: no secret. It holds
  * no Graph application permission and no directory role. Delegated Graph scopes, consented per user (consentType
  * Principal) for the admin account only: User.Invite.All, User.ReadBasic.All, AppRoleAssignment.ReadWrite.All,
- * Application.Read.All. The admin account's own roles (Guest Inviter, and Cloud Application Administrator scoped to
- * the games4kids service principal) bound what those scopes reach.
+ * Application.Read.All. The admin account's own standing (Guest Inviter, and ownership of the games4kids service
+ * principal) bounds what those scopes reach.
  *
  * The rows are the intent and Entra follows them. Everyday routes change rows; the one elevated write, syncEntra,
  * reads Entra and applies only the difference, so it converges wherever a previous run stopped.

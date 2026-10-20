@@ -52,6 +52,8 @@ export class World {
 	users: Row[] = structuredClone(fixture.users);
 	directoryRoles: Row[] = [];
 	assigned: Row[] = [];
+	spOwners = new Map<string, string[]>();
+	refusals: { match: RegExp; message: string; times: number }[] = [];
 	grants: Row[] = [];
 	armRoles: Row[] = [];
 	variables = new Map<string, string>();
@@ -75,7 +77,7 @@ export class World {
 
 	next = () => guidFrom(`world/${++this.counter}`);
 	mutations = () => this.log.filter((entry) => !entry.readOnly).map((entry) => entry.command);
-	snapshot = () => JSON.stringify([this.rg, [...this.registered].sort(), this.applications, this.servicePrincipals, this.identities, [...this.identityCredentials], [...this.appCredentials], this.users, this.directoryRoles, this.assigned, this.grants, this.armRoles, [...this.variables], [...this.environments].map(([name, env]) => [name, env.custom, env.policies, [...env.variables]]), [...this.entities]]);
+	snapshot = () => JSON.stringify([this.rg, [...this.registered].sort(), this.applications, this.servicePrincipals, this.identities, [...this.identityCredentials], [...this.appCredentials], this.users, this.directoryRoles, this.assigned, [...this.spOwners], this.grants, this.armRoles, [...this.variables], [...this.environments].map(([name, env]) => [name, env.custom, env.policies, [...env.variables]]), [...this.entities]]);
 
 	appByAppId = (appId: string) => this.applications.find((app) => app['appId'] === appId);
 	letterjoinPrincipalId: string | null = null;
@@ -181,11 +183,17 @@ export class World {
 				const pool = kind === 'applications' ? this.applications : kind === 'users' ? this.users : this.servicePrincipals;
 				if (rest === 'federatedIdentityCredentials') return { value: this.appCredentials.get(id ?? '') ?? [] };
 				if (rest === 'appRoleAssignedTo') return { value: this.assigned.filter((row) => row['resourceId'] === id) };
+				if (rest === 'owners') return { value: (this.spOwners.get(id ?? '') ?? []).map((owner) => ({ id: owner })) };
 				const found = pool.find((row) => row['id'] === id);
 				if (!found) throw new Error(`Request_ResourceNotFound ${path}`);
 				return found;
 			}
 			throw new Error(`the test tenant has no answer for GET ${path}`);
+		}
+		const refusal = this.refusals.find((row) => row.times > 0 && row.match.test(`${method} ${path}`));
+		if (refusal) {
+			refusal.times--;
+			throw new Error(refusal.message);
 		}
 		const input = rec(body);
 		if (path === '/applications' && method === 'POST') {
@@ -220,6 +228,11 @@ export class World {
 		if (grantMatch && method === 'PATCH') return void Object.assign(this.grants.find((row) => row['id'] === grantMatch[1]) ?? {}, input);
 		if (object) {
 			const [, kind, id, rest] = object;
+			if (rest === 'owners/$ref' && method === 'POST') {
+				const added = text(input['@odata.id']).split('/').at(-1) ?? '';
+				this.spOwners.set(id ?? '', [...(this.spOwners.get(id ?? '') ?? []), added]);
+				return undefined;
+			}
 			if (rest === 'appRoleAssignedTo' && method === 'POST') return void this.assigned.push({ id: this.next(), ...input });
 			if (rest === 'federatedIdentityCredentials' && method === 'POST') {
 				const row = { id: this.next(), ...input };

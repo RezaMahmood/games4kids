@@ -282,7 +282,8 @@ describe('--apply', () => {
 		assert.deepEqual(world.armRoles.map((row) => String((row['properties'] as { roleDefinitionId: string }).roleDefinitionId.split('/').at(-1))).sort(), [AZURE_ROLES.contributor, AZURE_ROLES.rbacAdministrator].sort());
 		const account = world.users.find((user) => user['employeeType'] === ADMIN_MARKER);
 		assert.ok(account);
-		assert.deepEqual(world.directoryRoles.map((row) => `${row['roleDefinitionId']}|${row['directoryScopeId']}`).sort(), [`${DIRECTORY_ROLES.guestInviter}|/`, `${DIRECTORY_ROLES.cloudApplicationAdministrator}|/${world.servicePrincipals.find((sp) => sp['appId'] === games['appId'])?.['id']}`].sort());
+		assert.deepEqual(world.directoryRoles.map((row) => `${row['roleDefinitionId']}|${row['directoryScopeId']}`), [`${DIRECTORY_ROLES.guestInviter}|/`]);
+		assert.deepEqual(world.spOwners.get(String(world.servicePrincipals.find((sp) => sp['appId'] === games['appId'])?.['id'])), [account['id']]);
 		assert.deepEqual(world.grants.map((grant) => [grant['consentType'], String(grant['scope']).split(' ').length]).sort(), [['Principal', 2], ['Principal', 4]]);
 		assert.equal(String(world.grants.find((grant) => String(grant['scope']).includes('User.Invite.All'))?.['scope']).split(' ').every((scope) => scope in GRAPH_DELEGATED), true);
 		assert.equal(world.variables.get('GAMES_CLIENT_ID'), games['appId']);
@@ -448,7 +449,8 @@ describe('the admin account plan', () => {
 		identities: {},
 		graph: { spId: 'graph', scopes: GRAPH_DELEGATED },
 	};
-	const extras = { verifiedDomains: ['example.test'], admin: null, sameUpn: null, directoryRoles: [], assignedPrincipalIds: [], grants: [] };
+	const extras = { verifiedDomains: ['example.test'], admin: null, sameUpn: null, directoryRoles: [], assignedPrincipalIds: [], gamesOwnerIds: [], grants: [] };
+	const existing = { id: 'u', userPrincipalName: 'g4k-admin@example.test', employeeType: ADMIN_MARKER, mail: '' };
 
 	test('without the flag it plans nothing for the account', () => {
 		const rows = planAdminAccount(core, extras, { create: false, upn: null, adopt: false });
@@ -461,13 +463,61 @@ describe('the admin account plan', () => {
 		const profile = (create?.command.body as { passwordProfile: { password: string; forceChangePasswordNextSignIn: boolean } }).passwordProfile;
 		assert.equal(profile.password, PASSWORD_SENTINEL);
 		assert.equal(profile.forceChangePasswordNextSignIn, true);
-		assert.match(create?.summary ?? '', /reset it in the Entra admin center/);
+		assert.match(create?.summary ?? '', /az ad user update --id g4k-admin@example\.test --password <temporary> --force-change-password-next-sign-in true/);
 	});
 
-	test('the scoped role names the games4kids service principal, not the admin one', () => {
-		const rows = planAdminAccount(core, extras, { create: true, upn: 'g4k-admin@example.test', adopt: false });
-		const scoped = rows.find((row) => row.id === 'role:Cloud Application Administrator')?.fix[0];
-		assert.equal((scoped?.command.body as { directoryScopeId: string }).directoryScopeId, '/g');
+	test('an account is planned as an owner of the games4kids service principal, not given a scoped role', () => {
+		const rows = planAdminAccount(core, { ...extras, admin: existing }, { create: true, upn: null, adopt: false });
+		assert.equal(rows.some((row) => row.id.includes('Cloud Application Administrator')), false);
+		const owner = rows.find((row) => row.id === 'owner:games4kids');
+		assert.equal(owner?.status, 'change');
+		assert.deepEqual(owner?.fix[0]?.command.args.slice(0, 5), ['rest', '--method', 'POST', '--url', 'https://graph.microsoft.com/v1.0/servicePrincipals/g/owners/$ref']);
+		assert.deepEqual(owner?.fix[0]?.command.body, { '@odata.id': 'https://graph.microsoft.com/v1.0/directoryObjects/u' });
+	});
+
+	test('an account that already owns games4kids has nothing to change', () => {
+		const rows = planAdminAccount(core, { ...extras, admin: existing, gamesOwnerIds: ['someone-else', 'u'] }, { create: true, upn: null, adopt: false });
+		assert.equal(rows.find((row) => row.id === 'owner:games4kids')?.status, 'ok');
+	});
+
+	test('an account holding any role beyond Guest Inviter at the tenant is blocked', () => {
+		const scoped = { roleDefinitionId: '158c047a-c907-4556-b7ef-446551a6b5f7', directoryScopeId: '/g' };
+		const rows = planAdminAccount(core, { ...extras, admin: existing, directoryRoles: [{ roleDefinitionId: DIRECTORY_ROLES.guestInviter, directoryScopeId: '/' }, scoped] }, { create: true, upn: null, adopt: false });
+		assert.equal(rows.find((row) => row.id === 'role:no others')?.status, 'blocked');
+	});
+});
+
+describe('making the admin account an owner', () => {
+	const LICENCE = 'ERROR: Forbidden({"error":{"code":"Authorization_RequestDenied","message":"Only companies who have purchased AAD Premium may perform this operation."}})';
+	const ownerPosts = (world: World) => world.mutations().filter((command) => command.args.some((arg) => arg.endsWith('/owners/$ref')));
+
+	test('a second apply says there is nothing to do', async () => {
+		const world = new World();
+		assert.equal(await run(parseFlags(APPLY), world.io()), 0);
+		assert.equal(ownerPosts(world).length, 1);
+		const second = world.io();
+		assert.equal(await run(parseFlags(APPLY), second), 0);
+		assert.match(second.lines.join('\n'), /\nNo changes\.$/);
+		assert.equal(ownerPosts(world).length, 1);
+	});
+
+	test('a licence refusal fails on the first try and is not retried', async () => {
+		const world = new World();
+		world.refusals.push({ match: /POST .*\/owners\/\$ref/, message: LICENCE, times: 100 });
+		const io = world.io();
+		assert.equal(await run(parseFlags(APPLY), io), 1);
+		assert.match(io.lines.join('\n'), /Only companies who have purchased AAD Premium/);
+		assert.equal(ownerPosts(world).length, 1);
+	});
+
+	test('a 403 that is only replication lag is retried until it succeeds', async () => {
+		const world = new World();
+		world.refusals.push({ match: /POST .*\/owners\/\$ref/, message: 'ERROR: Forbidden({"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges to complete the operation."}})', times: 3 });
+		const io = world.io();
+		assert.equal(await run(parseFlags(APPLY), io), 0, io.lines.join('\n'));
+		const account = world.users.find((user) => user['employeeType'] === ADMIN_MARKER);
+		assert.ok(world.spOwners.get(String(world.servicePrincipals.find((sp) => sp['appId'] === world.applications.find((app) => app['displayName'] === 'games4kids')?.['appId'])?.['id']))?.includes(String(account?.['id'])));
+		assert.equal(ownerPosts(world).length, 4);
 	});
 });
 

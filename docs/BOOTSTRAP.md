@@ -33,7 +33,13 @@ This runbook takes you from an empty tenant to a first deploy. It replaces the m
 	node tools/bootstrap.mjs --apply --create-admin-account
 	```
 
-5. In the Entra admin center, open the new user and choose **Reset password**. Copy the temporary password from the dialog, sign in once as that user, and set a real password.
+5. Set a temporary password from your terminal. Choose the password yourself and type it in the command. The script never sees it.
+
+	```
+	az ad user update --id <upn> --password <temporary> --force-change-password-next-sign-in true
+	```
+
+	Then sign in once as that user on any device and set a real password. Entra may ask you to register multifactor authentication at that sign-in.
 
 6. Run the verify table.
 
@@ -116,7 +122,7 @@ Without both, the run is a plan and ends with a refusal line. Rows a child has a
 The script cannot run these, because each needs a sign-in as the admin account.
 
 - **B4.** A token from the elevation popup carries `auth_time`, and a silently refreshed `admin.console` token carries the old value.
-- **B5.** The admin account's Cloud Application Administrator role, scoped to the games4kids service principal, can POST and DELETE an assignment on games4kids and is refused on another app. If it fails, administer from your Global Administrator account (see [Who you are when you administer](ARCHITECTURE.md#who-you-are-when-you-administer)).
+- **B5.** The admin account, as an owner of the games4kids enterprise application, can POST and DELETE an assignment on games4kids and is refused on another app. If it fails, administer from your Global Administrator account (see [Who you are when you administer](ARCHITECTURE.md#who-you-are-when-you-administer)).
 - **B6.** `findUser` finds one real existing guest under `User.ReadBasic.All`, including through `otherMails`, and a sync for that guest sends no invitation.
 - **B7.** A run of `deploy.yml` from a branch cannot enter `infra` or `deploy`.
 
