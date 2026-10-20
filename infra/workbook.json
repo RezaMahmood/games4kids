@@ -1,0 +1,104 @@
+{
+	"version": "Notebook/1.0",
+	"fallbackResourceIds": ["__APP_INSIGHTS_ID__"],
+	"items": [
+		{
+			"type": 9,
+			"content": {
+				"version": "KqlParameterItem/1.0",
+				"parameters": [
+					{
+						"id": "time-range",
+						"version": "KqlParameterItem/1.0",
+						"name": "TimeRange",
+						"label": "Time range",
+						"type": 4,
+						"isRequired": true,
+						"value": { "durationMs": 604800000 },
+						"typeSettings": {
+							"selectableValues": [
+								{ "durationMs": 86400000 },
+								{ "durationMs": 604800000 },
+								{ "durationMs": 2592000000 }
+							]
+						}
+					},
+					{
+						"id": "subscription",
+						"version": "KqlParameterItem/1.0",
+						"name": "Subscription",
+						"type": 6,
+						"isRequired": true,
+						"typeSettings": { "additionalResourceOptions": [], "includeAll": false },
+						"value": "value::1"
+					}
+				]
+			},
+			"name": "parameters"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"title": "Requests, errors and p95 latency by game",
+				"queryType": 0,
+				"resourceType": "microsoft.insights/components",
+				"query": "requests\n| where timestamp {TimeRange}\n| extend role = tostring(cloud_RoleName), fn = replace_regex(operation_Name, '^[A-Z]+ ', '')\n| where role startswith 'func-g4k-'\n| extend game = case(role == 'func-g4k-admin', tostring(split(fn, '-')[0]), role == 'func-g4k-portal', 'portal', substring(role, 9))\n| summarize requests = count(), errors = countif(success == false), p95_ms = round(percentile(duration, 95), 0), players = dcount(tostring(customDimensions['g4k.user'])) by game\n| order by requests desc",
+				"size": 1,
+				"visualization": "table"
+			},
+			"name": "requests-by-game"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"title": "Requests over time by game",
+				"queryType": 0,
+				"resourceType": "microsoft.insights/components",
+				"query": "requests\n| where timestamp {TimeRange}\n| extend role = tostring(cloud_RoleName), fn = replace_regex(operation_Name, '^[A-Z]+ ', '')\n| where role startswith 'func-g4k-'\n| extend game = case(role == 'func-g4k-admin', tostring(split(fn, '-')[0]), role == 'func-g4k-portal', 'portal', substring(role, 9))\n| summarize requests = count() by game, bin(timestamp, 1h)\n| render timechart",
+				"size": 1,
+				"visualization": "timechart"
+			},
+			"name": "requests-over-time"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"title": "Play minutes and players by game and day",
+				"queryType": 0,
+				"resourceType": "microsoft.insights/components",
+				"query": "customEvents\n| where timestamp {TimeRange} and name == 'game_session'\n| extend game = tostring(customDimensions['game']), player = tostring(customDimensions['user'])\n| summarize play_minutes = count(), players = dcount(player) by game, day = bin(timestamp, 1d)\n| order by day desc, game asc",
+				"size": 1,
+				"visualization": "table"
+			},
+			"name": "play-minutes"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"title": "AI calls by game",
+				"queryType": 0,
+				"resourceType": "microsoft.insights/components",
+				"query": "dependencies\n| where timestamp {TimeRange}\n| where target has 'cognitiveservices.azure.com' or target has 'openai.azure.com'\n| extend role = tostring(cloud_RoleName), fn = replace_regex(operation_Name, '^[A-Z]+ ', '')\n| extend game = case(role == 'func-g4k-admin', tostring(split(fn, '-')[0]), substring(role, 9))\n| summarize calls = count(), failed = countif(success == false) by game, day = bin(timestamp, 1d)\n| order by day desc, game asc",
+				"size": 1,
+				"visualization": "table"
+			},
+			"name": "ai-calls"
+		},
+		{
+			"type": 3,
+			"content": {
+				"version": "KqlItem/1.0",
+				"title": "Month to date cost by game tag",
+				"queryType": 12,
+				"query": "{\"version\":\"ARMEndpoint/1.0\",\"data\":null,\"headers\":[],\"method\":\"POST\",\"path\":\"/subscriptions/{Subscription:id}/resourceGroups/rg-games4kids/providers/Microsoft.CostManagement/query?api-version=2023-03-01\",\"urlParams\":[],\"batchDisabled\":false,\"body\":\"{\\\"type\\\":\\\"ActualCost\\\",\\\"timeframe\\\":\\\"MonthToDate\\\",\\\"dataset\\\":{\\\"granularity\\\":\\\"None\\\",\\\"aggregation\\\":{\\\"totalCost\\\":{\\\"name\\\":\\\"Cost\\\",\\\"function\\\":\\\"Sum\\\"}},\\\"grouping\\\":[{\\\"type\\\":\\\"TagKey\\\",\\\"name\\\":\\\"game\\\"}]}}\",\"transformers\":[{\"type\":\"jsonpath\",\"settings\":{\"tablePath\":\"$.properties.rows[*]\",\"columns\":[{\"path\":\"$[0]\",\"columnid\":\"cost\",\"columnType\":\"real\"},{\"path\":\"$[2]\",\"columnid\":\"game\"},{\"path\":\"$[3]\",\"columnid\":\"currency\"}]}}]}",
+				"size": 1,
+				"visualization": "table"
+			},
+			"name": "cost-by-game"
+		}
+	]
+}

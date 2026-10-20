@@ -29,5 +29,13 @@ jobs:
       - run: npm run lint
       - run: npx tsc -b
       - run: npm test
+      - name: Bicep builds and lints clean
+        run: |
+          set -euo pipefail
+          for file in infra/main.bicep infra/game.bicep test/fixtures/games/fixture/infra.bicep; do
+            az bicep build --file "$file" --outfile /dev/null
+            findings=$(az bicep lint --file "$file" 2>&1)
+            if [ -n "$findings" ]; then echo "$findings"; exit 1; fi
+          done
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e

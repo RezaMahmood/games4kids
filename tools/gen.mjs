@@ -3,8 +3,9 @@
 //
 //   node --conditions=source tools/gen.mjs [--root <dir>]
 //
-// Writes (gitignored, rewritten on predev, prebuild and pretest). Each registry writes the same five outputs:
+// Writes (gitignored, rewritten on predev, prebuild and pretest). Each registry writes the same outputs:
 //   games/<id>/.gen/play-app.ts   the player app entry: playerAppFromEnv + registerWithFunctions
+//   games/<id>/.gen/params.json   the ARM parameters for infra/game.bicep: id, storage with owners, memoryMb, maxInstances
 //   catalog.json                  the games site's home cards, minus apiBaseUrl, which the site deploy job fills in
 //   admin-catalog.json            the admin site's game list, with whether each game has an admin part
 //   modules.ts                    every game's admin part, for the admin app entry
@@ -25,6 +26,7 @@ const NAME_RULES = {
 	queues: { pattern: /^(?=.{3,63}$)[a-z0-9]+(-[a-z0-9]+)*$/, rule: 'a queue name is 3 to 63 lowercase letters, digits and single hyphens' },
 };
 const ADMIN_OWNED = ['admin', 'admin-private'];
+const DEFAULT_HOSTING = { memoryMb: 2048, maxInstances: 10 };
 
 const { values } = parseArgs({ options: { root: { type: 'string', default: '.' } } });
 const root = resolve(values.root);
@@ -74,7 +76,8 @@ async function scanFolder(folder) {
 	if (!hasAdmin && adminOwned.length > 0) problems.push(`no-admin-writer: ${id}: ${adminOwned.join(', ')} need an admin part to write them`);
 	const exportNames = Object.keys(manifest.exports ?? {});
 	if (exportNames.length > 0) problems.push(`exports-reserved: ${id}: ${exportNames.join(', ')}; exports must stay empty`);
-	return { problems, game: { id, folder, hasAdmin, title: manifest.title, summary: manifest.summary, icon: manifest.icon } };
+	const hosting = { ...DEFAULT_HOSTING, ...manifest.play?.hosting };
+	return { problems, game: { id, folder, hasAdmin, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
 }
 
 async function scan(gamesDir) {
@@ -128,6 +131,17 @@ function renderPlayApp() {
 		'registerWithFunctions(playerAppFromEnv(manifest, createPlayApi, process.env));',
 		'',
 	].join('\n');
+}
+
+/** An ARM parameters file for infra/game.bicep: `az deployment group create -n game-<id> -f infra/game.bicep -p @params.json`. */
+function renderParams(game) {
+	const parameters = {
+		id: { value: game.id },
+		storage: { value: game.storage },
+		memoryMb: { value: game.hosting.memoryMb },
+		maxInstances: { value: game.hosting.maxInstances },
+	};
+	return `${JSON.stringify({ $schema: 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#', contentVersion: '1.0.0.0', parameters }, null, '\t')}\n`;
 }
 
 function renderModules(out, games) {
@@ -185,6 +199,7 @@ for (const { out, games, catalog, adminCatalog, modules } of scans) {
 		[adminCatalog, renderAdminCatalog(games)],
 		[modules, renderModules(modules, games)],
 		...games.map((game) => [join(game.folder, '.gen/play-app.ts'), renderPlayApp()]),
+		...games.map((game) => [join(game.folder, '.gen/params.json'), renderParams(game)]),
 	];
 	for (const [path, content] of outputs) {
 		const changed = await writeIfChanged(path, content);

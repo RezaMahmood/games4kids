@@ -12,9 +12,15 @@
  *   apps/games/api/**             portal-app
  *   apps/games/**                 games-site
  *   apps/admin/**                 admin-app, admin-site
+ *   apps/shared/**, design/**     games-site, admin-site
  *   packages/host/**              every player-app, portal-app, admin-app
  *   packages/sdk/**               every target
  *   infra/**                      infra-shared
+ *   games/<id>/*.bicep            infra-game <id>   (infra.bicep and the modules beside it)
+ *   package.json, package-lock.json, tsconfig*.json, tools/{gen,package-app,site-config}.mjs, tools/site-layout.ts
+ *                                 every app and both sites
+ * A path no row matches (docs, tests, dev, workflows) deploys nothing, and a game folder that no longer exists deploys
+ * only the sites.
  * Infra targets run before the app and site targets of the same game. A new games/<id>/ folder therefore creates the
  * game's resources and then deploys both sides, with no Mac step.
  */

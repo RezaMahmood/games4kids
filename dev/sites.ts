@@ -3,10 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { substitutePlaceholders } from '../tools/site-config.ts';
+import { gameWebDir, pageDirs, sharedDirs, shellDir, swaConfigFile, tokensFile, type SiteKind } from '../tools/site-layout.ts';
+
+export type { SiteKind };
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-
-export type SiteKind = 'games' | 'admin';
 
 type SwaConfig = {
 	readonly routes?: readonly { readonly route: string; readonly headers?: Readonly<Record<string, string>>; readonly statusCode?: number }[];
@@ -35,16 +37,10 @@ const TYPES: Readonly<Record<string, string>> = {
 	'.txt': 'text/plain; charset=utf-8',
 };
 
-function substitute(text: string, origins: SiteOptions['origins']): string {
-	return text
-		.replaceAll('__API_ORIGINS__', origins.api)
-		.replaceAll('__ADMIN_API_ORIGIN__', origins.api)
-		.replaceAll('__AUTHORITY_ORIGIN__', origins.authority)
-		.replaceAll('__TELEMETRY_ORIGIN__', origins.telemetry);
-}
+const substitute = (text: string, origins: SiteOptions['origins']) => substitutePlaceholders(text, { api: origins.api, adminApi: origins.api, authority: origins.authority, telemetry: origins.telemetry });
 
 async function loadSwaConfig(kind: SiteKind, origins: SiteOptions['origins']): Promise<SwaConfig> {
-	const raw = await readFile(join(REPO, 'apps', kind, 'staticwebapp.config.json'), 'utf8');
+	const raw = await readFile(swaConfigFile(REPO, kind), 'utf8');
 	return JSON.parse(substitute(raw, origins)) as SwaConfig;
 }
 
@@ -67,21 +63,15 @@ function fileAt(root: string, relative: string): string | null {
 	return existsSync(found) && statSync(found).isFile() ? found : null;
 }
 
-/**
- * Where a URL on a site comes from, with the layout the deploy job will compose:
- *   /shell/v1/*       the compiled shell of this site
- *   /shared/*         the compiled shared modules, shell.css, the vendored MSAL, and tokens.css from design/tokens.json
- *   /g/<id>/*         that game's play/web (games site) or admin/web (admin site)
- *   /<name>.js        a compiled page script;  everything else under apps/<site>/pages
- */
+/** Where a URL on a site comes from: the layout in tools/site-layout.ts, which the deploy job composes too. */
 export function resolveFile(kind: SiteKind, gamesRoot: string, path: string): string | null {
-	const dist = join(REPO, 'dist/apps');
-	if (path.startsWith('/shell/v1/')) return fileAt(join(dist, kind, 'shell/v1'), path.slice('/shell/v1/'.length));
-	if (path === '/shared/tokens.css') return fileAt(join(REPO, 'design/.gen'), 'tokens.css');
-	if (path.startsWith('/shared/')) return fileAt(join(dist, 'shared'), path.slice('/shared/'.length)) ?? fileAt(join(REPO, 'apps/shared'), path.slice('/shared/'.length));
+	const first = (directories: readonly string[], relative: string) => directories.map((directory) => fileAt(directory, relative)).find((found) => found !== null) ?? null;
+	if (path.startsWith('/shell/v1/')) return fileAt(shellDir(REPO, kind), path.slice('/shell/v1/'.length));
+	if (path === '/shared/tokens.css') return existsSync(tokensFile(REPO)) ? tokensFile(REPO) : null;
+	if (path.startsWith('/shared/')) return first(sharedDirs(REPO), path.slice('/shared/'.length));
 	const game = /^\/g\/([a-z][a-z0-9]*)\/(.*)$/.exec(path);
-	if (game) return fileAt(join(resolve(REPO, gamesRoot), game[1] ?? '', kind === 'games' ? 'play/web' : 'admin/web'), game[2] ?? '');
-	return fileAt(join(dist, kind, 'pages'), path) ?? fileAt(join(REPO, 'apps', kind, 'pages'), path);
+	if (game) return fileAt(gameWebDir(REPO, gamesRoot, kind, game[1] ?? ''), game[2] ?? '');
+	return first(pageDirs(REPO, kind), path);
 }
 
 export type Site = { readonly origin: string; close(): Promise<void> };

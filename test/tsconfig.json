@@ -12,6 +12,7 @@
 		{ "path": "../apps/shared" },
 		{ "path": "../apps/games" },
 		{ "path": "../apps/admin" },
-		{ "path": "../dev" }
+		{ "path": "../dev" },
+		{ "path": "../tools" }
 	]
 }
