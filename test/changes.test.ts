@@ -53,6 +53,7 @@ const rows: readonly (readonly [name: string, paths: string[], expected: DeployT
 	['the gen tool', ['tools/gen.mjs'], [...allApps, ...allSites]],
 	['the Vite page build', ['tools/build-web.mjs'], [...allApps, ...allSites]],
 	['a project that compiles every game', ['games/tsconfig.admin.json'], [...allApps, ...allSites]],
+	['the bootstrap tool', ['tools/bootstrap.mjs', 'tools/bootstrap.ts', 'tools/bootstrap-shell.ts'], []],
 	['the dev stack', ['dev/stack.ts'], []],
 	['a test', ['test/conformance.test.ts'], []],
 	['docs only', ['docs/ARCHITECTURE.md', 'README.md', 'docs/sketch/deploy.ts'], []],
