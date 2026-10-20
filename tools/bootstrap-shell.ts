@@ -409,7 +409,7 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 	if (flags.mode === 'verify') {
 		const afterwards: Finding[] = [
 			{ step: 'admin-account', id: 'B4', status: 'todo', detail: 'a token from the elevation popup carries auth_time, and a silently refreshed admin.console token carries the old value', fix: [] },
-			{ step: 'admin-account', id: 'B6', status: 'todo', detail: 'findUser finds one real existing guest under User.ReadBasic.All, including through otherMails, and a sync for that guest sends no invitation', fix: [] },
+			{ step: 'admin-account', id: 'B6', status: 'todo', detail: 'findUser finds one real existing guest under User.Read.All, including through otherMails, and a sync for that guest sends no invitation', fix: [] },
 		];
 		const rows = [...all, ...afterwards];
 		io.log(`\n${formatVerify(rows)}`);

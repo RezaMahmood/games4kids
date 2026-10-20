@@ -1,6 +1,7 @@
 import { HttpError, parseEntraObjectId, type Email, type EntraObjectId } from '@g4k/sdk';
 import type { Elevation } from './admin.ts';
 import { EntraRefused, parseAssignmentId, type AppRoleGrant, type Assignment, type EntraCall, type OboGraph } from './entra.ts';
+import type { Telemetry } from './telemetry.ts';
 
 /** id-g4k-admin's token for api://AzureADTokenExchange from the managed identity endpoint, used as the OBO client_assertion. */
 export type ClientAssertion = () => Promise<string>;
@@ -13,6 +14,8 @@ export type GraphConfig = {
 	readonly gamesPrincipalId: string;
 	/** Object id of games4kids-admin's own service principal, whose app role grants are an alarm. */
 	readonly adminPrincipalId: string;
+	/** Where a refusal's error code goes, so the next one is diagnosable from App Insights. Never a token or a header. */
+	readonly log: Telemetry['log'];
 	readonly authorityHost?: string;
 	readonly graphOrigin?: string;
 	readonly fetch?: typeof fetch;
@@ -63,7 +66,11 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 		if (reply['error'] === 'interaction_required' && typeof reply['claims'] === 'string') {
 			throw new EntraRefused({ kind: 'claims_challenge', claims: reply['claims'] });
 		}
-		if (response.status >= 400 && response.status < 500) throw new EntraRefused({ kind: 'entra_forbidden', call });
+		if (response.status >= 400 && response.status < 500) {
+			const codes = asList(reply['error_codes']).map((code) => `AADSTS${String(code)}`).join(',');
+			config.log('warn', `entra token endpoint refused the OBO exchange for ${call}: status ${response.status} error ${String(reply['error'] ?? 'unknown')} codes ${codes || 'none'}`);
+			throw new EntraRefused({ kind: 'entra_forbidden', call });
+		}
 		throw new HttpError(502, 'entra_unavailable', 'Entra did not answer.');
 	}
 
@@ -74,8 +81,13 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 			headers: { authorization: `Bearer ${await token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
-		if (response.status === 401 || response.status === 403) throw new EntraRefused({ kind: 'entra_forbidden', call });
-		return { status: response.status, data: await jsonOf(response) };
+		const data = await jsonOf(response);
+		if (response.status === 401 || response.status === 403) {
+			const refusal = asRecord(data['error']);
+			config.log('warn', `graph refused ${call}: status ${response.status} code ${String(refusal['code'] ?? 'unknown')} message ${String(refusal['message'] ?? 'none')}`);
+			throw new EntraRefused({ kind: 'entra_forbidden', call });
+		}
+		return { status: response.status, data };
 	}
 
 	const unexpected = (call: EntraCall, status: number) => new HttpError(502, 'entra_unavailable', `Entra answered ${status} to ${call}.`);
