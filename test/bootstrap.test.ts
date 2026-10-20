@@ -401,6 +401,17 @@ describe('--apply --after-first-deploy', () => {
 		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy', '--seed-self']), io), 0, io.lines.join('\n'));
 		assert.equal(world.entities.get(world.ownerId)?.['email'], 'owner@example.test');
 	});
+
+	test('--seed-self as a guest with no mail writes the home address, replacing a row the admin app cannot read', async () => {
+		const world = new World();
+		world.owner = { mail: '', userPrincipalName: 'owner_example.test#EXT#@tenant.onmicrosoft.com' };
+		assert.equal(await run(parseFlags(['--apply', '--alert-email', 'owner@example.test']), world.io()), 0);
+		world.addSwaAndPortal();
+		world.entities.set(world.ownerId, { PartitionKey: 'admin', RowKey: world.ownerId, email: world.owner.userPrincipalName });
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy', '--seed-self']), io), 0, io.lines.join('\n'));
+		assert.equal(world.entities.get(world.ownerId)?.['email'], 'owner@example.test');
+	});
 });
 
 describe('--verify', () => {

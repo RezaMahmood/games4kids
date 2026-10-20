@@ -62,6 +62,7 @@ export class World {
 	oidc: Row = structuredClone(fixture.githubOidc);
 	lag = new Map<string, number>();
 	ownerId = guidFrom('world/owner');
+	owner = { mail: 'owner@example.test', userPrincipalName: 'owner@example.test' };
 	domains = ['example.test'];
 
 	private visible(rows: Row[], key: (row: Row) => string): Row[] {
@@ -172,7 +173,7 @@ export class World {
 			if (path.startsWith('/servicePrincipals?')) return { value: this.visible(this.servicePrincipals.filter((sp) => sp['appId'] === quoted), (sp) => `${text(sp['appId'])}/sp`) };
 			if (path.startsWith('/users?')) return { value: this.users };
 			if (path.startsWith('/organization')) return { value: [{ verifiedDomains: this.domains.map((name) => ({ name })) }] };
-			if (path.startsWith('/me')) return { id: this.ownerId, mail: 'owner@example.test', userPrincipalName: 'owner@example.test' };
+			if (path.startsWith('/me')) return { id: this.ownerId, ...this.owner };
 			if (path.startsWith('/roleManagement/directory/roleAssignments')) return { value: this.directoryRoles.filter((row) => row['principalId'] === quoted) };
 			if (path.startsWith('/oauth2PermissionGrants')) return { value: this.grants.filter((row) => row['clientId'] === quoted) };
 			if (object) {

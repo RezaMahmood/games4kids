@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
+// Bootstrap runs without a build, so it reads the parser from source.
+import { parseEmail, type Email } from '../packages/sdk/src/identity.ts';
 import { functionAppName } from './package-app.ts';
 
 export const LOCATION = 'westeurope';
@@ -713,11 +715,17 @@ export function planGithub(core: Core, extras: GithubExtras, goal: GithubGoal): 
 export type SpaExtras = {
 	readonly hosts: Readonly<Record<AppKey, string | null>>;
 	readonly portal: { readonly name: string; readonly id: string } | null;
-	readonly me: { readonly id: string; readonly email: string } | null;
+	readonly me: { readonly id: string; readonly mail: string; readonly userPrincipalName: string } | null;
 	readonly roles: readonly RoleAssignment[];
 	readonly row: { readonly state: 'present' | 'absent' | 'unknown'; readonly email: string | null };
 	readonly vision: { readonly playPrincipalId: string | null; readonly roles: readonly RoleAssignment[] };
 };
+/** A guest's UPN encodes its home address with the @ turned into the last _, and the admin app reads the admins row's email only if it parses. */
+export function signInEmail(user: { readonly mail: string; readonly userPrincipalName: string }): Email | null {
+	const guest = /^(.+)_([^_]+)#ext#@/i.exec(user.userPrincipalName);
+	return parseEmail(user.mail) ?? (guest ? parseEmail(`${guest[1]}@${guest[2]}`) : parseEmail(user.userPrincipalName));
+}
+
 export type SpaGoal = { readonly adminAccount: UserRow | null; readonly seedSelf: boolean };
 
 /** letterjoin reads handwriting with the old letterjoin's free AI Vision account until its data has moved. A subscription may hold one free account, and the pipeline has no rights in rg-letterjoin. */
@@ -754,11 +762,17 @@ export function planAfterFirstDeploy(core: Core, extras: SpaExtras, goal: SpaGoa
 	else if (extras.vision.roles.some((row) => row.principalId === reader.toLowerCase() && row.roleDefinitionId === AZURE_ROLES.cognitiveServicesUser && row.scope.toLowerCase() === visionScope.toLowerCase())) rows.push(fine(step, visionId, `${functionAppName(BORROWED_VISION.game)} may read handwriting with ${visionScope}`));
 	else rows.push(changing(step, visionId, `${functionAppName(BORROWED_VISION.game)} cannot call ${visionScope} yet`, action('let letterjoin read handwriting', `assign Cognitive Services User on ${visionScope} to ${functionAppName(BORROWED_VISION.game)}`, azCommand('role', 'assignment', 'create', '--assignee-object-id', reader, '--assignee-principal-type', 'ServicePrincipal', '--role', AZURE_ROLES.cognitiveServicesUser, '--scope', visionScope), { retry: 'quick' })));
 
-	const source = goal.adminAccount ? { id: goal.adminAccount.id, email: goal.adminAccount.mail || goal.adminAccount.userPrincipalName, who: 'the admin account' } : goal.seedSelf && extras.me ? { ...extras.me, who: 'you' } : null;
-	if (!source) {
+	const seeded = goal.adminAccount ? { ...goal.adminAccount, who: 'the admin account' } : goal.seedSelf && extras.me ? { ...extras.me, who: 'you' } : null;
+	if (!seeded) {
 		rows.push(blocked(step, 'admins-row', 'no admin account exists. Create it with --create-admin-account, or pass --seed-self to seed your own sign-in (the B5 fallback)'));
 		return rows;
 	}
+	const email = signInEmail(seeded);
+	if (!email) {
+		rows.push(blocked(step, 'admins-row', `${seeded.userPrincipalName} has no mail address the admin app accepts. Set its mail in Entra, then run this again`));
+		return rows;
+	}
+	const source = { id: seeded.id, email, who: seeded.who };
 	if (!extras.portal) {
 		rows.push(blocked(step, 'admins-row', 'the portal storage account does not exist yet. Run the infra deploy first'));
 		return rows;
