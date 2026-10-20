@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { substitutePlaceholders } from '../tools/site-config.ts';
+import { substitutePlaceholders, withGameCsp, type CspByGame } from '../tools/site-config.ts';
 import { gameWebDir, pageDirs, sharedDirs, shellDir, swaConfigFile, tokensFile, type SiteKind } from '../tools/site-layout.ts';
 
 export type { SiteKind };
@@ -25,6 +25,8 @@ export type SiteOptions = {
 	readonly catalog: unknown;
 	/** Where each game's play/web and admin/web folders live: games/ or test/fixtures/games/. */
 	readonly gamesRoot: string;
+	/** What each game's manifest widens in the policy of its own pages. */
+	readonly csp: CspByGame;
 };
 
 const TYPES: Readonly<Record<string, string>> = {
@@ -35,13 +37,14 @@ const TYPES: Readonly<Record<string, string>> = {
 	'.svg': 'image/svg+xml',
 	'.png': 'image/png',
 	'.txt': 'text/plain; charset=utf-8',
+	'.woff2': 'font/woff2',
 };
 
 const substitute = (text: string, origins: SiteOptions['origins']) => substitutePlaceholders(text, { api: origins.api, adminApi: origins.api, authority: origins.authority, telemetry: origins.telemetry });
 
-async function loadSwaConfig(kind: SiteKind, origins: SiteOptions['origins']): Promise<SwaConfig> {
+async function loadSwaConfig(kind: SiteKind, origins: SiteOptions['origins'], csp: CspByGame): Promise<SwaConfig> {
 	const raw = await readFile(swaConfigFile(REPO, kind), 'utf8');
-	return JSON.parse(substitute(raw, origins)) as SwaConfig;
+	return JSON.parse(substitute(withGameCsp(raw, csp), origins)) as SwaConfig;
 }
 
 /** SWA route headers: a route either matches exactly or ends in `*` and matches a prefix. A route's header replaces the global one. */
@@ -78,7 +81,7 @@ export type Site = { readonly origin: string; close(): Promise<void> };
 
 /** One static site on its own port, so the two sites stay two origins, with the headers its staticwebapp.config.json sets. */
 export async function startSite(options: SiteOptions): Promise<Site> {
-	const swa = await loadSwaConfig(options.kind, options.origins);
+	const swa = await loadSwaConfig(options.kind, options.origins, options.csp);
 	const json = (body: unknown) => Buffer.from(JSON.stringify(body));
 	const server = createServer(async (req, res) => {
 		const path = new URL(req.url ?? '/', 'http://localhost').pathname;
