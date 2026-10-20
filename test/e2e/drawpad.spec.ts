@@ -1,26 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
-import { REAL_PORT_BASE } from './ports.ts';
+import { expect, test } from '@playwright/test';
+import { ADMIN, ADMIN_EMAIL, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
 
-const GAMES = `http://localhost:${REAL_PORT_BASE}`;
-const ADMIN = `http://localhost:${REAL_PORT_BASE + 1}`;
-const ADMIN_EMAIL = 'admin@example.com';
 const RUN = Date.now().toString(36);
 const KID_EMAIL = `kid-${RUN}@example.com`;
 const KID_NAME = `Ada${RUN}`;
-
-async function signInAtFakeEntra(page: Page, email: string): Promise<void> {
-	await page.waitForURL('**/oauth2/v2.0/authorize?**');
-	await page.getByLabel('Email').fill(email);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-}
-
-/** The fake popup asks for credentials again, as prompt=login does. */
-function answerPopups(page: Page): void {
-	page.on('popup', async (popup) => {
-		await popup.waitForLoadState('domcontentloaded');
-		await popup.getByRole('button', { name: 'Sign in' }).click();
-	});
-}
 
 test('a child draws and saves until time_up on the games site, after an admin made the picture with an AI job on the admin site', async ({ browser }) => {
 	test.setTimeout(240_000);
@@ -29,11 +12,7 @@ test('a child draws and saves until time_up on the games site, after an admin ma
 	const admin = await adminContext.newPage();
 	const kid = await kidContext.newPage();
 	answerPopups(admin);
-	const problems: string[] = [];
-	for (const page of [admin, kid]) {
-		page.on('pageerror', (error) => problems.push(`${page.url()}: ${error.message}`));
-		page.on('console', (message) => message.type() === 'error' && /Content Security Policy|Refused to/.test(message.text()) && problems.push(message.text()));
-	}
+	const problems = collectProblems([admin, kid]);
 
 	await test.step('the admin gives a child Draw Pad and links their account', async () => {
 		await admin.goto(`${ADMIN}/`);

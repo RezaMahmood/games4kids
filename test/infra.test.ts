@@ -9,6 +9,8 @@ import { workerConnection } from '@g4k/host';
 import { CHAT_DEPLOYMENT } from '../games/drawpad/admin/api/titles.ts';
 import { REDRAWS } from '../games/drawpad/admin/api/redraw.ts';
 import manifest from '../games/drawpad/manifest.ts';
+import letterjoin from '../games/letterjoin/manifest.ts';
+import { BORROWED_VISION } from '../tools/bootstrap.ts';
 import { gameId } from './support/ids.ts';
 import { moduleParameters, prefixed } from '../tools/deploy.ts';
 
@@ -86,4 +88,16 @@ test('drawpad deploys every model its code names, starts a job from the ready bl
 	const settings = Object.keys(prefixed('drawpad', (template.outputs['adminSettings']?.value ?? {}) as Record<string, string>));
 	assert.ok(settings.includes('DRAWPAD_FOUNDRY_ENDPOINT'));
 	for (const name of ['queueServiceUri', 'credential', 'clientId']) assert.ok(settings.includes(`${workerConnection(gameId('drawpad'))}__${name}`), `the worker connection needs ${name}`);
+});
+
+test('letterjoin borrows the old letterjoin Vision account that bootstrap grants it, and hands its player app the endpoint its manifest declares', { skip }, () => {
+	const template = compile('games/letterjoin/infra.bicep');
+	assert.deepEqual(required(template).sort(), ['adminPrincipalId', 'location', 'playPrincipalId', 'queues', 'storageAccountName', 'tags']);
+	assert.deepEqual(template.resources, [], 'the pipeline creates nothing for letterjoin, because the subscription already holds its one free Vision account');
+	const account = BORROWED_VISION.path.split('/').at(-1);
+	assert.equal(template.variables?.['visionEndpoint'], `https://${account}.cognitiveservices.azure.com/`);
+
+	const settings = Object.keys(template.outputs['playSettings']?.value ?? {});
+	assert.deepEqual(settings, Object.keys(letterjoin.play.settings));
+	assert.deepEqual(letterjoin.play.services, ['cognitiveServices']);
 });
