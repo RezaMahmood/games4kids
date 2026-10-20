@@ -149,7 +149,16 @@ export function deployGameInfra(game: string): void {
 	checkTags();
 }
 
-const originOf = (app: string) => `https://${az(['functionapp', 'show', '-g', RESOURCE_GROUP, '-n', functionAppName(app), '--query', 'defaultHostName', '-o', 'tsv'])}`;
+/** `az functionapp show` returns a Flex Consumption app in the raw ARM shape, with the host name under `properties`. */
+export function defaultHostOf(site: unknown): string {
+	const record = (site ?? {}) as { defaultHostName?: unknown; properties?: { defaultHostName?: unknown } };
+	const host = record.properties?.defaultHostName ?? record.defaultHostName;
+	if (typeof host !== 'string' || host === '') throw new Error('the Function app has no host name yet');
+	return host;
+}
+
+const hostOf = (app: string) => defaultHostOf(JSON.parse(az(['functionapp', 'show', '-g', RESOURCE_GROUP, '-n', functionAppName(app), '-o', 'json'])));
+const originOf = (app: string) => `https://${hostOf(app)}`;
 
 async function get(url: string, headers: Record<string, string> = {}) {
 	const response = await fetch(url, { headers, signal: AbortSignal.timeout(30 * SECOND) });
@@ -179,7 +188,7 @@ async function latestDeployment(scm: string, token: string): Promise<Latest> {
 
 export async function deployApp(app: string, zipPath: string): Promise<void> {
 	const name = functionAppName(app);
-	const host = await retrying(() => az(['functionapp', 'show', '-g', RESOURCE_GROUP, '-n', name, '--query', 'defaultHostName', '-o', 'tsv']), propagation);
+	const host = await retrying(() => hostOf(app), propagation);
 	const scm = kuduHost(host);
 	const token = az(['account', 'get-access-token', '--resource', 'https://management.azure.com', '--query', 'accessToken', '-o', 'tsv']);
 	const authorization = { authorization: `Bearer ${token}` };

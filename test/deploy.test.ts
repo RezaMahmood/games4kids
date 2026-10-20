@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { startDevStack, type DevStack } from '../dev/stack.ts';
-import { healthPath, isAuthorizationError, kuduHost, moduleParameters, retrying, summarizeWhatIf, untagged } from '../tools/deploy.ts';
+import { defaultHostOf, healthPath, isAuthorizationError, kuduHost, moduleParameters, retrying, summarizeWhatIf, untagged } from '../tools/deploy.ts';
 
 describe('the health route the pipeline polls is the one each app serves', () => {
 	let stack: DevStack;
@@ -95,4 +95,12 @@ test('a game module receives the names, the principals, the queues and the tags 
 			queues: { value: ['stencil-jobs'] },
 		},
 	);
+});
+
+test('the host name is read from a Flex Consumption app, which az returns in the ARM shape, and from the flat shape', () => {
+	const flex = { id: '/subscriptions/s/resourceGroups/rg-games4kids/providers/Microsoft.Web/sites/func-g4k-portal', kind: 'functionapp,linux', properties: { defaultHostName: 'func-g4k-portal-czavf3dufxfqgme7.westeurope-01.azurewebsites.net', sku: 'FlexConsumption' } };
+	assert.equal(defaultHostOf(flex), 'func-g4k-portal-czavf3dufxfqgme7.westeurope-01.azurewebsites.net');
+	assert.equal(kuduHost(defaultHostOf(flex)), 'func-g4k-portal-czavf3dufxfqgme7.scm.westeurope-01.azurewebsites.net');
+	assert.equal(defaultHostOf({ defaultHostName: 'func-g4k-admin.azurewebsites.net' }), 'func-g4k-admin.azurewebsites.net');
+	assert.throws(() => defaultHostOf({ properties: { defaultHostName: null } }), /no host name/);
 });
