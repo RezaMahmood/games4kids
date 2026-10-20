@@ -26,6 +26,8 @@ import {
 	parseUser,
 	planAdminAccount,
 	planAfterFirstDeploy,
+	BORROWED_VISION,
+	borrowedVisionScope,
 	planAzureRoles,
 	planEntraApps,
 	planGithub,
@@ -46,6 +48,7 @@ import {
 	type UserRow,
 } from './bootstrap.ts';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
+import { functionAppName } from './package-app.ts';
 
 export type ExecResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
 export type Exec = (command: Command) => Promise<ExecResult>;
@@ -314,7 +317,14 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 						row = got.ok ? { state: 'present', email: text(rec(got.value)['email']) } : /ResourceNotFound|does not exist|404/i.test(got.stderr) ? { state: 'absent', email: null } : { state: 'unknown', email: null };
 					}
 				}
-				return planAfterFirstDeploy(c, { hosts, portal, me, roles, row }, { adminAccount: admin, seedSelf: flags.seedSelf });
+				const vision = { playPrincipalId: null as string | null, roles: [] as ReturnType<typeof parseRoleAssignments> };
+				if (c.rg.exists) {
+					const app = await attempt(azCommand('functionapp', 'identity', 'show', '--resource-group', RESOURCE_GROUP, '--name', functionAppName(BORROWED_VISION.game)));
+					vision.playPrincipalId = app.ok ? text(rec(app.value)['principalId']) || null : null;
+					const granted = await attempt(azGet(`${ARM}${borrowedVisionScope(c)}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01`));
+					vision.roles = granted.ok ? parseRoleAssignments(list(rec(granted.value)['value'])) : [];
+				}
+				return planAfterFirstDeploy(c, { hosts, portal, me, roles, row, vision }, { adminAccount: admin, seedSelf: flags.seedSelf });
 			}
 		}
 	}
