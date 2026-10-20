@@ -28,6 +28,7 @@ import { createDirectory, type Directory } from './directory.ts';
 import { startFakeFoundry, type FakeFoundry } from './fake-foundry.ts';
 import { startFakeGraph } from './fake-graph.ts';
 import { startFakeIdp } from './fake-idp.ts';
+import { startFakeVision, type FakeVision } from './fake-vision.ts';
 import { startSite } from './sites.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -41,7 +42,7 @@ const ADMIN_PRINCIPAL_ID = 'bbbbbbbb-0000-4000-8000-000000000002';
 export type StackOptions = {
 	/** Serve the fixture games under test/fixtures/games instead of games/. */
 	readonly fixtures?: boolean;
-	/** Eight consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph, Foundry. */
+	/** Nine consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph, Foundry, Vision. */
 	readonly portBase?: number;
 	/** Azurite or any storage account connection string. Without it every account is in memory. */
 	readonly azuriteConnectionString?: string;
@@ -57,6 +58,7 @@ export type DevStack = {
 	readonly idp: Awaited<ReturnType<typeof startFakeIdp>>;
 	readonly graph: Awaited<ReturnType<typeof startFakeGraph>>;
 	readonly foundry: FakeFoundry;
+	readonly vision: FakeVision;
 	readonly accounts: Accounts;
 	readonly directory: Directory;
 	/** Every event the shells sent to the fake Application Insights endpoint. */
@@ -115,6 +117,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const idpHttp = await next(5);
 	const graphPort = await next(6);
 	const foundryPort = await next(7);
+	const visionPort = await next(8);
 	const gamesOrigin = `http://localhost:${gamesPort}`;
 	const adminOrigin = `http://localhost:${adminPort}`;
 	const adminEmail = options.adminEmail ?? 'admin@example.com';
@@ -141,6 +144,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	});
 
 	const foundry = await startFakeFoundry({ port: foundryPort });
+	const vision = await startFakeVision({ port: visionPort });
 	const apps: App[] = [];
 	const storage: Accounts = options.azuriteConnectionString ? azureAccounts({ kind: 'azurite', connectionString: options.azuriteConnectionString }) : memoryAccounts();
 	const accounts = deliverQueues(storage, () => apps, (worker, error, dequeueCount) => console.error(`dev stack: ${worker.name} failed attempt ${dequeueCount}`, error));
@@ -161,6 +165,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const table = (name: 'members' | 'identities' | 'emails' | 'profiles' | 'admins') => portalAccount.table(name);
 	const common = { telemetry, now: () => new Date() };
 	const tokens = async (service: string) => `dev-${service}-token`;
+	const playEnv = { VISION_ENDPOINT: vision.origin };
 	const adminEnv = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1' };
 
 	const playerApps = registry.map((entry) =>
@@ -173,7 +178,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 				portal: portalReader({ identities: table('identities'), members: table('members'), profiles: table('profiles') }),
 				accounts,
 				tokens,
-				env: {},
+				env: playEnv,
 			}),
 		),
 	);
@@ -248,10 +253,11 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		idp,
 		graph,
 		foundry,
+		vision,
 		accounts: storage,
 		directory,
 		events,
 		exceptions,
-		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close(), foundry.close()])),
+		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close(), foundry.close(), vision.close()])),
 	};
 }
