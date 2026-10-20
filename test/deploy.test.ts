@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { startDevStack, type DevStack } from '../dev/stack.ts';
-import { defaultHostOf, healthPath, isAuthorizationError, kuduHost, moduleParameters, retrying, summarizeWhatIf, untagged } from '../tools/deploy.ts';
+import { defaultHostOf, healthPath, parseLatest, isAuthorizationError, kuduHost, moduleParameters, retrying, summarizeWhatIf, untagged } from '../tools/deploy.ts';
 
 describe('the health route the pipeline polls is the one each app serves', () => {
 	let stack: DevStack;
@@ -103,4 +103,11 @@ test('the host name is read from a Flex Consumption app, which az returns in the
 	assert.equal(kuduHost(defaultHostOf(flex)), 'func-g4k-portal-czavf3dufxfqgme7.scm.westeurope-01.azurewebsites.net');
 	assert.equal(defaultHostOf({ defaultHostName: 'func-g4k-admin.azurewebsites.net' }), 'func-g4k-admin.azurewebsites.net');
 	assert.throws(() => defaultHostOf({ properties: { defaultHostName: null } }), /no host name/);
+});
+
+test('a running Flex deployment reads as incomplete, so the deploy keeps waiting instead of failing', () => {
+	assert.deepEqual(parseLatest(202, ''), { complete: false });
+	assert.deepEqual(parseLatest(404, ''), {});
+	assert.deepEqual(parseLatest(200, '{"id":"a","complete":true,"status":4}'), { id: 'a', complete: true, status: 4 });
+	assert.throws(() => parseLatest(500, 'boom'), /Kudu answered 500/);
 });

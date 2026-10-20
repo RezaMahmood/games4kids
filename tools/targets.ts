@@ -41,6 +41,9 @@ function expand(emit: Emit, game: GameId | undefined, games: readonly GameId[]):
 	switch (emit) {
 		case 'every-player-app':
 			return games.map((id) => ({ kind: 'player-app', game: id }));
+		case 'infra-shared':
+			// The shared deploy rewrites the admin and portal app settings whole, so every game's infra runs after it to merge its settings back.
+			return [{ kind: 'infra-shared' }, ...games.map((id) => ({ kind: 'infra-game' as const, game: id }))];
 		case 'infra-game':
 		case 'player-app':
 			return (game === undefined ? games : [game]).map((id) => ({ kind: emit, game: id }));

@@ -14,7 +14,7 @@ export type HostRequest = {
 /** No CORS header: each Function app's platform CORS is the only CORS mechanism. */
 export type HostReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array | string | null };
 
-/** One app.http registration for the Functions adapter. `route` is relative to the `api/` route prefix. */
+/** One app.http registration for the Functions adapter. `route` is relative to the app's host.json route prefix: `api` for player apps, `api/admin` for the admin app, because Functions refuses any route that starts with `admin`. */
 export type AppFunction = { readonly name: string; readonly method: Method; readonly route: string };
 
 /** One queue-triggered function. `connection` names the app settings prefix that holds the queue account's identity-based connection. */

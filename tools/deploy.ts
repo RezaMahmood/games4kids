@@ -179,11 +179,17 @@ async function waitForHealth(app: string, origin: string) {
 
 type Latest = { readonly id?: string; readonly complete?: boolean; readonly status?: number };
 
-async function latestDeployment(scm: string, token: string): Promise<Latest> {
-	const { status, body } = await get(`https://${scm}/api/deployments/latest`, { authorization: `Bearer ${token}` });
+/** Kudu answers 404 before the first deployment and, on Flex Consumption, 202 while one is still running. */
+export function parseLatest(status: number, body: string): Latest {
 	if (status === 404) return {};
+	if (status === 202) return { complete: false };
 	if (status !== 200) throw new Error(`Kudu answered ${status} for the latest deployment`);
 	return JSON.parse(body) as Latest;
+}
+
+async function latestDeployment(scm: string, token: string): Promise<Latest> {
+	const { status, body } = await get(`https://${scm}/api/deployments/latest`, { authorization: `Bearer ${token}` });
+	return parseLatest(status, body);
 }
 
 export async function deployApp(app: string, zipPath: string): Promise<void> {

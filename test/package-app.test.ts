@@ -42,7 +42,8 @@ for (const app of ['portal', 'admin', 'fixture', 'drawpad']) {
 		const dir = unpacked(app);
 		const { main } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
 		assert.ok(existsSync(join(dir, main)), `${main} is in the zip`);
-		assert.ok(existsSync(join(dir, 'host.json')));
+		const routePrefix = JSON.parse(readFileSync(join(dir, 'host.json'), 'utf8')).extensions?.http?.routePrefix ?? 'api';
+		assert.equal(routePrefix, app === 'admin' ? 'api/admin' : 'api', 'the route prefix plus each function route is the path the app serves');
 		const run = spawnSync(process.execPath, [join(dir, main)], { cwd: dir, env: { PATH: process.env['PATH'] ?? '' }, encoding: 'utf8' });
 		assert.notEqual(run.status, 0);
 		assert.match(run.stderr, /missing app settings: .*TENANT_ID/);
