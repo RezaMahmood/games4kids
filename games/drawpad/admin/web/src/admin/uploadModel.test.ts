@@ -8,7 +8,7 @@ import {
 const photo = { data: new Uint8ClampedArray(4), width: 1, height: 1 };
 const nothing: Generated = { outline: photo, tuning: DEFAULT_TUNING };
 const item = (id: number, name = `p${id}.jpg`): PhotoItem => ({
-  id, source: 'photo', file: new File([], name), title: titleFromFile(name), titleSource: 'file', suggestions: [], jobIds: [],
+  id, source: 'photo', file: new File([], name, { lastModified: 0 }), title: titleFromFile(name), titleSource: 'file', suggestions: [], jobIds: [],
   tuning: DEFAULT_TUNING, phase: { kind: 'waiting' },
 });
 const ready = (id: number) => reduce([item(id)], { type: 'loaded', id, photo, generated: nothing, redraws: { 'trace-standard': photo } });
