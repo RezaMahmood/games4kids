@@ -51,6 +51,7 @@ const rows: readonly (readonly [name: string, paths: string[], expected: DeployT
 	['the game infra template', ['infra/game.bicep'], [infraShared]],
 	['the lockfile', ['package-lock.json'], [...allApps, ...allSites]],
 	['the gen tool', ['tools/gen.mjs'], [...allApps, ...allSites]],
+	['the bootstrap tool', ['tools/bootstrap.mjs', 'tools/bootstrap.ts', 'tools/bootstrap-shell.ts'], []],
 	['the dev stack', ['dev/stack.ts'], []],
 	['a test', ['test/conformance.test.ts'], []],
 	['docs only', ['docs/ARCHITECTURE.md', 'README.md', 'docs/sketch/deploy.ts'], []],
