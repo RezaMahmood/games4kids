@@ -68,7 +68,8 @@ input[type='search'] {
 }
 
 main [aria-busy='true'] button,
-dialog [aria-busy='true'] button {
+dialog [aria-busy='true'] button,
+button[aria-disabled='true'] {
 	opacity: 0.6;
 	cursor: progress;
 }
@@ -173,6 +174,10 @@ dialog [aria-busy='true'] button {
 	display: none;
 }
 
+#attention {
+	grid-column: 1 / -1;
+}
+
 #status.problem,
 .feedback.problem {
 	color: var(--color-danger);
@@ -183,31 +188,44 @@ dialog [aria-busy='true'] button {
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-xs) var(--space-sm);
-	margin: var(--space-sm) 0 0;
-	padding: var(--space-sm) var(--space-md);
+	padding: var(--space-xs) var(--space-sm);
 	border: 2px solid var(--color-primary);
 	border-radius: var(--radius-control);
 	background: var(--color-primary-tint);
 }
 
-.banner p,
-.banner ul {
+.banner p {
 	margin: 0;
 }
 
-.banner > :first-child {
-	flex: 1 1 14rem;
-	font-weight: 700;
+.banner-title {
+	flex: 1 1 8rem;
+	margin: 0;
+	font-size: inherit;
+	line-height: inherit;
 }
 
-.banner ul {
-	padding-left: 1.2em;
+.banner-title:focus {
+	outline: none;
 }
 
-.banner.alarm {
+.banner.alarm,
+.alarm-list {
 	border-color: var(--color-danger);
 	background: var(--color-danger-tint);
 	color: var(--color-danger);
+}
+
+.alarm-list {
+	margin: var(--space-sm) 0 0;
+	padding: var(--space-xs) var(--space-sm) var(--space-xs) calc(var(--space-sm) + 1.2em);
+	border: 2px solid var(--color-danger);
+	border-radius: var(--radius-control);
+	font-weight: 700;
+}
+
+.alarm-list li + li {
+	margin-top: var(--space-xs);
 }
 
 .banner.quiet {
@@ -217,7 +235,7 @@ dialog [aria-busy='true'] button {
 	color: var(--color-ink-soft);
 }
 
-.banner.quiet > :first-child {
+.banner.quiet .banner-title {
 	font-weight: 400;
 }
 
@@ -304,7 +322,7 @@ dialog [aria-busy='true'] button {
 }
 
 .badge.not-synced,
-.badge.revoked-assigned {
+.badge.revoked-sync {
 	background: var(--color-accent);
 	color: var(--color-ink);
 }
@@ -417,6 +435,10 @@ body:has(dialog[open]) {
 	padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
 	border-bottom: 2px solid var(--color-line);
 	background: var(--color-surface);
+}
+
+.sheet-head h2:focus {
+	outline: none;
 }
 
 .sheet-head h2 {

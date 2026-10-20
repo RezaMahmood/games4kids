@@ -129,13 +129,14 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 	await test.step('a sign-in 11 minutes old is refused for Entra, and the shell reopens the popup once', async () => {
 		await admin.request.post(`${IDP_CONTROL}/__control/stale-auth-time?minutes=11&count=1`);
 		const before = popups.opened();
-		await admin.getByRole('button', { name: 'Check Entra' }).click();
+		await admin.getByRole('button', { name: 'See report' }).click();
 		const report = admin.getByRole('dialog', { name: 'Entra report' });
+		await report.getByRole('button', { name: 'Check again' }).click();
 		await expect(report.getByRole('status')).toHaveText('Checked Entra.');
 		expect(popups.opened() - before, 'the stale token opened one popup and the retry opened one more').toBe(2);
 		await expect(report.getByRole('list', { name: 'What Entra reported' })).toContainText(`${KID_EMAIL} is revoked but still assigned in Entra`);
 		await report.getByRole('button', { name: 'Close' }).click();
-		await expect(admin.getByRole('button', { name: new RegExp(KID_EMAIL) })).toContainText('Revoked, still in Entra');
+		await expect(admin.getByRole('button', { name: new RegExp(KID_EMAIL) })).toContainText('Revoked, sync needed');
 	});
 
 	await adminContext.close();

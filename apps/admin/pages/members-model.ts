@@ -72,19 +72,30 @@ export function describeDrift(raw: unknown, members: readonly MemberRow[]): read
 
 export const syncBody = (only: string | null) => ({ userId: only });
 
-/** What the page last heard from Entra: nothing until a check or a sync answers. */
-export type DriftReport = { readonly kind: 'unchecked' } | { readonly kind: 'checked'; readonly lines: readonly DriftLine[] };
+/**
+ * What the page last heard from Entra: nothing until a check or a sync answers. `states` is each member's state when the
+ * page asked, because the answer says nothing about a member whose state has changed since.
+ */
+export type DriftReport = { readonly kind: 'unchecked' } | CheckedReport;
+type CheckedReport = { readonly kind: 'checked'; readonly lines: readonly DriftLine[]; readonly states: ReadonlyMap<string, MemberRow['state']> };
 
-export type Standing = 'active' | 'not-synced' | 'revoked' | 'revoked-assigned';
+/** `asked` is the rows as they stood when the check or sync was sent. */
+export function checkedReport(raw: unknown, asked: readonly MemberRow[]): CheckedReport {
+	return { kind: 'checked', lines: describeDrift(raw, asked), states: new Map(asked.map((row) => [row.userId, row.state])) };
+}
+
+export type Standing = 'active' | 'not-synced' | 'revoked' | 'revoked-sync';
 
 export const STANDING_LABEL: Readonly<Record<Standing, string>> = {
 	active: 'Active',
 	'not-synced': 'Not synced',
 	revoked: 'Revoked',
-	'revoked-assigned': 'Revoked, still in Entra',
+	'revoked-sync': 'Revoked, sync needed',
 };
 
-export const needsSync = (standing: Standing): boolean => standing === 'not-synced' || standing === 'revoked-assigned';
+export const needsSync = (standing: Standing): boolean => standing === 'not-synced' || standing === 'revoked-sync';
+
+const SYNC_FIXES_ACTIVE: ReadonlySet<string> = new Set(['needs-account', 'not-assigned', 'wrong-account']);
 
 export type Filter = 'all' | 'active' | 'revoked' | 'needs-sync';
 
@@ -98,14 +109,19 @@ export const FILTERS: readonly { readonly id: Filter; readonly label: string }[]
 const MATCHES: Readonly<Record<Filter, (standing: Standing) => boolean>> = {
 	all: () => true,
 	active: (standing) => standing === 'active' || standing === 'not-synced',
-	revoked: (standing) => standing === 'revoked' || standing === 'revoked-assigned',
+	revoked: (standing) => standing === 'revoked' || standing === 'revoked-sync',
 	'needs-sync': needsSync,
 };
 
+/**
+ * A sync removes a revoked member's assignment but keeps their link, so a linked revoked member counts as still assigned
+ * until Entra answers for them as revoked. A member restored since Entra answered needs a sync to be assigned again.
+ */
 export function standingOf(row: MemberRow, report: DriftReport): Standing {
-	const drift = report.kind === 'checked' ? report.lines.filter((line) => line.userId === row.userId).map((line) => line.kind) : [];
-	if (row.state === 'revoked') return drift.includes('assigned-revoked') ? 'revoked-assigned' : 'revoked';
-	return !row.linked || drift.includes('needs-account') || drift.includes('not-assigned') ? 'not-synced' : 'active';
+	const then = report.kind === 'checked' ? report.states.get(row.userId) : undefined;
+	const drift = report.kind === 'checked' && then === row.state ? report.lines.filter((line) => line.userId === row.userId).map((line) => line.kind) : null;
+	if (row.state === 'revoked') return row.linked && (drift === null || drift.includes('assigned-revoked')) ? 'revoked-sync' : 'revoked';
+	return !row.linked || then === 'revoked' || (drift?.some((kind) => SYNC_FIXES_ACTIVE.has(kind)) ?? false) ? 'not-synced' : 'active';
 }
 
 export type GameTitle = { readonly id: string; readonly title: string };
@@ -120,11 +136,13 @@ export function gamesSummary(grant: GameGrant, catalog: readonly GameTitle[]): s
 
 export type Listed = { readonly row: MemberRow; readonly standing: Standing; readonly games: string };
 
-/** An alarm outranks a sync because a sync cannot clear it. */
+/** An alarm outranks a sync because a sync cannot clear it. The page claims agreement only when Entra said nothing at all. */
 export type Attention =
-	| { readonly kind: 'quiet'; readonly report: DriftReport['kind'] }
+	| { readonly kind: 'alarm'; readonly alarms: readonly DriftLine[]; readonly people: number }
 	| { readonly kind: 'needs-sync'; readonly people: number }
-	| { readonly kind: 'alarm'; readonly alarms: readonly DriftLine[]; readonly people: number };
+	| { readonly kind: 'unchecked' }
+	| { readonly kind: 'notes'; readonly notes: number }
+	| { readonly kind: 'agree' };
 
 export type MembersView = {
 	readonly listed: readonly Listed[];
@@ -143,7 +161,13 @@ export function membersView(rows: readonly MemberRow[], report: DriftReport, cat
 		.filter(({ standing }) => MATCHES[filter](standing))
 		.sort((a, b) => Number(needsSync(b.standing)) - Number(needsSync(a.standing)) || sortName(a.row).localeCompare(sortName(b.row)) || a.row.email.localeCompare(b.row.email));
 	const people = everyone.filter(({ standing }) => needsSync(standing)).length;
+	return { listed, counts, attention: attentionOf(report, people) };
+}
+
+function attentionOf(report: DriftReport, people: number): Attention {
 	const alarms = report.kind === 'checked' ? report.lines.filter((line) => line.alarm) : [];
-	const attention: Attention = alarms.length > 0 ? { kind: 'alarm', alarms, people } : people > 0 ? { kind: 'needs-sync', people } : { kind: 'quiet', report: report.kind };
-	return { listed, counts, attention };
+	if (alarms.length > 0) return { kind: 'alarm', alarms, people };
+	if (people > 0) return { kind: 'needs-sync', people };
+	if (report.kind === 'unchecked') return { kind: 'unchecked' };
+	return report.lines.length === 0 ? { kind: 'agree' } : { kind: 'notes', notes: report.lines.length };
 }

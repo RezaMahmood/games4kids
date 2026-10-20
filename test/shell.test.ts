@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GAME_ID, type Refusal } from '@g4k/sdk';
 import { parseAdminCatalog, parseAdminConfig } from '../apps/admin/shell/v1/config.ts';
-import { describeDrift, gamesSummary, membersView, parseMembers, type DriftReport, type MemberRow } from '../apps/admin/pages/members-model.ts';
+import { checkedReport, describeDrift, gamesSummary, membersView, parseMembers, type DriftReport, type MemberRow } from '../apps/admin/pages/members-model.ts';
 import { parseCatalog, parseGamesConfig } from '../apps/games/shell/v1/config.ts';
 import { parseCaller, parseMe } from '../apps/games/shell/v1/me.ts';
 import { onRefusal } from '../apps/games/shell/v1/refusal.ts';
@@ -311,15 +311,16 @@ function member(userId: string, email: string, extra: Partial<MemberRow> = {}): 
 const ROWS: readonly MemberRow[] = [
 	member('u-zoe', 'zoe@example.com', { displayName: 'Zoe' }),
 	member('u-amy', 'amy@example.com', { linked: false }),
-	member('u-ben', 'ben@example.com', { displayName: 'Ben', state: 'revoked' }),
+	member('u-ben', 'ben@example.com', { displayName: 'Ben', state: 'revoked', linked: false }),
 	member('u-cal', 'cal@example.com', { state: 'revoked' }),
 	member('u-dan', 'dan@example.com', { displayName: 'Daniel' }),
 ];
 const UNCHECKED: DriftReport = { kind: 'unchecked' };
 const emails = (view: ReturnType<typeof membersView>) => view.listed.map(({ row }) => row.email);
+const standings = (view: ReturnType<typeof membersView>) => view.listed.map(({ row, standing }) => [row.email, standing]);
 
 test('the members list searches email and name, puts who needs a sync first, then sorts by name', () => {
-	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'all')), ['amy@example.com', 'ben@example.com', 'cal@example.com', 'dan@example.com', 'zoe@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'all')), ['amy@example.com', 'cal@example.com', 'ben@example.com', 'dan@example.com', 'zoe@example.com']);
 	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '  DANI ', 'all')), ['dan@example.com']);
 	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, 'zoe@', 'all')), ['zoe@example.com']);
 	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, 'nobody', 'all')), []);
@@ -327,49 +328,83 @@ test('the members list searches email and name, puts who needs a sync first, the
 
 test('each filter shows its people and every chip counts within the search', () => {
 	const view = membersView(ROWS, UNCHECKED, CATALOG, '', 'all');
-	assert.deepEqual(view.counts, { all: 5, active: 3, revoked: 2, 'needs-sync': 1 });
+	assert.deepEqual(view.counts, { all: 5, active: 3, revoked: 2, 'needs-sync': 2 });
 	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'active')), ['amy@example.com', 'dan@example.com', 'zoe@example.com']);
-	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'revoked')), ['ben@example.com', 'cal@example.com']);
-	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'needs-sync')), ['amy@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'revoked')), ['cal@example.com', 'ben@example.com']);
+	assert.deepEqual(emails(membersView(ROWS, UNCHECKED, CATALOG, '', 'needs-sync')), ['amy@example.com', 'cal@example.com']);
 	assert.deepEqual(membersView(ROWS, UNCHECKED, CATALOG, 'b', 'all').counts, { all: 1, active: 0, revoked: 1, 'needs-sync': 0 });
 });
 
 test('the last Entra answer marks who a sync would fix, and ignores drift that no longer fits the row', () => {
-	const report: DriftReport = {
-		kind: 'checked',
-		lines: describeDrift(
-			[
-				{ kind: 'assigned-revoked', userId: 'u-cal' },
-				{ kind: 'not-assigned', userId: 'u-dan' },
-				{ kind: 'assigned-revoked', userId: 'u-zoe' },
-			],
-			ROWS,
-		),
-	};
-	const view = membersView(ROWS, report, CATALOG, '', 'all');
-	assert.deepEqual(
-		view.listed.map(({ row, standing }) => [row.email, standing]),
+	const report = checkedReport(
 		[
-			['amy@example.com', 'not-synced'],
-			['cal@example.com', 'revoked-assigned'],
-			['dan@example.com', 'not-synced'],
-			['ben@example.com', 'revoked'],
-			['zoe@example.com', 'active'],
+			{ kind: 'assigned-revoked', userId: 'u-cal' },
+			{ kind: 'not-assigned', userId: 'u-dan' },
+			{ kind: 'assigned-revoked', userId: 'u-zoe' },
 		],
+		ROWS,
 	);
+	const view = membersView(ROWS, report, CATALOG, '', 'all');
+	assert.deepEqual(standings(view), [
+		['amy@example.com', 'not-synced'],
+		['cal@example.com', 'revoked-sync'],
+		['dan@example.com', 'not-synced'],
+		['ben@example.com', 'revoked'],
+		['zoe@example.com', 'active'],
+	]);
 	assert.deepEqual(view.attention, { kind: 'needs-sync', people: 3 });
 });
 
-test('the banner raises an alarm over a sync, and stays quiet when nothing needs doing', () => {
-	const alarm: DriftReport = { kind: 'checked', lines: describeDrift([{ kind: 'admin-app-grant', grant: { resourceDisplayName: 'Microsoft Graph' } }], ROWS) };
-	const raised = membersView(ROWS, alarm, CATALOG, '', 'all').attention;
+test('a linked member revoked since Entra last answered for them counts as still assigned until a check or sync says otherwise', () => {
+	const kid = member('u-kid', 'kid@example.com');
+	const revoked = { ...kid, state: 'revoked' } as const;
+	assert.deepEqual(standings(membersView([revoked], UNCHECKED, CATALOG, '', 'all')), [['kid@example.com', 'revoked-sync']], 'unchecked');
+	const afterRevoke = membersView([revoked], checkedReport([], [kid]), CATALOG, '', 'all');
+	assert.deepEqual(standings(afterRevoke), [['kid@example.com', 'revoked-sync']], 'a check from before the revoke says nothing about it');
+	assert.equal(afterRevoke.counts['needs-sync'], 1);
+	assert.deepEqual(afterRevoke.attention, { kind: 'needs-sync', people: 1 });
+	assert.deepEqual(standings(membersView([revoked], checkedReport([], [revoked]), CATALOG, '', 'all')), [['kid@example.com', 'revoked']], 'Entra answered with no assignment');
+	assert.deepEqual(standings(membersView([revoked], checkedReport([{ kind: 'assigned-revoked', userId: 'u-kid' }], [revoked]), CATALOG, '', 'all')), [['kid@example.com', 'revoked-sync']]);
+	assert.deepEqual(standings(membersView([{ ...revoked, linked: false }], UNCHECKED, CATALOG, '', 'all')), [['kid@example.com', 'revoked']], 'never linked, so never assigned');
+	assert.deepEqual(standings(membersView([kid], checkedReport([], [revoked]), CATALOG, '', 'all')), [['kid@example.com', 'not-synced']], 'restored since the sync that removed the assignment');
+});
+
+test('the banner raises an alarm over a sync, and claims agreement only when a check came back empty', () => {
+	const raised = membersView(ROWS, checkedReport([{ kind: 'admin-app-grant', grant: { resourceDisplayName: 'Microsoft Graph' } }], ROWS), CATALOG, '', 'all').attention;
 	assert.equal(raised.kind, 'alarm');
 	assert.equal(raised.kind === 'alarm' && raised.people, 1);
 	assert.match(raised.kind === 'alarm' ? (raised.alarms[0]?.text ?? '') : '', /Microsoft Graph/);
-	const synced = ROWS.map((row) => ({ ...row, linked: true }));
-	assert.deepEqual(membersView(synced, UNCHECKED, CATALOG, '', 'all').attention, { kind: 'quiet', report: 'unchecked' });
-	assert.deepEqual(membersView(synced, { kind: 'checked', lines: [] }, CATALOG, 'zoe', 'all').attention, { kind: 'quiet', report: 'checked' });
-	assert.deepEqual(membersView(ROWS, UNCHECKED, CATALOG, 'zoe', 'all').attention, { kind: 'needs-sync', people: 1 }, 'a search does not hide who needs a sync');
+	const synced = [member('u-zoe', 'zoe@example.com'), member('u-ben', 'ben@example.com', { state: 'revoked', linked: false })];
+	assert.deepEqual(membersView(synced, UNCHECKED, CATALOG, '', 'all').attention, { kind: 'unchecked' });
+	assert.deepEqual(membersView([], UNCHECKED, CATALOG, '', 'all').attention, { kind: 'unchecked' });
+	assert.deepEqual(membersView(synced, checkedReport([], synced), CATALOG, 'zoe', 'all').attention, { kind: 'agree' });
+	assert.deepEqual(membersView(synced, checkedReport([{ kind: 'unmanaged', assignment: {} }, { kind: 'unmanaged', assignment: {} }], synced), CATALOG, '', 'all').attention, { kind: 'notes', notes: 2 });
+	assert.deepEqual(membersView(ROWS, UNCHECKED, CATALOG, 'zoe', 'all').attention, { kind: 'needs-sync', people: 2 }, 'a search does not hide who needs a sync');
+});
+
+test('a wrong account counts as needing a sync, and an ambiguous or taken account raises its own alarm', () => {
+	const rows = [member('u-riz', 'riz74@hotmail.com'), member('u-mum', 'mum@example.com')];
+	const wrong = membersView(rows, checkedReport([{ kind: 'wrong-account', userId: 'u-riz' }], rows), CATALOG, '', 'all');
+	assert.deepEqual(standings(wrong), [['riz74@hotmail.com', 'not-synced'], ['mum@example.com', 'active']]);
+	assert.equal(wrong.counts['needs-sync'], 1);
+	assert.deepEqual(wrong.attention, { kind: 'needs-sync', people: 1 });
+	const alarm = membersView(
+		rows,
+		checkedReport(
+			[
+				{ kind: 'ambiguous-account', userId: 'u-riz', userPrincipalNames: ['a@tenant.example', 'b@tenant.example'] },
+				{ kind: 'account-taken', userId: 'u-mum', owner: 'u-riz' },
+			],
+			rows,
+		),
+		CATALOG,
+		'',
+		'all',
+	).attention;
+	assert.deepEqual(alarm.kind === 'alarm' && alarm.alarms.map((line) => line.text), [
+		'riz74@hotmail.com matches more than one Entra account: a@tenant.example, b@tenant.example. Nothing was changed.',
+		'mum@example.com matches the Entra account riz74@hotmail.com signs in with. Nothing was changed.',
+	]);
 });
 
 test('the games summary names up to two games by title, then counts the rest', () => {

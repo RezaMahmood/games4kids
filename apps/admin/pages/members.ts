@@ -1,6 +1,6 @@
 import { ApiFailure, enterAdmin, ready } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
-import { describeDrift, FILTERS, gamesSummary, membersView, needsSync, parseMembers, STANDING_LABEL, standingOf, syncBody, type Attention, type DriftReport, type Filter, type GameGrant, type Listed, type MemberRow, type Standing } from './members-model.ts';
+import { checkedReport, FILTERS, gamesSummary, membersView, needsSync, parseMembers, STANDING_LABEL, standingOf, syncBody, type Attention, type DriftReport, type Filter, type GameGrant, type Listed, type MemberRow, type Standing } from './members-model.ts';
 
 const { api, games, elevated } = await enterAdmin({ game: null });
 
@@ -13,6 +13,7 @@ const status = byId('status', HTMLElement);
 const search = byId('search', HTMLInputElement);
 const filters = byId('filters', HTMLElement);
 const attention = byId('attention', HTMLElement);
+const alarms = byId('alarms', HTMLElement);
 const people = byId('people', HTMLUListElement);
 const addPerson = byId('add-person', HTMLButtonElement);
 const personDialog = byId('person', HTMLDialogElement);
@@ -66,6 +67,28 @@ function button(label: string, run: () => void, kind: keyof typeof BUTTON_CLASS 
 	return element;
 }
 
+/** One sync at a time across the page. aria-disabled rather than disabled, so a focused sync button keeps focus. */
+let syncing = false;
+
+function markSyncing(on: boolean): void {
+	syncing = on;
+	for (const element of document.querySelectorAll<HTMLElement>('[data-sync]')) element.ariaDisabled = on ? 'true' : null;
+}
+
+function syncButton(label: string, run: () => void, kind: keyof typeof BUTTON_CLASS, action: string): HTMLButtonElement {
+	const element = button(
+		label,
+		() => {
+			if (!syncing) run();
+		},
+		kind,
+		action,
+	);
+	element.dataset['sync'] = '';
+	element.ariaDisabled = syncing ? 'true' : null;
+	return element;
+}
+
 const NONE: GameGrant = { kind: 'some', ids: [] };
 
 /** Ticking every game disables the per-game boxes and keeps their ticks, so unticking it restores the list. */
@@ -112,10 +135,14 @@ search.addEventListener('input', () => {
 	render();
 });
 
+/** A redraw replaces the banner's buttons, so focus inside it moves to the same action, or to its heading when that action is gone. */
 function render(): void {
 	const view = membersView(rows, report, games, query, filter);
 	for (const [id, count] of chipCounts) count.textContent = String(view.counts[id]);
-	attention.replaceChildren(...(rows.length === 0 ? [] : banner(view.attention)));
+	const focused = document.activeElement instanceof HTMLElement && attention.contains(document.activeElement) ? (document.activeElement.dataset['action'] ?? '') : null;
+	attention.replaceChildren(banner(view.attention));
+	if (focused !== null) (attention.querySelector<HTMLElement>(`[data-action="${focused}"]`) ?? attention.querySelector<HTMLElement>('.banner-title'))?.focus();
+	alarms.replaceChildren(...(view.attention.kind === 'alarm' ? [el('ul', { class: 'alarm-list', 'aria-label': 'Entra alarms' }, ...view.attention.alarms.map((line) => el('li', {}, line.text)))] : []));
 	people.replaceChildren(...listItems(view.listed));
 }
 
@@ -146,33 +173,47 @@ function listItems(listed: readonly Listed[]): HTMLLIElement[] {
 			el('span', { class: 'detail' }, ...(row.displayName ? [el('span', { class: 'name' }, row.displayName)] : []), el('span', { class: 'games' }, summary)),
 			badge(standing),
 		);
-		open.addEventListener('click', () => openPerson(row.userId, open));
+		open.addEventListener('click', () => openPerson(row.userId));
 		return el('li', {}, open);
 	});
 }
 
-const plural = (count: number) => (count === 1 ? '1 person isn’t' : `${count} people aren’t`);
+const notSynced = (count: number) => (count === 1 ? '1 person isn’t synced with Entra.' : `${count} people aren’t synced with Entra.`);
 
-function banner(state: Attention): HTMLElement[] {
-	const check = button('Check Entra', () => void checkEntra(), 'quiet');
-	const see = button('See report', () => openReport(), 'quiet');
-	const syncNow = button('Sync now', () => void attempt(attention, say, () => runSync(null, say)));
+function bannerTitle(state: Attention): string {
 	switch (state.kind) {
 		case 'alarm':
-			return [
-				el(
-					'div',
-					{ class: 'banner alarm', role: 'alert' },
-					el('ul', {}, ...state.alarms.map((line) => el('li', {}, line.text))),
-					...(state.people > 0 ? [el('p', {}, `${plural(state.people)} synced with Entra.`)] : []),
-					el('p', { class: 'banner-actions' }, ...(state.people > 0 ? [syncNow] : []), see),
-				),
-			];
+			return state.alarms.length === 1 ? 'Entra raised an alarm.' : `Entra raised ${state.alarms.length} alarms.`;
 		case 'needs-sync':
-			return [el('div', { class: 'banner' }, el('p', {}, `${plural(state.people)} synced with Entra.`), el('p', { class: 'banner-actions' }, syncNow, check))];
-		case 'quiet':
-			return [el('div', { class: 'banner quiet' }, el('p', {}, state.report === 'checked' ? 'Entra and this list agree.' : 'Everyone active is linked with Entra.'), el('p', { class: 'banner-actions' }, ...(state.report === 'checked' ? [see] : []), check))];
+			return notSynced(state.people);
+		case 'unchecked':
+			return 'Not checked against Entra yet.';
+		case 'notes':
+			return state.notes === 1 ? '1 note from Entra.' : `${state.notes} notes from Entra.`;
+		case 'agree':
+			return 'Entra and this list agree.';
 	}
+}
+
+const TONE: Readonly<Record<Attention['kind'], string>> = { alarm: 'alarm', 'needs-sync': '', unchecked: 'quiet', notes: 'quiet', agree: 'quiet' };
+
+/**
+ * Every state, with no one listed too, leads to the report and its Check again and Sync everyone: Check Entra until
+ * Entra has answered, See report after.
+ */
+function banner(state: Attention): HTMLElement {
+	const people = state.kind === 'alarm' || state.kind === 'needs-sync' ? state.people : 0;
+	const actions = [
+		...(people > 0 ? [syncButton('Sync now', () => void attempt(attention, say, () => runSync(null, say)), 'primary', 'sync-all')] : []),
+		report.kind === 'checked' ? button('See report', () => openReport(), 'quiet', 'report') : button('Check Entra', () => void checkEntra(), 'quiet', 'report'),
+	];
+	return el(
+		'div',
+		{ class: `banner ${TONE[state.kind]}` },
+		el('h2', { class: 'banner-title', tabindex: '-1' }, bannerTitle(state)),
+		...(state.kind === 'alarm' && people > 0 ? [el('p', {}, notSynced(people))] : []),
+		el('p', { class: 'banner-actions' }, ...actions),
+	);
 }
 
 async function load(): Promise<void> {
@@ -184,19 +225,26 @@ const ELEVATING = 'Sign in again in the window that opens. This keeps Entra chan
 
 async function runSync(only: string | null, tell: Say): Promise<void> {
 	tell(ELEVATING);
-	const left = await elevated((elevatedApi) => elevatedApi.post<unknown>('entra/sync', syncBody(only)));
-	await load();
-	setReport(left);
+	const asked = rows;
+	markSyncing(true);
+	try {
+		const left = await elevated((elevatedApi) => elevatedApi.post<unknown>('entra/sync', syncBody(only)));
+		await load();
+		setReport(left, asked);
+	} finally {
+		markSyncing(false);
+	}
 	tell(only === null ? 'Everyone is synced with Entra.' : 'Synced with Entra.');
 }
 
 async function runCheck(tell: Say): Promise<void> {
 	tell(ELEVATING);
-	setReport(await elevated((elevatedApi) => elevatedApi.get<unknown>('entra')));
+	const asked = rows;
+	setReport(await elevated((elevatedApi) => elevatedApi.get<unknown>('entra')), asked);
 }
 
-function setReport(raw: unknown): void {
-	report = { kind: 'checked', lines: describeDrift(raw, rows) };
+function setReport(raw: unknown, asked: readonly MemberRow[]): void {
+	report = checkedReport(raw, asked);
 	render();
 	driftList.replaceChildren(...(report.lines.length === 0 ? [el('li', {}, 'Entra and this list agree.')] : report.lines.map((line) => el('li', { class: line.alarm ? 'alarm' : '' }, line.text))));
 }
@@ -210,17 +258,29 @@ async function checkEntra(): Promise<void> {
 	});
 }
 
-const openers = new WeakMap<HTMLDialogElement, () => HTMLElement | null>();
+const openings = new WeakMap<HTMLDialogElement, { readonly returnTo: () => HTMLElement | null }>();
 
-function show(dialog: HTMLDialogElement, returnTo: () => HTMLElement | null): void {
-	openers.set(dialog, returnTo);
+/** Returns whether this opening is still the one on screen, so an action that finishes late cannot draw over a later one. */
+function show(dialog: HTMLDialogElement, returnTo: () => HTMLElement | null): () => boolean {
+	const opening = { returnTo };
+	openings.set(dialog, opening);
 	for (const feedback of dialog.querySelectorAll<HTMLElement>('.feedback')) sayIn(feedback)('');
 	if (!dialog.open) dialog.showModal();
+	dialog.querySelector<HTMLElement>('.sheet-head h2')?.focus();
+	return () => dialog.open && openings.get(dialog) === opening;
 }
+
+const sayWhile =
+	(live: () => boolean, inSheet: Say): Say =>
+	(message, problem) =>
+		(live() ? inSheet : say)(message, problem);
 
 for (const dialog of [personDialog, addDialog, reportDialog]) {
 	dialog.querySelector('[data-close]')?.addEventListener('click', () => dialog.close());
-	dialog.addEventListener('close', () => (openers.get(dialog)?.() ?? search).focus());
+	dialog.addEventListener('close', () => {
+		const opener = openings.get(dialog)?.returnTo();
+		(opener?.isConnected ? opener : search).focus();
+	});
 }
 
 const reportSay = sayIn(byId('report-status', HTMLElement));
@@ -228,10 +288,12 @@ const reportActions = byId('report-actions', HTMLElement);
 
 function openReport(): void {
 	if (report.kind === 'unchecked') driftList.replaceChildren(el('li', {}, 'Entra has not been checked yet.'));
-	show(reportDialog, () => attention.querySelector('button'));
+	show(reportDialog, () => attention.querySelector('[data-action="report"]'));
 }
 
-byId('sync-all', HTMLButtonElement).addEventListener('click', () => void attempt(reportActions, reportSay, () => runSync(null, reportSay)));
+byId('sync-all', HTMLButtonElement).addEventListener('click', () => {
+	if (!syncing) void attempt(reportActions, reportSay, () => runSync(null, reportSay));
+});
 byId('check-again', HTMLButtonElement).addEventListener('click', () =>
 	void attempt(reportActions, reportSay, async () => {
 		await runCheck(reportSay);
@@ -242,39 +304,44 @@ byId('check-again', HTMLButtonElement).addEventListener('click', () =>
 const personSay = sayIn(byId('person-status', HTMLElement));
 const addSay = sayIn(byId('add-status', HTMLElement));
 
-function openPerson(userId: string, opener: HTMLElement): void {
-	if (!drawPerson(userId)) return;
-	show(personDialog, () => people.querySelector<HTMLElement>(`[data-user-id="${CSS.escape(userId)}"]`) ?? opener);
+function openPerson(userId: string): void {
+	if (!rows.some((row) => row.userId === userId)) return;
+	const live = show(personDialog, () => people.querySelector<HTMLElement>(`[data-user-id="${CSS.escape(userId)}"]`));
+	drawPerson(userId, live);
 }
 
-/** Keeps focus on the action just used, since a redraw replaces every element in the sheet. */
-function drawPerson(userId: string, promoteSync = false): boolean {
+/**
+ * Keeps focus on the action just used, since a redraw replaces every element in the sheet. An action that finishes after
+ * the sheet closed or moved to someone else redraws nothing and reports on the page status instead.
+ */
+function drawPerson(userId: string, live: () => boolean, promoteSync = false): void {
 	const row = rows.find((candidate) => candidate.userId === userId);
-	if (!row) return false;
+	if (!row) return;
 	const focused = document.activeElement instanceof HTMLElement && personBody.contains(document.activeElement) ? document.activeElement.dataset['action'] : undefined;
 	const standing = standingOf(row, report);
+	const tell = sayWhile(live, personSay);
 	personTitle.textContent = row.email;
 
 	const boxes = el('div', { class: 'boxes' });
 	gameBoxes(boxes, row.games, 'person');
 	const after = async (message: string, offerSync: boolean) => {
 		await load();
-		drawPerson(userId, offerSync);
-		personSay(offerSync ? `${message} Sync with Entra below so Entra matches.` : message);
+		if (live()) drawPerson(userId, live, offerSync);
+		tell(offerSync ? `${message} Sync with Entra so Entra matches.` : message);
 	};
 	const put = (state: MemberRow['state'], message: string) =>
-		void attempt(personBody, personSay, async () => {
+		void attempt(personBody, tell, async () => {
 			await api.put(`members/${row.userId}`, { state, games: grantOf(boxes) });
 			await after(message, state !== row.state);
 		});
 
 	const linkText = row.linked ? 'Linked to their Entra account.' : 'Not synced yet. Their sign-in works only after a sync with Entra.';
 	const syncPerson = () =>
-		void attempt(personBody, personSay, async () => {
-			await runSync(row.userId, personSay);
-			drawPerson(userId);
+		void attempt(personBody, tell, async () => {
+			await runSync(row.userId, tell);
+			if (live()) drawPerson(userId, live);
 		});
-	const sync = button('Sync with Entra', syncPerson, needsSync(standing) || promoteSync ? 'primary' : 'quiet', 'sync');
+	const sync = syncButton('Sync with Entra', syncPerson, needsSync(standing) || promoteSync ? 'primary' : 'quiet', 'sync');
 
 	const access = el('section', { class: 'sheet-section', 'aria-label': 'Access' });
 	const accessIdle = () => {
@@ -313,16 +380,15 @@ function drawPerson(userId: string, promoteSync = false): boolean {
 		access,
 	);
 	if (focused) personBody.querySelector<HTMLElement>(`[data-action="${focused}"]`)?.focus();
-	return true;
 }
 
 function openAdd(opener: HTMLElement): void {
-	drawAddForm();
-	show(addDialog, () => opener);
+	drawAddForm(show(addDialog, () => opener));
 	addBody.querySelector('input')?.focus();
 }
 
-function drawAddForm(): void {
+function drawAddForm(live: () => boolean): void {
+	const tell = sayWhile(live, addSay);
 	const email = el('input', { id: 'add-email', type: 'email', autocomplete: 'off', required: '', spellcheck: 'false' });
 	const boxes = el('div', { class: 'boxes' });
 	gameBoxes(boxes, NONE, 'add');
@@ -335,33 +401,40 @@ function drawAddForm(): void {
 	);
 	form.addEventListener('submit', (event) => {
 		event.preventDefault();
-		void attempt(addBody, addSay, async () => {
+		void attempt(addBody, tell, async () => {
 			const address = email.value.trim();
 			const saved = await api.post<{ readonly userId: string }>('members', { email: address, games: grantOf(boxes) });
 			await load();
-			drawAddSaved(saved.userId, address);
+			if (live()) drawAddSaved(saved.userId, address, live);
+			else say(`Saved ${address}. Sync now so their sign-in works.`);
 		});
 	});
 	addBody.replaceChildren(form);
 }
 
-function drawAddSaved(userId: string, address: string): void {
+function drawAddSaved(userId: string, address: string, live: () => boolean): void {
+	const tell = sayWhile(live, addSay);
 	addSay(`Saved ${address}. Sync now so their sign-in works.`);
 	const row = rows.find((candidate) => candidate.userId === userId);
 	const summary = row ? [el('p', {}, `Games: ${gamesSummary(row.games, games)}.`)] : [];
 	const another = button('Add another', () => {
 		addSay('');
-		drawAddForm();
+		drawAddForm(live);
 		addBody.querySelector('input')?.focus();
 	}, 'quiet');
-	const syncNow = button('Sync now', () =>
-		void attempt(addBody, addSay, async () => {
-			await runSync(userId, addSay);
-			addSay(`${address} is synced with Entra and can sign in now.`);
-			const done = button('Done', () => addDialog.close());
-			addBody.replaceChildren(el('p', { class: 'sheet-actions' }, done, another));
-			done.focus();
-		}),
+	const syncNow = syncButton(
+		'Sync now',
+		() =>
+			void attempt(addBody, tell, async () => {
+				await runSync(userId, tell);
+				tell(`${address} is synced with Entra and can sign in now.`);
+				if (!live()) return;
+				const done = button('Done', () => addDialog.close());
+				addBody.replaceChildren(el('p', { class: 'sheet-actions' }, done, another));
+				done.focus();
+			}),
+		'primary',
+		'sync',
 	);
 	addBody.replaceChildren(...summary, el('p', { class: 'sheet-actions' }, syncNow, another));
 	syncNow.focus();
