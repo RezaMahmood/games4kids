@@ -30,12 +30,20 @@ export default defineConfig(
 	tseslint.configs.recommended,
 	{
 		rules: {
-			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
 		},
 	},
 	{
 		files: ['**/web/**/*.js'],
 		languageOptions: { globals: globals.browser },
+	},
+	{
+		files: ['test/**/*.mjs'],
+		languageOptions: { globals: globals.node },
+	},
+	{
+		files: ['games/letterjoin/**/*.{js,ts}'],
+		rules: { 'no-control-regex': 'off' },
 	},
 	{
 		files: ['tools/**/*.mjs', '*.js'],
