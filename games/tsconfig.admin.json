@@ -1,0 +1,11 @@
+{
+	"extends": "../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "..",
+		"outDir": "../dist",
+		"lib": ["ES2023", "DOM"],
+		"types": []
+	},
+	"include": ["*/admin/api/**/*.ts"],
+	"references": [{ "path": "../packages/sdk" }, { "path": "./tsconfig.data.json" }]
+}
