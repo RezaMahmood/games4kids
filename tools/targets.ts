@@ -78,6 +78,7 @@ export function targetsFor(changedPaths: readonly string[], games: readonly Game
 export const everything = (games: readonly GameId[]): readonly DeployTarget[] => targetsFor(['packages/sdk/index.ts'], games);
 
 export type Plan = {
+	readonly any: boolean;
 	readonly infraShared: boolean;
 	readonly infraGames: readonly string[];
 	readonly apps: readonly string[];
@@ -87,6 +88,7 @@ export type Plan = {
 /** What the workflow's matrices read: infra flags and lists, app names (a game id, `portal` or `admin`) and site names. */
 export function planOf(targets: readonly DeployTarget[]): Plan {
 	return {
+		any: targets.length > 0,
 		infraShared: targets.some(({ kind }) => kind === 'infra-shared'),
 		infraGames: targets.flatMap((target) => (target.kind === 'infra-game' ? [target.game] : [])),
 		apps: targets.flatMap((target) => (target.kind === 'player-app' ? [target.game] : target.kind === 'portal-app' ? ['portal'] : target.kind === 'admin-app' ? ['admin'] : [])),

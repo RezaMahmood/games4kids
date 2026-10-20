@@ -1,0 +1,8 @@
+{
+	"name": "g4k-swa-cli",
+	"private": true,
+	"description": "The Static Web Apps CLI that deploy.yml installs from this lockfile, so the deploy job runs no unpinned download.",
+	"dependencies": {
+		"@azure/static-web-apps-cli": "2.0.10"
+	}
+}

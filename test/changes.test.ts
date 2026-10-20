@@ -89,12 +89,13 @@ test('everything deploys all of it, infra first', () => {
 
 test('planOf turns targets into the lists the workflow matrices read', () => {
 	assert.deepEqual(planOf(targetsFor(['games/drawpad/manifest.ts', 'apps/games/api/index.ts', 'infra/main.bicep'], games)), {
+		any: true,
 		infraShared: true,
 		infraGames: ['drawpad'],
 		apps: ['drawpad', 'portal', 'admin'],
 		sites: ['games', 'admin'],
 	});
-	assert.deepEqual(planOf(targetsFor(['docs/ARCHITECTURE.md'], games)), { infraShared: false, infraGames: [], apps: [], sites: [] });
+	assert.deepEqual(planOf(targetsFor(['docs/ARCHITECTURE.md'], games)), { any: false, infraShared: false, infraGames: [], apps: [], sites: [] });
 });
 
 test('tools/changes.mjs --all lists the games on disk and appends each field to GITHUB_OUTPUT', () => {
@@ -107,7 +108,7 @@ test('tools/changes.mjs --all lists the games on disk and appends each field to 
 	const output = join(root, 'github-output');
 	const run = spawnSync(process.execPath, [join(repo, 'tools/changes.mjs'), '--all', '--github-output'], { cwd: root, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: output } });
 	assert.equal(run.status, 0, run.stderr);
-	assert.deepEqual(JSON.parse(run.stdout), { infraShared: true, infraGames: ['alpha', 'beta'], apps: ['alpha', 'beta', 'portal', 'admin'], sites: ['games', 'admin'] });
+	assert.deepEqual(JSON.parse(run.stdout), { any: true, infraShared: true, infraGames: ['alpha', 'beta'], apps: ['alpha', 'beta', 'portal', 'admin'], sites: ['games', 'admin'] });
 	const lines = readFileSync(output, 'utf8').split('\n');
 	assert.ok(lines.includes('apps=["alpha","beta","portal","admin"]'));
 	assert.ok(lines.includes('infraShared=true'));
@@ -141,5 +142,5 @@ test('tools/changes.mjs diffs a real range of commits', () => {
 	git('commit', '-q', '-am', 'two');
 	const run = spawnSync(process.execPath, [join(repo, 'tools/changes.mjs'), '--base', base, '--head', 'HEAD'], { cwd: root, encoding: 'utf8' });
 	assert.equal(run.status, 0, run.stderr);
-	assert.deepEqual(JSON.parse(run.stdout), { infraShared: false, infraGames: [], apps: ['alpha'], sites: ['games'] });
+	assert.deepEqual(JSON.parse(run.stdout), { any: true, infraShared: false, infraGames: [], apps: ['alpha'], sites: ['games'] });
 });
