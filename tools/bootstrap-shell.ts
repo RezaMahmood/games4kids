@@ -304,7 +304,7 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 					portal = first['name'] ? { name: text(first['name']), id: text(first['id']) } : null;
 				}
 				const meRaw = rec(await json(azGet(`${GRAPH}/me?$select=id,mail,userPrincipalName`)));
-				const me = { id: text(meRaw['id']), email: text(meRaw['mail']) || text(meRaw['userPrincipalName']) };
+				const me = { id: text(meRaw['id']), mail: text(meRaw['mail']), userPrincipalName: text(meRaw['userPrincipalName']) };
 				const { admin } = await adminUsers(adminUpn);
 				const source = admin ?? (flags.seedSelf ? me : null);
 				let roles: ReturnType<typeof parseRoleAssignments> = [];
