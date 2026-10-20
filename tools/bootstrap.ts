@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
+import { functionAppName } from './package-app.ts';
 
 export const LOCATION = 'westeurope';
 export const STEPS = ['providers', 'entra-apps', 'identities', 'azure-roles', 'admin-account', 'github', 'after-first-deploy'] as const;
@@ -715,8 +716,13 @@ export type SpaExtras = {
 	readonly me: { readonly id: string; readonly email: string } | null;
 	readonly roles: readonly RoleAssignment[];
 	readonly row: { readonly state: 'present' | 'absent' | 'unknown'; readonly email: string | null };
+	readonly vision: { readonly playPrincipalId: string | null; readonly roles: readonly RoleAssignment[] };
 };
 export type SpaGoal = { readonly adminAccount: UserRow | null; readonly seedSelf: boolean };
+
+/** letterjoin reads handwriting with the old letterjoin's free AI Vision account until its data has moved. A subscription may hold one free account, and the pipeline has no rights in rg-letterjoin. */
+export const BORROWED_VISION = { game: 'letterjoin', path: 'resourceGroups/rg-letterjoin/providers/Microsoft.CognitiveServices/accounts/cv-letterjoin-ul5nga' } as const;
+export const borrowedVisionScope = (core: Core) => `/subscriptions/${core.subscription.id}/${BORROWED_VISION.path}`;
 
 export const redirectUrisFor = (host: string) => [`https://${host}/`, `https://${host}/redirect.html`];
 export const TABLE_DATA_CONTRIBUTOR_NAME = 'Storage Table Data Contributor';
@@ -740,6 +746,13 @@ export function planAfterFirstDeploy(core: Core, extras: SpaExtras, goal: SpaGoa
 		const gaps = missingFrom(lookup.app.redirectUris, redirectUrisFor(host));
 		rows.push(gaps.length === 0 ? fine(step, id, redirectUrisFor(host).join(', ')) : changing(step, id, `missing ${gaps.join(', ')}`, action(`add redirect URIs to ${spec.displayName}`, `add SPA redirect URIs ${gaps.join(', ')} to ${spec.displayName}`, graphCommand('PATCH', `/applications/${lookup.app.id}`, { spa: { redirectUris: [...lookup.app.redirectUris, ...gaps] } }))));
 	}
+
+	const visionScope = borrowedVisionScope(core);
+	const reader = extras.vision.playPrincipalId;
+	const visionId = `vision:${BORROWED_VISION.game}`;
+	if (!reader) rows.push(blocked(step, visionId, `${functionAppName(BORROWED_VISION.game)} does not exist yet. Merge to main so the pipeline deploys it, then run this again`));
+	else if (extras.vision.roles.some((row) => row.principalId === reader.toLowerCase() && row.roleDefinitionId === AZURE_ROLES.cognitiveServicesUser && row.scope.toLowerCase() === visionScope.toLowerCase())) rows.push(fine(step, visionId, `${functionAppName(BORROWED_VISION.game)} may read handwriting with ${visionScope}`));
+	else rows.push(changing(step, visionId, `${functionAppName(BORROWED_VISION.game)} cannot call ${visionScope} yet`, action('let letterjoin read handwriting', `assign Cognitive Services User on ${visionScope} to ${functionAppName(BORROWED_VISION.game)}`, azCommand('role', 'assignment', 'create', '--assignee-object-id', reader, '--assignee-principal-type', 'ServicePrincipal', '--role', AZURE_ROLES.cognitiveServicesUser, '--scope', visionScope), { retry: 'quick' })));
 
 	const source = goal.adminAccount ? { id: goal.adminAccount.id, email: goal.adminAccount.mail || goal.adminAccount.userPrincipalName, who: 'the admin account' } : goal.seedSelf && extras.me ? { ...extras.me, who: 'you' } : null;
 	if (!source) {

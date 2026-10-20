@@ -77,11 +77,13 @@ export class World {
 	snapshot = () => JSON.stringify([this.rg, [...this.registered].sort(), this.applications, this.servicePrincipals, this.identities, [...this.identityCredentials], [...this.appCredentials], this.users, this.directoryRoles, this.assigned, this.grants, this.armRoles, [...this.variables], [...this.environments].map(([name, env]) => [name, env.custom, env.policies, [...env.variables]]), [...this.entities]]);
 
 	appByAppId = (appId: string) => this.applications.find((app) => app['appId'] === appId);
+	letterjoinPrincipalId: string | null = null;
 	addSwaAndPortal() {
 		this.staticWebApps = [
 			{ name: 'swa-g4k-games', defaultHostname: 'games-one.4.azurestaticapps.net' },
 			{ name: 'swa-g4k-admin', defaultHostname: 'admin-two.4.azurestaticapps.net' },
 		];
+		this.letterjoinPrincipalId = 'aaaaaaaa-0000-4000-8000-00000000c0de';
 		this.portalAccount = { name: 'g4kportalab12c', id: `${text(this.rg?.['id'])}/providers/Microsoft.Storage/storageAccounts/g4kportalab12c`, tags: { game: 'portal' } };
 	}
 
@@ -137,6 +139,10 @@ export class World {
 			return row;
 		}
 		if (args[0] === 'staticwebapp') return this.staticWebApps;
+		if (args[0] === 'functionapp' && args[1] === 'identity') {
+			if (at('--name') !== 'func-g4k-letterjoin' || !this.letterjoinPrincipalId) throw new Error('ResourceNotFound');
+			return { principalId: this.letterjoinPrincipalId, type: 'SystemAssigned' };
+		}
 		if (args[0] === 'storage' && args[1] === 'account') return this.portalAccount ? [this.portalAccount] : [];
 		if (args[0] === 'storage' && args[1] === 'entity') {
 			if (args[2] === 'show') {
