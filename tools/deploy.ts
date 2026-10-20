@@ -113,18 +113,38 @@ const need = (name: string) => {
 	return value;
 };
 
+type Settings = Record<string, string>;
+type ModuleOutputs = { readonly playSettings?: { readonly value: Settings }; readonly adminSettings?: { readonly value: Settings } };
+
+/** The admin app is shared, so a game's admin settings carry the game's prefix, as the host reads them. */
+export const prefixed = (game: string, settings: Settings): Settings => Object.fromEntries(Object.entries(settings).map(([name, value]) => [`${game.toUpperCase()}_${name}`, value]));
+
+/** Merges into the app's settings. Bicep writes the base settings in full, so every deploy that writes them applies these again. */
+function mergeSettings(app: string, settings: Settings): void {
+	const pairs = Object.entries(settings).map(([name, value]) => `${name}=${value}`);
+	if (pairs.length > 0) az(['functionapp', 'config', 'appsettings', 'set', '-g', RESOURCE_GROUP, '-n', functionAppName(app), '--settings', ...pairs, '-o', 'none']);
+}
+
+function reapplyAdminSettings(): void {
+	const modules = JSON.parse(az(['deployment', 'group', 'list', '-g', RESOURCE_GROUP, '--query', "[?starts_with(name,'game-') && ends_with(name,'-module') && properties.provisioningState=='Succeeded'].{name:name,outputs:properties.outputs}", '-o', 'json'])) as { name: string; outputs?: ModuleOutputs }[];
+	for (const { name, outputs } of modules) mergeSettings('admin', prefixed(name.slice('game-'.length, -'-module'.length), outputs?.adminSettings?.value ?? {}));
+}
+
 export function deploySharedInfra(): void {
 	const parameters = [`gamesClientId=${need('GAMES_CLIENT_ID')}`, `adminClientId=${need('ADMIN_CLIENT_ID')}`, `gamesPrincipalId=${need('GAMES_PRINCIPAL_ID')}`, `adminPrincipalId=${need('ADMIN_PRINCIPAL_ID')}`, `alertEmail=${need('ALERT_EMAIL')}`];
 	previewAndDeploy('main', 'infra/main.bicep', parameters);
+	reapplyAdminSettings();
 	checkTags();
 }
 
 export function deployGameInfra(game: string): void {
-	const outputs = JSON.parse(previewAndDeploy(`game-${game}`, 'infra/game.bicep', [`@games/${game}/.gen/params.json`])) as { properties: { outputs: { [K in keyof GameOutputs]: { value: GameOutputs[K] } } } };
+	const core = JSON.parse(previewAndDeploy(`game-${game}`, 'infra/game.bicep', [`@games/${game}/.gen/params.json`, `gamesClientId=${need('GAMES_CLIENT_ID')}`])) as { properties: { outputs: { [K in keyof GameOutputs]: { value: GameOutputs[K] } } } };
 	const module = `games/${game}/infra.bicep`;
 	if (existsSync(module)) {
-		const values = Object.fromEntries(Object.entries(outputs.properties.outputs).map(([name, { value }]) => [name, value])) as GameOutputs;
-		previewAndDeploy(`game-${game}-module`, module, [writeParameters(moduleParameters(game, values))]);
+		const values = Object.fromEntries(Object.entries(core.properties.outputs).map(([name, { value }]) => [name, value])) as GameOutputs;
+		const result = JSON.parse(previewAndDeploy(`game-${game}-module`, module, [writeParameters(moduleParameters(game, values))])) as { properties: { outputs?: ModuleOutputs } };
+		mergeSettings(game, result.properties.outputs?.playSettings?.value ?? {});
+		mergeSettings('admin', prefixed(game, result.properties.outputs?.adminSettings?.value ?? {}));
 	}
 	checkTags();
 }
