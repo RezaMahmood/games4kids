@@ -14,15 +14,18 @@ export type Ctx<Who, Body> = {
 	readonly query: URLSearchParams;
 	readonly body: Body;
 	readonly now: Date;
+	/** The request's If-None-Match, for a bytes route that answers 304 through ReadBlobs.get. */
+	readonly ifNoneMatch: string | undefined;
 	readonly log: (line: string) => void;
 } & Who;
 
-export type BodyKind = 'none' | 'json' | 'png';
+export type BodyKind = 'none' | 'json' | 'png' | 'jpeg';
 
 export type RouteOf<Who> =
 	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'none'; run(ctx: Ctx<Who, undefined>): Promise<Reply> }
 	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'json'; run(ctx: Ctx<Who, unknown>): Promise<Reply> }
-	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'png'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> };
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'png'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> }
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'jpeg'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> };
 
 /** Mounted at /api/g/<id>/<path> on func-g4k-<id>. No access level: every caller is a player of this game. */
 export type PlayRoute = RouteOf<{ readonly caller: Caller }>;

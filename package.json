@@ -11,30 +11,37 @@
 	],
 	"scripts": {
 		"gen": "node --conditions=source tools/gen.mjs",
-		"predev": "npm run gen && tsc -b apps/games apps/admin",
+		"predev": "npm run gen && tsc -b apps/games apps/admin && npm run build:web",
 		"dev": "node --conditions=source tools/dev.mjs",
 		"predev:fixtures": "npm run gen && tsc -b apps/games apps/admin",
 		"dev:fixtures": "node --conditions=source tools/dev.mjs --fixtures",
-		"pree2e": "npm run gen && tsc -b apps/games apps/admin",
+		"pree2e": "npm run gen && tsc -b apps/games apps/admin && npm run build:web",
 		"e2e": "playwright test",
 		"prebuild": "npm run gen",
-		"build": "tsc -b",
-		"pretest": "npm run gen",
-		"test": "node --conditions=source --test \"test/**/*.test.ts\"",
+		"build": "tsc -b && npm run build:web",
+		"build:web": "node tools/build-web.mjs",
+		"pretest": "npm run gen && npm run build:web",
+		"test": "node --conditions=source --test \"test/**/*.test.ts\" && vitest run",
 		"lint": "eslint ."
 	},
 	"devDependencies": {
 		"@azure/functions": "4.16.5",
 		"@azure/msal-browser": "4.30.0",
 		"@eslint/js": "10.0.1",
+		"@fontsource/atkinson-hyperlegible": "5.3.0",
+		"@fontsource/bricolage-grotesque": "5.3.0",
 		"@opentelemetry/sdk-trace-base": "2.12.0",
 		"@playwright/test": "1.64.1",
+		"@preact/preset-vite": "2.10.6",
 		"@types/node": "22.20.5",
 		"azurite": "3.37.0",
 		"eslint": "10.13.0",
 		"globals": "17.7.0",
 		"jose": "6.2.12",
+		"preact": "10.29.8",
 		"typescript": "6.0.3",
-		"typescript-eslint": "8.72.0"
+		"typescript-eslint": "8.72.0",
+		"vite": "5.4.21",
+		"vitest": "2.1.9"
 	}
 }

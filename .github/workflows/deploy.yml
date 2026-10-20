@@ -56,6 +56,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run gen
       - run: npx tsc -b
+      - run: npm run build:web
       - name: Bundle what the deploy jobs need
         env:
           APPS: ${{ needs.changes.outputs.apps }}

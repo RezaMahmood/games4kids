@@ -1,0 +1,20 @@
+{
+	"extends": "../../../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "../../../..",
+		"outDir": "../../../../dist",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"types": ["vite/client"],
+		"jsx": "react-jsx",
+		"jsxImportSource": "preact",
+		"resolveJsonModule": true,
+		"emitDeclarationOnly": true,
+		"erasableSyntaxOnly": false,
+		"exactOptionalPropertyTypes": false,
+		"paths": { "/shell/v1/index.js": ["../../../../apps/games/shell/v1/index.ts"] }
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.json"],
+	"references": [{ "path": "../../../../apps/games" }, { "path": "../../../tsconfig.data.json" }]
+}

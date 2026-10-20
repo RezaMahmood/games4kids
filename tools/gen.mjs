@@ -8,6 +8,8 @@
 //   games/<id>/.gen/params.json   the ARM parameters for infra/game.bicep: id, storage with owners, memoryMb, maxInstances
 //   catalog.json                  the games site's home cards, minus apiBaseUrl, which the site deploy job fills in
 //   admin-catalog.json            the admin site's game list, with whether each game has an admin part
+//   apps/<site>/.gen/csp.json     each game's CSP widening for that site's pages, which the site's staticwebapp.config.json applies
+//   tsconfig.games.json           the games' web projects, so tsc -b builds every game's pages
 //   modules.ts                    every game's admin part, for the admin app entry
 //   games.ts / fixtures.ts        the registry, for tools/dev.mjs and the tests
 // Registries: games/ writes into dev/generated, apps/games/.gen and apps/admin/.gen. The fixture games under
@@ -38,6 +40,9 @@ const REGISTRIES = [
 		catalog: join(root, 'apps/games/.gen/catalog.json'),
 		adminCatalog: join(root, 'apps/admin/.gen/catalog.json'),
 		modules: join(root, 'apps/admin/.gen/modules.ts'),
+		csp: join(root, 'apps/games/.gen/csp.json'),
+		adminCsp: join(root, 'apps/admin/.gen/csp.json'),
+		webProjects: join(root, 'tsconfig.games.json'),
 	},
 	{
 		games: join(root, 'test/fixtures/games'),
@@ -45,6 +50,8 @@ const REGISTRIES = [
 		catalog: join(root, 'test/generated/catalog.json'),
 		adminCatalog: join(root, 'test/generated/admin-catalog.json'),
 		modules: join(root, 'test/generated/modules.ts'),
+		csp: join(root, 'test/generated/csp.json'),
+		adminCsp: join(root, 'test/generated/admin-csp.json'),
 	},
 ];
 
@@ -65,7 +72,8 @@ async function scanFolder(folder) {
 	if (!GAME_ID.test(id)) problems.push(`bad-id: ${folder}: "${id}" must match ${GAME_ID.source}`);
 	if (RESERVED_IDS.includes(id)) problems.push(`reserved-id: ${folder}: "${id}" is reserved`);
 	const hasAdmin = manifest.admin !== undefined;
-	const required = ['data/index.ts', 'play/api/index.ts', ...(hasAdmin ? ['admin/api/index.ts'] : [])];
+	const bundled = [['play', manifest.play], ['admin', manifest.admin]].filter(([, part]) => part?.web?.kind === 'vite').map(([name]) => `${name}/web/vite.config.ts`);
+	const required = ['data/index.ts', 'play/api/index.ts', ...(hasAdmin ? ['admin/api/index.ts'] : []), ...bundled];
 	for (const path of required) if (!existsSync(join(folder, path))) problems.push(`missing-file: ${id}: ${path}`);
 	if (!hasAdmin && existsSync(join(folder, 'admin'))) problems.push(`missing-file: ${id}: an admin/ folder needs admin in the manifest`);
 	const storage = manifest.storage ?? {};
@@ -77,7 +85,8 @@ async function scanFolder(folder) {
 	const exportNames = Object.keys(manifest.exports ?? {});
 	if (exportNames.length > 0) problems.push(`exports-reserved: ${id}: ${exportNames.join(', ')}; exports must stay empty`);
 	const hosting = { ...DEFAULT_HOSTING, ...manifest.play?.hosting };
-	return { problems, game: { id, folder, hasAdmin, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
+	const csp = { games: manifest.play?.csp ?? {}, admin: manifest.admin?.csp ?? {} };
+	return { problems, game: { id, folder, hasAdmin, csp, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
 }
 
 async function scan(gamesDir) {
@@ -161,6 +170,15 @@ function renderModules(out, games) {
 	return lines.join('\n');
 }
 
+const renderCsp = (games, site) => `${JSON.stringify(Object.fromEntries(games.filter((game) => Object.keys(game.csp[site]).length > 0).map((game) => [game.id, game.csp[site]])), null, '\t')}\n`;
+
+/** Every game's web project that has a tsconfig, for tsc -b. Plain-script games have none. */
+function renderWebProjects(root, games) {
+	const projects = games.flatMap((game) => ['play', 'admin'].map((part) => join(game.folder, part, 'web')).filter((dir) => existsSync(join(dir, 'tsconfig.json'))));
+	const references = projects.map((dir) => ({ path: relative(root, dir).split(sep).join('/') }));
+	return `${JSON.stringify({ files: [], references }, null, '\t')}\n`;
+}
+
 const renderCatalog = (games) => `${JSON.stringify(games.map(({ id, title, summary, icon }) => ({ id, title, summary, icon, path: `/g/${id}/` })), null, '\t')}\n`;
 const renderAdminCatalog = (games) => `${JSON.stringify(games.map(({ id, title, hasAdmin }) => ({ id, title, hasAdmin, path: `/g/${id}/` })), null, '\t')}\n`;
 
@@ -192,11 +210,14 @@ if (existsSync(tokensPath)) {
 	const changed = await writeIfChanged(join(root, 'design/.gen/tokens.css'), renderTokens(JSON.parse(await readFile(tokensPath, 'utf8'))));
 	console.log(`gen: design/.gen/tokens.css ${changed ? 'written' : 'unchanged'}`);
 }
-for (const { out, games, catalog, adminCatalog, modules } of scans) {
+for (const { out, games, catalog, adminCatalog, modules, csp, adminCsp, webProjects } of scans) {
 	const outputs = [
 		[out, renderRegistry(out, games)],
 		[catalog, renderCatalog(games)],
 		[adminCatalog, renderAdminCatalog(games)],
+		[csp, renderCsp(games, 'games')],
+		[adminCsp, renderCsp(games, 'admin')],
+		...(webProjects ? [[webProjects, renderWebProjects(root, games)]] : []),
 		[modules, renderModules(modules, games)],
 		...games.map((game) => [join(game.folder, '.gen/play-app.ts'), renderPlayApp()]),
 		...games.map((game) => [join(game.folder, '.gen/params.json'), renderParams(game)]),

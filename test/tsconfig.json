@@ -12,6 +12,9 @@
 		{ "path": "../apps/shared" },
 		{ "path": "../apps/games" },
 		{ "path": "../apps/admin" },
+		{ "path": "../games/tsconfig.data.json" },
+		{ "path": "../games/tsconfig.play.json" },
+		{ "path": "../games/tsconfig.admin.json" },
 		{ "path": "../dev" },
 		{ "path": "../tools" }
 	]
