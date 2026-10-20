@@ -9,7 +9,7 @@ import { ACCURACY_STEP, MIN_TREND_DAYS, SPEED_STEP, TREND_DAYS, accuracyText, da
 import { drawTarget, sizeSheet } from './render.js';
 import { SECTIONS_KEY, createSections } from './sections.js';
 import { IPAD_STAGE_WIDTH, layoutSheet } from './sheet.js';
-import { enterAdmin } from '/shell/v1/index.js';
+import { enterAdmin, ready } from '/shell/v1/index.js';
 
 const $ = (id) => document.getElementById(id);
 const field = (id) => $(`f-${id}`);
@@ -504,3 +504,4 @@ try {
 } catch (err) {
   failed(err);
 }
+ready();

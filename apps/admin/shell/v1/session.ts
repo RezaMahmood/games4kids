@@ -55,11 +55,25 @@ function elevatedFor(signedIn: AdminSignedIn, config: AdminSiteConfig): AdminPor
 
 /**
  * The admin site's one entry. Resolves only for an account with an admins row. Signed out is a redirect to sign in;
- * an account that is not an administrator gets a screen, and the promise never settles.
+ * an account that is not an administrator, or a failure on the way in, gets a screen, and the promise never settles.
+ * The page calls ready() once its first data has rendered.
  */
 export function enterAdmin(options: { readonly game: null }): Promise<AdminPortalSession>;
 export function enterAdmin(options: { readonly game: string }): Promise<AdminGameSession>;
 export async function enterAdmin(options: { readonly game: string | null }): Promise<AdminGameSession | AdminPortalSession> {
+	try {
+		return await admit(options);
+	} catch (error) {
+		console.error(error);
+		showUnreachable();
+		return never();
+	}
+}
+
+const showUnreachable = (): void =>
+	showScreen('Something went wrong', 'We could not reach the admin service. Try again in a moment.', [{ label: 'Try again', run: () => location.reload() }]);
+
+async function admit(options: { readonly game: string | null }): Promise<AdminGameSession | AdminPortalSession> {
 	const config = await loadAdminConfig();
 	stylesheet('/shared/tokens.css');
 	stylesheet('/shared/shell.css');
@@ -75,11 +89,8 @@ export async function enterAdmin(options: { readonly game: string | null }): Pro
 		email = me;
 	} catch (error) {
 		const forbidden = error instanceof ApiFailure && error.code === 'forbidden';
-		showScreen(
-			forbidden ? 'This account is not an administrator' : 'Something went wrong',
-			forbidden ? 'Sign in with the administrator account.' : 'We could not reach the admin service. Try again in a moment.',
-			[{ label: forbidden ? 'Sign out' : 'Try again', run: forbidden ? signedIn.signOut : () => location.reload() }],
-		);
+		if (forbidden) showScreen('This account is not an administrator', 'Sign in with the administrator account.', [{ label: 'Sign out', run: signedIn.signOut }]);
+		else showUnreachable();
 		return never();
 	}
 

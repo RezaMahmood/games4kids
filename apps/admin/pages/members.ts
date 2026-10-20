@@ -1,4 +1,4 @@
-import { ApiFailure, enterAdmin } from '../shell/v1/index.ts';
+import { ApiFailure, enterAdmin, ready } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
 import { describeDrift, parseMembers, syncBody, type GameGrant, type MemberRow } from './members-model.ts';
 
@@ -149,3 +149,4 @@ byId('check').addEventListener('click', () =>
 byId('sync-all').addEventListener('click', () => void attempt(() => runSync(null)));
 
 await attempt(load);
+ready();

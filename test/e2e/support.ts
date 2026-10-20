@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { REAL_PORT_BASE } from './ports.ts';
 
 export const GAMES = `http://localhost:${REAL_PORT_BASE}`;
@@ -9,6 +9,12 @@ export async function signInAtFakeEntra(page: Page, email: string): Promise<void
 	await page.waitForURL('**/oauth2/v2.0/authorize?**');
 	await page.getByLabel('Email').fill(email);
 	await page.getByRole('button', { name: 'Sign in' }).click();
+}
+
+/** The admin page's first load is done: the shell bar is up and body[aria-busy] is gone. Until then the page is inert, and fill() types into nothing. */
+export async function adminReady(page: Page): Promise<void> {
+	await expect(page.locator('admin-bar .g4k-bar')).toBeVisible();
+	await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
 }
 
 /** The fake popup asks for credentials again, as prompt=login does. */

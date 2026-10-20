@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PORT_BASE } from './ports.ts';
+import { adminReady } from './support.ts';
 
 const GAMES = `http://localhost:${PORT_BASE}`;
 const ADMIN = `http://localhost:${PORT_BASE + 1}`;
@@ -43,6 +44,7 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 	await test.step('the admin signs in to the admin site', async () => {
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		await adminReady(admin);
 		await expect(admin.getByRole('heading', { name: 'Members' })).toBeVisible();
 		await expect(admin.getByRole('navigation', { name: 'Admin' })).toContainText(ADMIN_EMAIL);
 	});
@@ -138,6 +140,7 @@ test('a member granted every game sees and plays each one, and the per-game boxe
 	await test.step('the admin ticks every game for a new member, which disables the per-game boxes', async () => {
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		await adminReady(admin);
 		const add = admin.getByRole('region', { name: 'Add a member' });
 		await add.getByLabel('Email').fill(everyEmail);
 		await add.getByLabel('Every game, including new ones').check();

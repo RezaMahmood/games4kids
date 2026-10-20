@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, answerPopups, GAMES, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, GAMES, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, ignoreHTTPSErrors: true };
@@ -20,6 +20,7 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 	await test.step('the admin adds members on a phone and sees each save', async () => {
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		await adminReady(admin);
 		const add = admin.getByRole('region', { name: 'Add a member' });
 		for (const email of emails) {
 			await add.getByLabel('Email').fill(email);
