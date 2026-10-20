@@ -15,9 +15,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { PASSWORD_SENTINEL } from './bootstrap.ts';
-import { parseFlags, run, USAGE } from './bootstrap-shell.ts';
+import { relaunchWithSource } from './migrate/launch.mjs';
+
+relaunchWithSource(fileURLToPath(import.meta.url));
+
+const { PASSWORD_SENTINEL } = await import('./bootstrap.ts');
+const { parseFlags, run, USAGE } = await import('./bootstrap-shell.ts');
 
 const execFileAsync = promisify(execFile);
 

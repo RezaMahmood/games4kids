@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
-// Bootstrap runs without a build, so it reads the parser from source.
-import { parseEmail, type Email } from '../packages/sdk/src/identity.ts';
+import { parseEmail, type Email } from '@g4k/sdk';
 import { functionAppName } from './package-app.ts';
 
 export const LOCATION = 'westeurope';
