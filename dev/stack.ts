@@ -22,8 +22,10 @@ import {
 	type TrustedIssuer,
 } from '@g4k/host';
 import { azureAccounts } from '@g4k/host/azure';
-import { serveWithNode } from '@g4k/host/node';
+import { deliverQueues, serveWithNode } from '@g4k/host/node';
+import type { CspByGame } from '../tools/site-config.ts';
 import { createDirectory, type Directory } from './directory.ts';
+import { startFakeFoundry, type FakeFoundry } from './fake-foundry.ts';
 import { startFakeGraph } from './fake-graph.ts';
 import { startFakeIdp } from './fake-idp.ts';
 import { startSite } from './sites.ts';
@@ -39,7 +41,7 @@ const ADMIN_PRINCIPAL_ID = 'bbbbbbbb-0000-4000-8000-000000000002';
 export type StackOptions = {
 	/** Serve the fixture games under test/fixtures/games instead of games/. */
 	readonly fixtures?: boolean;
-	/** Seven consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph. */
+	/** Eight consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph, Foundry. */
 	readonly portBase?: number;
 	/** Azurite or any storage account connection string. Without it every account is in memory. */
 	readonly azuriteConnectionString?: string;
@@ -54,6 +56,7 @@ export type DevStack = {
 	readonly adminObjectId: EntraObjectId;
 	readonly idp: Awaited<ReturnType<typeof startFakeIdp>>;
 	readonly graph: Awaited<ReturnType<typeof startFakeGraph>>;
+	readonly foundry: FakeFoundry;
 	readonly accounts: Accounts;
 	readonly directory: Directory;
 	/** Every event the shells sent to the fake Application Insights endpoint. */
@@ -111,13 +114,14 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const idpHttps = await next(4);
 	const idpHttp = await next(5);
 	const graphPort = await next(6);
+	const foundryPort = await next(7);
 	const gamesOrigin = `http://localhost:${gamesPort}`;
 	const adminOrigin = `http://localhost:${adminPort}`;
 	const adminEmail = options.adminEmail ?? 'admin@example.com';
 
 	const layout = options.fixtures
-		? { registry: '../test/generated/fixtures.ts', gamesRoot: 'test/fixtures/games', catalog: 'test/generated/catalog.json', adminCatalog: 'test/generated/admin-catalog.json' }
-		: { registry: './generated/games.ts', gamesRoot: 'games', catalog: 'apps/games/.gen/catalog.json', adminCatalog: 'apps/admin/.gen/catalog.json' };
+		? { registry: '../test/generated/fixtures.ts', gamesRoot: 'test/fixtures/games', catalog: 'test/generated/catalog.json', adminCatalog: 'test/generated/admin-catalog.json', csp: 'test/generated/csp.json', adminCsp: 'test/generated/admin-csp.json' }
+		: { registry: './generated/games.ts', gamesRoot: 'games', catalog: 'apps/games/.gen/catalog.json', adminCatalog: 'apps/admin/.gen/catalog.json', csp: 'apps/games/.gen/csp.json', adminCsp: 'apps/admin/.gen/csp.json' };
 	const { games: registry } = (await import(layout.registry)) as { games: readonly RegistryEntry[] };
 	const gamesRoot = layout.gamesRoot;
 
@@ -136,7 +140,10 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		],
 	});
 
-	const accounts: Accounts = options.azuriteConnectionString ? azureAccounts({ kind: 'azurite', connectionString: options.azuriteConnectionString }) : memoryAccounts();
+	const foundry = await startFakeFoundry({ port: foundryPort });
+	const apps: App[] = [];
+	const storage: Accounts = options.azuriteConnectionString ? azureAccounts({ kind: 'azurite', connectionString: options.azuriteConnectionString }) : memoryAccounts();
+	const accounts = deliverQueues(storage, () => apps, (worker, error, dequeueCount) => console.error(`dev stack: ${worker.name} failed attempt ${dequeueCount}`, error));
 	const portalAccount = accounts.open('portal');
 	await portalAccount.table('admins').put({ partitionKey: 'admin', rowKey: adminObjectId, email: adminEmail });
 
@@ -154,6 +161,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const table = (name: 'members' | 'identities' | 'emails' | 'profiles' | 'admins') => portalAccount.table(name);
 	const common = { telemetry, now: () => new Date() };
 	const tokens = async (service: string) => `dev-${service}-token`;
+	const adminEnv = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1' };
 
 	const playerApps = registry.map((entry) =>
 		entry.use(({ manifest, play }) =>
@@ -188,11 +196,11 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		modules,
 		accounts,
 		tokens,
-		env: {},
+		env: adminEnv,
 		gamesOrigin,
 	});
 
-	const apps: readonly App[] = [...playerApps, portalApp, adminApp];
+	apps.push(...playerApps, portalApp, adminApp);
 	const api = await serveWithNode(apps, { port: apiPort, allowedOrigins: (app) => (app === adminApp ? [adminOrigin] : [gamesOrigin]) });
 
 	const events: unknown[] = [];
@@ -203,11 +211,14 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 
 	const gamesCatalog = (await readJson(`${REPO}${layout.catalog}`)) as object[];
 	const adminCatalog = await readJson(`${REPO}${layout.adminCatalog}`);
+	const gamesCsp = (await readJson(`${REPO}${layout.csp}`)) as CspByGame;
+	const adminCsp = (await readJson(`${REPO}${layout.adminCsp}`)) as CspByGame;
 	const gamesSite = await startSite({
 		kind: 'games',
 		port: gamesPort,
 		origins,
 		gamesRoot,
+		csp: gamesCsp,
 		config: { authority: idp.authority, clientId: GAMES_CLIENT_ID, scope: `api://${GAMES_CLIENT_ID}/access_as_user`, portalApiOrigin: api.origin, telemetryConnectionString: connectionString },
 		catalog: gamesCatalog.map((entry) => ({ ...entry, apiBaseUrl: api.origin })),
 	});
@@ -216,6 +227,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		port: adminPort,
 		origins,
 		gamesRoot,
+		csp: adminCsp,
 		config: {
 			authority: idp.authority,
 			clientId: ADMIN_CLIENT_ID,
@@ -235,10 +247,11 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		adminObjectId,
 		idp,
 		graph,
-		accounts,
+		foundry,
+		accounts: storage,
 		directory,
 		events,
 		exceptions,
-		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close()])),
+		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close(), foundry.close()])),
 	};
 }

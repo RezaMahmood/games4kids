@@ -107,6 +107,10 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 		assert.ok(csp.includes(`connect-src 'self' ${stack.apiOrigin}`));
 		assert.ok(!csp.includes(stack.adminOrigin));
 		assert.match((await fetch(`${stack.gamesOrigin}/redirect.html`)).headers.get('content-security-policy') ?? '', /frame-ancestors 'self'/);
+		const own = (await fetch(`${stack.gamesOrigin}/g/fixture/`)).headers.get('content-security-policy') ?? '';
+		assert.match(own, /img-src 'self' data: blob: https:\/\/cdn\.example;/, 'a game widens the policy of its own pages');
+		assert.ok(!(await fetch(`${stack.gamesOrigin}/g/puzzle/`)).headers.get('content-security-policy')?.includes('cdn.example'), 'and of no other game');
+		assert.match((await fetch(`${stack.adminOrigin}/g/fixture/`)).headers.get('content-security-policy') ?? '', /worker-src 'self' blob:/);
 		const members = await fetch(`${stack.adminOrigin}/`);
 		assert.ok((members.headers.get('content-security-policy') ?? '').includes(`connect-src 'self' ${stack.apiOrigin}`));
 		for (const path of ['/shell/v1/index.js', '/shared/api-client.js', '/shared/vendor/msal-browser.min.js', '/shared/tokens.css', '/home.js', '/welcome/', '/g/fixture/', '/g/puzzle/icon.svg']) {
