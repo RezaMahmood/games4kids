@@ -30,6 +30,18 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				},
 			},
 			{
+				name: 'art',
+				method: 'GET',
+				path: 'art/{name}',
+				body: 'none',
+				async run({ params, ifNoneMatch }) {
+					const art = await store.art(params['name'] ?? '', ifNoneMatch);
+					if (art === 'not-modified') return { status: 304 };
+					if (!art) throw new HttpError(404, 'not_found', 'That art is not there.');
+					return { status: 200, bytes: art.bytes, contentType: art.contentType, etag: art.etag };
+				},
+			},
+			{
 				name: 'upload',
 				method: 'POST',
 				path: 'uploads',

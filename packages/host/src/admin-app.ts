@@ -1,4 +1,4 @@
-import { HttpError, parsePortalUserId, type AdminRoute, type CreateAdminApi, type GameId, type GameManifest, type Method, type Reply, type Roster } from '@g4k/sdk';
+import { HttpError, parsePortalUserId, type AdminApi, type AdminRoute, type CreateAdminApi, type GameId, type GameManifest, type Method, type Reply, type Roster, type Worker } from '@g4k/sdk';
 import {
 	ELEVATION_MAX_AGE_SECONDS,
 	elevate,
@@ -12,7 +12,7 @@ import {
 	type AdminStore,
 } from './admin.ts';
 import { checkEntra, EntraRefused, syncEntra, type GraphFor, type OboGraph } from './entra.ts';
-import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type HostReply, type HostRequest } from './http.ts';
+import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type AppWorker, type HostReply, type HostRequest } from './http.ts';
 import { adminPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
 import { rosterOf } from './portal-tables.ts';
 import type { Accounts } from './storage.ts';
@@ -28,16 +28,25 @@ export type ModuleHost = {
 	readonly roster: (game: GameId) => Roster;
 };
 
+/** What a mounted module hands the app: its routes, and its queue workers with the queue names widened so a list can hold them. */
+export type MountedModule = { readonly routes: readonly AdminRoute[]; readonly workers: readonly { readonly queue: string; readonly run: Worker }[] };
+
 /** One game's admin part. The manifest's literal types stay inside `mount`, so the app can hold a list of them. */
-export type AdminModule = { readonly id: GameId; mount(host: ModuleHost): readonly AdminRoute[] };
+export type AdminModule = { readonly id: GameId; mount(host: ModuleHost): MountedModule };
 
 export function adminModule<M extends GameManifest>(manifest: M, create: CreateAdminApi<M>): AdminModule {
 	const id = requireGameId(manifest);
 	return {
 		id,
-		mount: (host) => create(adminPlatform(manifest, id, { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now }, host.roster(id))).routes,
+		mount(host) {
+			const api: AdminApi<M> = create(adminPlatform(manifest, id, { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now }, host.roster(id)));
+			return { routes: api.routes, workers: api.workers ?? [] };
+		},
 	};
 }
+
+/** The app settings prefix of a game's queue account connection: DRAWPAD_STORAGE__queueServiceUri and its credential settings. */
+export const workerConnection = (game: GameId): string => `${game.toUpperCase()}_STORAGE`;
 
 export type AdminAppDeps = {
 	readonly issuer: TrustedIssuer;
@@ -159,13 +168,30 @@ export function createAdminApp(deps: AdminAppDeps): App {
 		},
 	];
 	const host = { accounts: deps.accounts, env: deps.env, tokens: deps.tokens, now: deps.now, roster: (game: GameId) => rosterOf(deps.store, game) };
-	const games: readonly Entry[] = deps.modules.flatMap((module) =>
-		module.mount(host).map((route) => ({
+	const mounted = deps.modules.map((module) => ({ module, ...module.mount(host) }));
+	const games: readonly Entry[] = mounted.flatMap(({ module, routes }) =>
+		routes.map((route) => ({
 			owner: module.id,
 			name: route.name,
 			method: route.method,
 			path: `g/${module.id}/${route.path}`,
 			target: { kind: 'game', game: module.id, route } as const,
+		})),
+	);
+	const workers: readonly AppWorker[] = mounted.flatMap(({ module, workers: list }) =>
+		list.map(({ queue, run }) => ({
+			name: adminFunctionName(module.id, `worker-${queue}`),
+			game: module.id,
+			queue,
+			connection: workerConnection(module.id),
+			async run(message, { dequeueCount }) {
+				try {
+					await run(message, { now: deps.now(), log, dequeueCount });
+				} catch (error) {
+					deps.telemetry.exception(error);
+					throw error;
+				}
+			},
 		})),
 	);
 	const entries = [...portal, ...games];
@@ -206,5 +232,5 @@ export function createAdminApp(deps: AdminAppDeps): App {
 		}
 	}
 
-	return { prefix, handle, functions: entries.map(({ owner, name, method, path }) => ({ name: adminFunctionName(owner, name), method, route: `admin/${path}` })) };
+	return { prefix, handle, functions: entries.map(({ owner, name, method, path }) => ({ name: adminFunctionName(owner, name), method, route: `admin/${path}` })), workers };
 }

@@ -2,15 +2,18 @@ import { HttpError } from '@g4k/sdk';
 import type { App, HostReply, HostRequest } from '@g4k/host';
 
 export const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+export const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
 
-export type Send = { readonly token?: string; readonly json?: unknown; readonly png?: Uint8Array };
+export type Send = { readonly token?: string; readonly json?: unknown; readonly png?: Uint8Array; readonly jpeg?: Uint8Array; readonly headers?: Readonly<Record<string, string>> };
 
 export function request(method: string, path: string, send: Send = {}): HostRequest {
 	const headers = new Headers();
 	if (send.token) headers.set('authorization', `Bearer ${send.token}`);
 	if (send.json !== undefined) headers.set('content-type', 'application/json');
 	if (send.png) headers.set('content-type', 'image/png');
-	const body = send.json !== undefined ? new TextEncoder().encode(JSON.stringify(send.json)) : (send.png ?? new Uint8Array());
+	if (send.jpeg) headers.set('content-type', 'image/jpeg');
+	for (const [name, value] of Object.entries(send.headers ?? {})) headers.set(name, value);
+	const body = send.json !== undefined ? new TextEncoder().encode(JSON.stringify(send.json)) : (send.png ?? send.jpeg ?? new Uint8Array());
 	const url = new URL(path, 'http://localhost');
 	return {
 		method,

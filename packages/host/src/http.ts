@@ -1,4 +1,4 @@
-import { HttpError, type ApiError, type Ctx, type Method, type Refusal, type Reply, type RouteOf } from '@g4k/sdk';
+import { HttpError, type ApiError, type Ctx, type GameId, type Method, type Refusal, type Reply, type RouteOf } from '@g4k/sdk';
 import type { Telemetry } from './telemetry.ts';
 
 /** Transport-neutral, so one app runs under Functions, the dev node server, and in tests. */
@@ -17,15 +17,27 @@ export type HostReply = { readonly status: number; readonly headers: Readonly<Re
 /** One app.http registration for the Functions adapter. `route` is relative to the `api/` route prefix. */
 export type AppFunction = { readonly name: string; readonly method: Method; readonly route: string };
 
+/** One queue-triggered function. `connection` names the app settings prefix that holds the queue account's identity-based connection. */
+export type AppWorker = {
+	readonly name: string;
+	readonly game: GameId;
+	readonly queue: string;
+	readonly connection: string;
+	run(message: unknown, context: { readonly dequeueCount: number }): Promise<void>;
+};
+
 export type App = {
 	readonly prefix: `/api/${string}/`;
 	handle(request: HostRequest): Promise<HostReply>;
 	readonly functions: readonly AppFunction[];
+	readonly workers?: readonly AppWorker[];
 };
 
 export const MAX_JSON_BYTES = 256 * 1024;
 export const MAX_PNG_BYTES = 4 * 1024 * 1024;
+export const MAX_JPEG_BYTES = 4 * 1024 * 1024;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 
 export function json(status: number, value: unknown, headers: Readonly<Record<string, string>> = {}): HostReply {
 	return { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }, body: JSON.stringify(value) };
@@ -120,17 +132,27 @@ async function readPng(request: HostRequest): Promise<Uint8Array> {
 	return bytes;
 }
 
+async function readJpeg(request: HostRequest): Promise<Uint8Array> {
+	if (request.headers.get('content-type')?.toLowerCase() !== 'image/jpeg') throw new HttpError(415, 'unsupported_media_type', 'Send a JPEG.');
+	const bytes = await request.bytes(MAX_JPEG_BYTES);
+	if (!JPEG_SIGNATURE.every((byte, i) => bytes[i] === byte)) throw new HttpError(415, 'unsupported_media_type', 'That is not a JPEG.');
+	return bytes;
+}
+
 type Base = { readonly params: Readonly<Record<string, string>>; readonly query: URLSearchParams; readonly now: Date; readonly log: (line: string) => void };
 
 /** Parses the body the route declared, then runs it. */
 export async function runRoute<Who>(route: RouteOf<Who>, request: HostRequest, base: Base, who: Who): Promise<Reply> {
+	const context = { ...base, ifNoneMatch: request.headers.get('if-none-match') ?? undefined };
 	switch (route.body) {
 		case 'none':
-			return route.run({ ...base, body: undefined, ...who } satisfies Ctx<Who, undefined>);
+			return route.run({ ...context, body: undefined, ...who } satisfies Ctx<Who, undefined>);
 		case 'json':
-			return route.run({ ...base, body: await readJson(request), ...who } satisfies Ctx<Who, unknown>);
+			return route.run({ ...context, body: await readJson(request), ...who } satisfies Ctx<Who, unknown>);
 		case 'png':
-			return route.run({ ...base, body: await readPng(request), ...who } satisfies Ctx<Who, Uint8Array>);
+			return route.run({ ...context, body: await readPng(request), ...who } satisfies Ctx<Who, Uint8Array>);
+		case 'jpeg':
+			return route.run({ ...context, body: await readJpeg(request), ...who } satisfies Ctx<Who, Uint8Array>);
 	}
 }
 
