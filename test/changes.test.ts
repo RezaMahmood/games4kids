@@ -25,6 +25,8 @@ const adminSite: DeployTarget = { kind: 'admin-site' };
 const bothSidesOf = (game: GameId): DeployTarget[] => [player(game), adminApp, gamesSite, adminSite];
 const allApps = [player(drawpad), player(letterjoin), portal, adminApp];
 const allSites = [gamesSite, adminSite];
+// The shared deploy rewrites the admin and portal settings whole, so each game's infra follows it to merge its settings back.
+const sharedInfra = [infraShared, infraGame(drawpad), infraGame(letterjoin)];
 
 const rows: readonly (readonly [name: string, paths: string[], expected: DeployTarget[]])[] = [
 	['a game play web page', ['games/letterjoin/play/web/index.html'], [player(letterjoin), gamesSite]],
@@ -46,9 +48,9 @@ const rows: readonly (readonly [name: string, paths: string[], expected: DeployT
 	['the design tokens', ['design/tokens.json'], allSites],
 	['the host package', ['packages/host/src/player-app.ts'], allApps],
 	['the sdk package', ['packages/sdk/src/manifest.ts'], [infraShared, infraGame(drawpad), infraGame(letterjoin), ...allApps, ...allSites]],
-	['shared infra', ['infra/main.bicep'], [infraShared]],
-	['the shared infra workbook', ['infra/workbook.json'], [infraShared]],
-	['the game infra template', ['infra/game.bicep'], [infraShared]],
+	['shared infra', ['infra/main.bicep'], sharedInfra],
+	['the shared infra workbook', ['infra/workbook.json'], sharedInfra],
+	['the game infra template', ['infra/game.bicep'], sharedInfra],
 	['the lockfile', ['package-lock.json'], [...allApps, ...allSites]],
 	['the gen tool', ['tools/gen.mjs'], [...allApps, ...allSites]],
 	['the Vite page build', ['tools/build-web.mjs'], [...allApps, ...allSites]],
@@ -75,7 +77,7 @@ test('targetsFor: a new game folder creates its infra first, then deploys both s
 
 test('targetsFor: several paths deduplicate and order infra, then apps, then sites', () => {
 	const paths = ['apps/admin/shell/v1/index.ts', 'games/letterjoin/play/web/index.html', 'infra/main.bicep', 'games/drawpad/infra.bicep', 'games/drawpad/play/api/index.ts', 'apps/games/api/index.ts'];
-	assert.deepEqual(targetsFor(paths, games), [infraShared, infraGame(drawpad), player(drawpad), player(letterjoin), portal, adminApp, gamesSite, adminSite]);
+	assert.deepEqual(targetsFor(paths, games), [...sharedInfra, player(drawpad), player(letterjoin), portal, adminApp, gamesSite, adminSite]);
 });
 
 test('targetsFor: a deleted game redeploys the sites and nothing that belongs to it', () => {
@@ -94,7 +96,7 @@ test('planOf turns targets into the lists the workflow matrices read', () => {
 	assert.deepEqual(planOf(targetsFor(['games/drawpad/manifest.ts', 'apps/games/api/index.ts', 'infra/main.bicep'], games)), {
 		any: true,
 		infraShared: true,
-		infraGames: ['drawpad'],
+		infraGames: ['drawpad', 'letterjoin'],
 		apps: ['drawpad', 'portal', 'admin'],
 		sites: ['games', 'admin'],
 	});

@@ -159,6 +159,7 @@ export function runPlayConformance<M extends GameManifest>(manifest: M, create: 
 			const { app } = setup();
 			assert.equal(app.prefix, prefix);
 			for (const fn of app.functions) assert.ok(`/api/${fn.route}`.startsWith(prefix), fn.route);
+			for (const fn of app.functions) assert.doesNotMatch(fn.route, /^admin/i, 'Functions refuses a route that starts with admin');
 			assert.equal(new Set(app.functions.map((fn) => fn.name)).size, app.functions.length);
 			assert.equal(new Set(app.functions.map((fn) => `${fn.method} ${fn.route}`)).size, app.functions.length);
 		});
@@ -274,7 +275,8 @@ export function runAdminConformance<M extends GameManifest>(manifest: M, create:
 			const { app, seen } = setup();
 			const mine = app.functions.filter((fn) => fn.name.startsWith(`${id}-`));
 			assert.deepEqual(mine.map((fn) => fn.name).sort(), seen.probes.map((p) => adminFunctionName(id, p.name)).sort());
-			for (const fn of mine) assert.ok(`/api/${fn.route}`.startsWith(prefix), fn.route);
+			for (const fn of mine) assert.ok(`/api/admin/${fn.route}`.startsWith(prefix), fn.route);
+			for (const fn of app.functions) assert.doesNotMatch(fn.route, /^admin/i, 'Functions refuses a route that starts with admin');
 		});
 
 		it('creates the API with no storage I/O', () => {

@@ -232,5 +232,5 @@ export function createAdminApp(deps: AdminAppDeps): App {
 		}
 	}
 
-	return { prefix, handle, functions: entries.map(({ owner, name, method, path }) => ({ name: adminFunctionName(owner, name), method, route: `admin/${path}` })), workers };
+	return { prefix, handle, functions: entries.map(({ owner, name, method, path }) => ({ name: adminFunctionName(owner, name), method, route: path })), workers };
 }
