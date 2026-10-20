@@ -368,7 +368,7 @@ test('apply is refused without both flags, and nothing is written', async () => 
 		await invitedBoth(accounts);
 		const lines: string[] = [];
 		const before = writes(accounts);
-		const io: Io = { print: (line) => void lines.push(line), connect: async (): Promise<Connection> => ({ from: fixture().from, to: newAccounts(accounts), portal: await readPortal(accounts) }) };
+		const io: Io = { print: (line) => void lines.push(line), connect: async (): Promise<Connection> => ({ from: fixture().from, to: newAccounts(accounts), readPortal: () => readPortal(accounts) }) };
 		const code = await runPlayerData(['--suffix', 'abcde', ...flags], io);
 
 		assert.equal(code, 2);
@@ -383,7 +383,7 @@ test('apply with both flags writes, and a plain run prints the closing refusal l
 	const accounts = memoryAccounts();
 	await invitedBoth(accounts);
 	const lines: string[] = [];
-	const io: Io = { print: (line) => void lines.push(line), connect: async () => ({ from: fixture().from, to: newAccounts(accounts), portal: await readPortal(accounts) }) };
+	const io: Io = { print: (line) => void lines.push(line), connect: async () => ({ from: fixture().from, to: newAccounts(accounts), readPortal: () => readPortal(accounts) }) };
 	const before = writes(accounts);
 
 	assert.equal(await runPlayerData(['--suffix', 'abcde'], io), 0);
@@ -395,9 +395,18 @@ test('apply with both flags writes, and a plain run prints the closing refusal l
 	assert.ok(writes(accounts) > before);
 });
 
+test('content migration never reads the portal, so it runs without access to the sign-in tables', async () => {
+	const lines: string[] = [];
+	const refused = Object.assign(new Error('AuthorizationPermissionMismatch'), { statusCode: 403 });
+	const io: Io = { print: (line) => void lines.push(line), connect: async () => ({ from: fixture().from, to: newAccounts(memoryAccounts()), readPortal: () => Promise.reject(refused) }) };
+
+	assert.equal(await runContent(['--suffix', 'abcde'], io, { activityProblem }), 0);
+	assert.ok(lines.some((line) => line.startsWith('drawpad/pictures: to write 8')));
+});
+
 test('without a suffix a dry run plans against empty accounts and an apply is refused', async () => {
 	const lines: string[] = [];
-	const io: Io = { print: (line) => void lines.push(line), connect: async () => ({ from: fixture().from, to: null, portal: NO_PORTAL_ROWS }) };
+	const io: Io = { print: (line) => void lines.push(line), connect: async () => ({ from: fixture().from, to: null, readPortal: async () => NO_PORTAL_ROWS }) };
 
 	assert.equal(await runContent([], io, { activityProblem }), 0);
 	assert.ok(lines.some((line) => line.includes('No --suffix')));

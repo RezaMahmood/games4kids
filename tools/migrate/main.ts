@@ -29,9 +29,9 @@ export function realIo(): Io {
 		async connect(options) {
 			const credential = new DefaultAzureCredential();
 			const from = { drawpad: openOldAccount(options.accounts.drawpad, credential), letterjoin: openOldAccount(options.accounts.letterjoin, credential) };
-			if (!options.suffix) return { from, to: null, portal: NO_PORTAL_ROWS };
+			if (!options.suffix) return { from, to: null, readPortal: async () => NO_PORTAL_ROWS };
 			const accounts = azureAccounts({ kind: 'azure', suffix: options.suffix, credential });
-			return { from, to: newAccounts(accounts), portal: await readPortal(accounts) };
+			return { from, to: newAccounts(accounts), readPortal: () => readPortal(accounts) };
 		},
 	};
 }
