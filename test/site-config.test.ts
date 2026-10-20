@@ -122,3 +122,20 @@ test('widening a policy adds sources once, and starts a directive it lacks from 
 	assert.equal(JSON.parse(withGameCsp(JSON.stringify({ globalHeaders: { 'Content-Security-Policy': policy } }), {})).routes.length, 0);
 	assert.throws(() => withGameCsp('{}', { a: {} }), /no global Content-Security-Policy/);
 });
+
+const viteBuilt = existsSync(join(repo, 'games/drawpad/play/web/dist/index.html')) && existsSync(join(repo, 'games/drawpad/admin/web/dist/index.html')) && existsSync(join(repo, 'apps/games/.gen/catalog.json'));
+
+test('a Vite game is served from its built pages, with its fonts, and leaves the shell to the site', { skip: viteBuilt ? false : 'the pages are not built; run npm run build:web' }, () => {
+	for (const kind of ['games', 'admin'] as const) {
+		const out = mkdtempSync(join(tmpdir(), `g4k-site-vite-${kind}-`));
+		composeSite(repo, kind, out);
+		const files = tree(out).filter((path) => path.startsWith('g/drawpad/'));
+		assert.ok(files.includes('g/drawpad/index.html'));
+		const script = files.find((path) => /assets\/index-.*\.js$/.test(path));
+		assert.ok(script, 'the page script is in the site');
+		assert.match(read(out, script), /from"\/shell\/v1\/index\.js"/, 'the shell is imported at run time, not bundled');
+		assert.ok(files.some((path) => path.endsWith('.woff2')), 'the fonts are served by the site itself');
+		assert.deepEqual(files.filter((path) => path.endsWith('.woff') || path.endsWith('.ts') || path.endsWith('.tsx')), [], 'nothing but what a page loads');
+		assert.doesNotMatch(read(out, 'g/drawpad/index.html'), /src="\/src\//);
+	}
+});

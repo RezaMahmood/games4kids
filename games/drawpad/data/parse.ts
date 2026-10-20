@@ -99,7 +99,6 @@ export function parseDrawingPatch(body: unknown): DrawingPatch {
 	return patch;
 }
 
-/** The daily limit for one child in minutes, or null to fall back to the default. */
 export function parseLimit(body: unknown): number | null {
 	const { dailyLimitMinutes } = record(body);
 	if (dailyLimitMinutes !== null && !isInt(dailyLimitMinutes, 0, MAX_LIMIT_MINUTES)) throw invalid();
@@ -129,7 +128,6 @@ function pictureTitle(value: unknown): string {
 	return title;
 }
 
-/** The new name for a library picture. */
 export function parseRename(body: unknown): string {
 	return pictureTitle(record(body)['title']);
 }
@@ -147,7 +145,6 @@ export function parseNewPicture(body: unknown): NewPicture {
 	return picture;
 }
 
-/** The image files a picture of these kinds must already have in the library. */
 export function requiredPictureFiles(picture: Pick<NewPicture, 'kinds'>): string[] {
 	return ['original.jpg', ...(picture.kinds.includes('trace') ? ['outline.png'] : []), ...(picture.kinds.includes('pbn') ? ['pbn-regions.png', 'pbn-preview.png'] : [])];
 }
@@ -183,7 +180,6 @@ export function parseDescriptionJob(body: unknown): NewJob {
 	return { source: 'description', description, quality: redrawQuality(quality) };
 }
 
-/** The outline a redraw request asks a photo job to make, or make again. */
 export function parseRedraw(body: unknown): PhotoStepKey {
 	return `trace-${redrawQuality(record(body)['quality'])}`;
 }

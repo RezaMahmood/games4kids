@@ -23,10 +23,8 @@ import type { ChildLimit, DrawingMeta, Limits, Picture, UsageToday } from './typ
 
 type Drawpad = typeof manifest;
 
-/** What a request to read an image answers: the bytes with their ETag, a 304, or nothing. */
 export type ImageRead = Blob | 'not-modified' | undefined;
 
-/** The caller as the stores need them: whose rows, and in which zone the day rolls over. */
 export type Child = { readonly userId: string; readonly timeZone: string };
 
 function plain<R extends Row>(stored: Stored<R>): R {
@@ -99,7 +97,6 @@ export function playStore(storage: StorageFor<Drawpad, 'play'>): PlayStore {
 	};
 }
 
-/** The job rows and files the admin app writes, and the queue that starts them. */
 export type JobStore = {
 	all(): Promise<JobRow[]>;
 	get(id: string): Promise<JobRow | undefined>;

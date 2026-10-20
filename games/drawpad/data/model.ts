@@ -81,7 +81,6 @@ export const fromDrawing = (userId: string, drawing: DrawingMeta): DrawingRow =>
 
 export const drawingImagePath = (userId: string, id: string) => `${userId}/${id}.png`;
 
-/** A job request as the API accepted it. */
 export type NewJob =
 	| { source: 'photo'; photo: Photo; steps: PhotoStepKey[] }
 	| { source: 'description'; description: string; quality: RedrawQuality };

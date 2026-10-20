@@ -26,13 +26,16 @@ type Ctx<Who, Body> = {
 	readonly query: URLSearchParams;
 	readonly body: Body;
 	readonly now: Date;
+	/** The request's If-None-Match, for a bytes route that answers 304 through ReadBlobs.get. */
+	readonly ifNoneMatch: string | undefined;
 	readonly log: (line: string) => void;
 } & Who;
 
 type RouteOf<Who> =
 	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'none'; run(ctx: Ctx<Who, undefined>): Promise<Reply> }
 	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'json'; run(ctx: Ctx<Who, unknown>): Promise<Reply> }
-	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'png'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> };
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'png'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> }
+	| { readonly name: string; readonly method: Method; readonly path: string; readonly body: 'jpeg'; run(ctx: Ctx<Who, Uint8Array>): Promise<Reply> };
 
 /** A player route, mounted at /api/g/<id>/<path> on func-g4k-<id>. There is no access level: every caller is a player of this game. */
 export type PlayRoute = RouteOf<{ readonly caller: Caller }>;
@@ -182,11 +185,22 @@ export type HostRequest = {
  */
 export type HostReply = { readonly status: number; readonly headers: Readonly<Record<string, string>>; readonly body: Uint8Array | string | null };
 
+/** One queue-triggered function. `connection` is the app settings prefix of the queue account, `<ID>_STORAGE`, whose `__queueServiceUri`, `__credential` and `__clientId` the game's infra.bicep outputs as admin settings. */
+export type AppWorker = {
+	readonly name: string;
+	readonly game: GameId;
+	readonly queue: string;
+	readonly connection: string;
+	run(message: unknown, context: { readonly dequeueCount: number }): Promise<void>;
+};
+
 export type App = {
 	readonly prefix: `/api/${string}/`;
 	handle(request: HostRequest): Promise<HostReply>;
-	/** One app.http per route, for the Functions adapter. Queue workers join when a game first declares one. */
+	/** One app.http per route, for the Functions adapter. */
 	readonly functions: readonly { readonly name: string; readonly method: Method; readonly route: string }[];
+	/** One app.storageQueue per worker. Only the admin app has any. */
+	readonly workers?: readonly AppWorker[];
 };
 
 export type AppEnv = {
