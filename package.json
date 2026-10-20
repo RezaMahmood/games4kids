@@ -11,7 +11,12 @@
 	],
 	"scripts": {
 		"gen": "node --conditions=source tools/gen.mjs",
-		"predev": "npm run gen",
+		"predev": "npm run gen && tsc -b apps/games apps/admin",
+		"dev": "node --conditions=source tools/dev.mjs",
+		"predev:fixtures": "npm run gen && tsc -b apps/games apps/admin",
+		"dev:fixtures": "node --conditions=source tools/dev.mjs --fixtures",
+		"pree2e": "npm run gen && tsc -b apps/games apps/admin",
+		"e2e": "playwright test",
 		"prebuild": "npm run gen",
 		"build": "tsc -b",
 		"pretest": "npm run gen",
@@ -20,9 +25,14 @@
 	},
 	"devDependencies": {
 		"@azure/functions": "4.16.5",
+		"@azure/msal-browser": "4.30.0",
 		"@eslint/js": "10.0.1",
+		"@opentelemetry/sdk-trace-base": "2.12.0",
+		"@playwright/test": "1.64.1",
 		"@types/node": "22.20.5",
+		"azurite": "3.37.0",
 		"eslint": "10.13.0",
+		"globals": "17.7.0",
 		"jose": "6.2.12",
 		"typescript": "6.0.3",
 		"typescript-eslint": "8.72.0"

@@ -2,8 +2,16 @@
 	"extends": "../tsconfig.base.json",
 	"compilerOptions": {
 		"rootDir": "..",
-		"outDir": "../dist/test"
+		"outDir": "../dist",
+		"lib": ["ES2023", "DOM", "DOM.Iterable"]
 	},
-	"include": ["**/*.ts", "../dev/generated/**/*.ts"],
-	"references": [{ "path": "../packages/sdk" }, { "path": "../packages/host" }]
+	"include": ["**/*.ts", "fixtures/games/*/.gen/*.ts", "../dev/generated/**/*.ts"],
+	"references": [
+		{ "path": "../packages/sdk" },
+		{ "path": "../packages/host" },
+		{ "path": "../apps/shared" },
+		{ "path": "../apps/games" },
+		{ "path": "../apps/admin" },
+		{ "path": "../dev" }
+	]
 }

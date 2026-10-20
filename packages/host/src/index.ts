@@ -1,6 +1,7 @@
 export * from './admin-app.ts';
 export * from './admin.ts';
 export * from './entra.ts';
+export * from './graph.ts';
 export * from './http.ts';
 export * from './identity.ts';
 export * from './platform.ts';

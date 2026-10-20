@@ -1,4 +1,4 @@
-import { parseEmail, type Caller, type Email, type GameId, type PortalUserId, type Profile } from '@g4k/sdk';
+import { parseEmail, type Caller, type Email, type GameId, type Me, type PortalUserId, type Profile } from '@g4k/sdk';
 import type { JWTPayload } from 'jose';
 import { verifyBearer, type IssuerKey, type TokenRejection, type TrustedIssuer } from './token.ts';
 
@@ -79,12 +79,6 @@ export type PortalStore = PortalReader & {
 	/** Refuses a display name another child holds. Two children racing for one name is accepted. */
 	setProfile(userId: PortalUserId, profile: Profile): Promise<'ok' | 'name_taken'>;
 };
-
-/** GET /api/portal/me. */
-export type Me =
-	| { readonly state: 'not-invited'; readonly email: Email | null }
-	| { readonly state: 'no-profile' }
-	| { readonly state: 'active'; readonly userId: PortalUserId; readonly profile: Profile; readonly games: readonly GameId[] };
 
 export function meFor(identity: Identity, admission: PortalAdmission): Me {
 	switch (admission.kind) {

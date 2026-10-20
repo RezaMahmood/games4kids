@@ -13,11 +13,38 @@
 			"source": "./src/adapters/functions.ts",
 			"types": "./dist/adapters/functions.d.ts",
 			"default": "./dist/adapters/functions.js"
+		},
+		"./azure": {
+			"source": "./src/adapters/azure.ts",
+			"types": "./dist/adapters/azure.d.ts",
+			"default": "./dist/adapters/azure.js"
+		},
+		"./node": {
+			"source": "./src/adapters/node.ts",
+			"types": "./dist/adapters/node.d.ts",
+			"default": "./dist/adapters/node.js"
+		},
+		"./runtime": {
+			"source": "./src/runtime.ts",
+			"types": "./dist/runtime.d.ts",
+			"default": "./dist/runtime.js"
+		},
+		"./telemetry": {
+			"source": "./src/adapters/telemetry.ts",
+			"types": "./dist/adapters/telemetry.d.ts",
+			"default": "./dist/adapters/telemetry.js"
 		}
 	},
 	"dependencies": {
+		"@azure/data-tables": "13.3.2",
 		"@azure/functions": "4.16.5",
+		"@azure/identity": "4.14.0",
+		"@azure/monitor-opentelemetry": "1.20.1",
+		"@azure/storage-blob": "12.34.0",
+		"@azure/storage-queue": "12.32.0",
 		"@g4k/sdk": "0.0.0",
+		"@opentelemetry/api": "1.9.1",
+		"@opentelemetry/resources": "2.12.0",
 		"jose": "6.2.12"
 	}
 }
