@@ -70,7 +70,8 @@ export type Row = { readonly partitionKey: string; readonly rowKey: string; read
 export type ReadTable = {
 	get<R extends Row>(partitionKey: string, rowKey: string): Promise<(R & { readonly etag: string }) | undefined>;
 	inPartition<R extends Row>(partitionKey: string): Promise<readonly (R & { readonly etag: string })[]>;
-	list<R extends Row>(filter?: string): Promise<readonly (R & { readonly etag: string })[]>;
+	/** No OData filter: the memory account cannot honor one, so a game filters in code. */
+	list<R extends Row>(): Promise<readonly (R & { readonly etag: string })[]>;
 };
 
 export type Table = ReadTable & {
@@ -171,7 +172,7 @@ export type HostRequest = {
 	readonly path: string;
 	readonly headers: { get(name: string): string | null };
 	readonly query: URLSearchParams;
-	readonly json: () => Promise<unknown>;
+	/** Throws HttpError 413 past maxBytes. JSON is parsed from these bytes, so it has a cap too. */
 	readonly bytes: (maxBytes: number) => Promise<Uint8Array>;
 };
 
@@ -184,14 +185,14 @@ export type HostReply = { readonly status: number; readonly headers: Readonly<Re
 export type App = {
 	readonly prefix: `/api/${string}/`;
 	handle(request: HostRequest): Promise<HostReply>;
-	/** One app.http per route and one app.storageQueue per worker, for the Functions adapter. */
-	readonly functions: readonly { readonly name: string; readonly route?: string; readonly queue?: string }[];
+	/** One app.http per route, for the Functions adapter. Queue workers join when a game first declares one. */
+	readonly functions: readonly { readonly name: string; readonly method: Method; readonly route: string }[];
 };
 
 export type AppEnv = {
 	readonly issuers: readonly TrustedIssuer[];
 	readonly telemetry: Telemetry;
-	readonly now?: () => Date;
+	readonly now: () => Date;
 };
 
 /** The owner of one storage account. */
@@ -207,12 +208,25 @@ export function accountName(owner: StorageOwner, suffix: string): string {
 	throw new Error('not implemented');
 }
 
+/** Full handles over one account. Only the host holds these; a game gets the StorageFor view of its own account. */
+export type Account = { table(name: string): Table; container(name: string): Blobs; queue(name: string): Queue };
+
+/**
+ * An app takes opened accounts, not a StorageConfig, so a test can read back what each side wrote. The entry turns
+ * the StorageConfig into Accounts.
+ */
+export type Accounts = { open(owner: StorageOwner): Account };
+
+/** A token for one Azure service, from the app's managed identity. */
+export type TokenSource = (service: AzureService) => Promise<string>;
+
+/** The game id comes from the manifest, parsed once at startup. */
 export type PlayerAppDeps<M extends GameManifest> = AppEnv & {
-	readonly id: GameId;
 	readonly manifest: M;
 	readonly create: CreatePlayApi<M>;
 	readonly portal: PortalReader;
-	readonly storage: StorageConfig;
+	readonly accounts: Accounts;
+	readonly tokens: TokenSource;
 	readonly env: Readonly<Record<string, string | undefined>>;
 };
 

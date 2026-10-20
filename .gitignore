@@ -10,6 +10,9 @@ coverage/
 
 host/generated/
 infra/generated/
+dev/generated/
+test/generated/
+.gen/
 tsconfig.games.json
 portal/web/public/catalog.json
 
@@ -28,3 +31,4 @@ playwright/.cache/
 
 .DS_Store
 *.log
+.claude/settings.local.json
