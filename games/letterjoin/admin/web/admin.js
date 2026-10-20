@@ -32,9 +32,18 @@ function status(text, tone = 'ok') {
   $('status').textContent = text;
 }
 
+const dialog = $('activity-dialog');
+
+/** The status line sits under a modal dialog, so a failure raised while the form is open shows in the dialog. */
+function say(text) {
+  if (!dialog.open) return status(text, 'error');
+  $('f-error').hidden = false;
+  $('f-error').textContent = text;
+}
+
 function failed(err) {
-  if (err.status === 412) status(`${err.message}\nThe list has been reloaded.`, 'error');
-  else status(err.problems?.length ? `${err.message}\n${err.problems.join('\n')}` : err.message, 'error');
+  if (err.status === 412) say(`${err.message}\nThe list has been reloaded.`);
+  else say(err.problems?.length ? `${err.message}\n${err.problems.join('\n')}` : err.message);
 }
 
 const split = (text) => text.split(/[\s,]+/).filter(Boolean);
@@ -87,6 +96,7 @@ function fillForm(activity) {
 }
 
 function refreshForm() {
+  $('f-error').hidden = true;
   const type = field('type').value;
   for (const t of ['letters', 'words', 'sentence', 'paragraph']) {
     for (const el of document.querySelectorAll(`.type-${t}`)) el.hidden = t !== type;
@@ -122,6 +132,7 @@ async function drawPreview(value) {
 function showTab() {
   const current = tabFromHash(location.hash);
   for (const tab of TABS) $(`tab-${tab}`).hidden = tab !== current;
+  $('new-activity').hidden = current !== 'activities';
   for (const link of document.querySelectorAll('.tabs a')) {
     if (link.dataset.tab === current) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -134,23 +145,29 @@ function showTab() {
 /** Set once signed in, so opening the Practice or Progress tab can load without showTab needing the client. */
 let tabApi = null;
 
-let scrollBeforeForm = 0;
+const formState = () => Array.from($('activity-form').elements, (el) => (el.type === 'checkbox' ? el.checked : el.value)).join('\0');
+let pristine = '';
+
+const discardable = () => formState() === pristine || confirm('Discard your changes to this activity?');
 
 function openForm(activity) {
-  if (!editing && $('activity-form').hidden) scrollBeforeForm = scrollY;
   editing = activity;
   fillForm(activity);
   $('form-heading').textContent = activity ? `Edit "${activity.title}"` : 'New activity';
-  $('activity-form').hidden = false;
   refreshForm();
-  $('activity-form').scrollIntoView({ block: 'start' });
-  field('title').focus({ preventScroll: true });
+  pristine = formState();
+  dialog.showModal();
+  field('title').focus();
 }
 
-function closeForm() {
-  editing = null;
-  $('activity-form').hidden = true;
-  scrollTo(0, scrollBeforeForm);
+/** Brings a saved activity's card to the middle of the screen and flashes it. */
+function reveal(id, { focus }) {
+  const card = document.querySelector(`#activities .card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  card.classList.add('just-saved');
+  setTimeout(() => card.classList.remove('just-saved'), 2600);
+  if (focus) card.querySelector('[data-action="edit"]').focus({ preventScroll: true });
 }
 
 /** @param {import('./api.js').ListedActivity} activity */
@@ -219,7 +236,7 @@ function activityCard(api, activity, i, items) {
     h('div', { className: 'actions' },
       button('Up', move(i - 1), { disabled: i === 0, ariaLabel: `Move ${activity.title} up` }),
       button('Down', move(i + 1), { disabled: i === items.length - 1, ariaLabel: `Move ${activity.title} down` }),
-      button('Edit', () => openForm(activity)),
+      button('Edit', () => openForm(activity), { dataset: { action: 'edit' } }),
       button(published ? 'Unpublish' : 'Publish', () => save({ status: published ? 'draft' : 'published' }, `${published ? 'Unpublished' : 'Published'} "${activity.title}".`)),
       button('Delete', async () => {
         if (!confirm(`Delete "${activity.title}"? This cannot be undone.`)) return;
@@ -436,25 +453,30 @@ for (const id of ['type', 'timed', 'time', 'mode', 'title', 'description', 'stat
 }
 field('repeat').max = LIMITS.repeat;
 $('new-activity').addEventListener('click', () => openForm(null));
-field('cancel').addEventListener('click', closeForm);
+field('cancel').addEventListener('click', () => discardable() && dialog.close());
+dialog.addEventListener('cancel', (e) => discardable() || e.preventDefault());
+dialog.addEventListener('close', () => {
+  editing = null;
+});
 $('activity-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const parsed = parseActivityInput(readForm());
   if (!parsed.ok) {
     refreshForm();
-    status(`Not saved:\n${parsed.problems.join('\n')}`, 'error');
+    say(`Not saved:\n${parsed.problems.join('\n')}`);
     return;
   }
+  const wasEditing = editing;
   try {
-    if (editing) await api.updateActivity(editing.id, parsed.value, editing.etag);
-    else await api.createActivity(parsed.value);
+    const saved = wasEditing ? await api.updateActivity(wasEditing.id, parsed.value, wasEditing.etag) : await api.createActivity(parsed.value);
     sections.choose(parsed.value.level, true);
+    dialog.close();
     status(`Saved "${parsed.value.title}".`);
-    closeForm();
     await reload(api);
+    reveal(saved.id, { focus: Boolean(wasEditing) });
   } catch (err) {
     if (err.status === 412) {
-      closeForm();
+      dialog.close();
       await reload(api);
     }
     failed(err);
