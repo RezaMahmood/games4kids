@@ -103,6 +103,19 @@ test('writes send JSON, a heartbeat can be kept alive, and a PNG goes up as imag
 	assert.equal(new Headers(calls[2]?.init.headers).get('content-type'), 'image/png');
 });
 
+test('a JPEG goes up as image/jpeg, and request hands back the Response as it is with the bearer token attached', async () => {
+	const { calls, fetchImpl } = server([Response.json({ id: 'c' }, { status: 201 }), new Response(null, { status: 304 }), new Response('gone', { status: 404 })]);
+	const api = createApiClient({ baseUrl: BASE, tokens: tokens().source, fetchImpl });
+	assert.deepEqual(await api.sendJpeg('pictures/a/original', new Uint8Array([0xff, 0xd8, 0xff])), { id: 'c' });
+	assert.equal(new Headers(calls[0]?.init.headers).get('content-type'), 'image/jpeg');
+	assert.equal(calls[0]?.init.method, 'POST');
+	const revalidated = await api.request('pictures/a/outline.png', { headers: { 'if-none-match': '"v1"' } });
+	assert.equal(revalidated.status, 304);
+	assert.equal(new Headers(calls[1]?.init.headers).get('if-none-match'), '"v1"');
+	assert.ok(new Headers(calls[1]?.init.headers).get('authorization')?.startsWith('Bearer '));
+	assert.equal((await api.request('pictures/b/outline.png')).status, 404, 'an error status is not thrown');
+});
+
 test('an image is revalidated with its ETag and a 304 reuses the cached bytes', async () => {
 	const created: string[] = [];
 	const revoked: string[] = [];

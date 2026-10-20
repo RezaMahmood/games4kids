@@ -14,10 +14,12 @@ export default defineGame({
 		web: { kind: 'static' },
 		settings: { HINTS_URL: { kind: 'url', optional: true } },
 		services: [],
+		csp: { 'img-src': ['https://cdn.example'] },
 	},
 	admin: {
 		web: { kind: 'static' },
 		settings: { MAX_LEVELS: { kind: 'int', min: 1, max: 50, default: 10 } },
 		services: [],
+		csp: { 'worker-src': ['blob:'] },
 	},
 });

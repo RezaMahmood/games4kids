@@ -20,7 +20,7 @@ export function appPlan(app: string, gamesRoot = 'games') {
 	return { name: functionAppName(app), main: `${gamesRoot}/${app}/.gen/play-app.js`, include: [`${gamesRoot}/${app}`], hostJson: 'apps/games/api/host.json' };
 }
 
-const compiledOnly = (source: string) => !source.endsWith('.d.ts') && !source.endsWith('.tsbuildinfo');
+const compiledOnly = (source: string) => !source.endsWith('.d.ts') && !source.endsWith('.tsbuildinfo') && !source.endsWith('.test.js');
 
 function productionPackages(): string[] {
 	const lock = JSON.parse(readFileSync(join(REPO, 'package-lock.json'), 'utf8')) as { packages: Record<string, { dev?: boolean; link?: boolean }> };

@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { catalogFile, gameWebDir, pageDirs, sharedDirs, shellDir, swaConfigFile, tokensFile, type SiteKind } from './site-layout.ts';
+import { catalogFile, cspFile, gameWebDir, pageDirs, sharedDirs, shellDir, swaConfigFile, tokensFile, type SiteKind } from './site-layout.ts';
 
 export const ENTRA_ORIGIN = 'https://login.microsoftonline.com';
 
@@ -9,6 +9,33 @@ const SHIPPED = new Set(['.html', '.js', '.css', '.json', '.svg', '.png', '.jpg'
 const shipped = (source: string) => statSync(source).isDirectory() || (SHIPPED.has(extname(source)) && !source.endsWith('.d.ts'));
 
 type CatalogRow = { readonly id: string; readonly hasAdmin?: boolean };
+
+/** What a game's manifest widens in the Content-Security-Policy of its own pages: directive name to extra sources. */
+export type CspExtension = Readonly<Record<string, readonly string[]>>;
+export type CspByGame = Readonly<Record<string, CspExtension>>;
+
+/** Adds the extra sources to the directives of a policy. A directive the policy does not name starts from 'self', as its fallback would. */
+export function widenCsp(policy: string, extension: CspExtension): string {
+	const directives = new Map<string, string[]>();
+	for (const part of policy.split(';')) {
+		const [name, ...sources] = part.trim().split(/\s+/);
+		if (name) directives.set(name, sources);
+	}
+	for (const [name, extra] of Object.entries(extension)) {
+		const sources = directives.get(name) ?? ["'self'"];
+		directives.set(name, [...sources, ...extra.filter((source) => !sources.includes(source))]);
+	}
+	return [...directives].map(([name, sources]) => [name, ...sources].join(' ')).join('; ');
+}
+
+/** The SWA config with one route per game that widens the policy, because a route header replaces the global one for that path. */
+export function withGameCsp(config: string, csp: CspByGame): string {
+	const parsed = JSON.parse(config) as { routes?: object[]; globalHeaders?: Record<string, string> };
+	const policy = parsed.globalHeaders?.['Content-Security-Policy'];
+	if (!policy) throw new Error('staticwebapp.config.json has no global Content-Security-Policy');
+	const routes = Object.entries(csp).map(([id, extension]) => ({ route: `/g/${id}/*`, headers: { 'Content-Security-Policy': widenCsp(policy, extension) } }));
+	return `${JSON.stringify({ ...parsed, routes: [...(parsed.routes ?? []), ...routes] }, null, '\t')}\n`;
+}
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
 
@@ -22,8 +49,8 @@ function copyOver(directories: readonly string[], to: string) {
  * Assembles one site's folder from the build, with the placeholders of staticwebapp.config.json and the game list still
  * in place, because the origins come from Azure and the build job has no Azure access. `fillSite` finishes it.
  */
-export function composeSite(repo: string, kind: SiteKind, out: string, options: { readonly gamesRoot?: string; readonly catalog?: string } = {}): void {
-	const { gamesRoot = 'games', catalog: catalogPath = catalogFile(repo, kind) } = options;
+export function composeSite(repo: string, kind: SiteKind, out: string, options: { readonly gamesRoot?: string; readonly catalog?: string; readonly csp?: string } = {}): void {
+	const { gamesRoot = 'games', catalog: catalogPath = catalogFile(repo, kind), csp: cspPath = cspFile(repo, kind) } = options;
 	mkdirSync(out, { recursive: true });
 	copyOver(pageDirs(repo, kind), out);
 	copyOver([shellDir(repo, kind)], join(out, 'shell/v1'));
@@ -36,7 +63,7 @@ export function composeSite(repo: string, kind: SiteKind, out: string, options: 
 		if (!existsSync(join(web, 'index.html'))) throw new Error(`${web} has no index.html`);
 		copyOver([web], join(out, 'g', id));
 	}
-	cpSync(swaConfigFile(repo, kind), join(out, 'staticwebapp.config.json'));
+	writeFileSync(join(out, 'staticwebapp.config.json'), withGameCsp(readFileSync(swaConfigFile(repo, kind), 'utf8'), readJson(cspPath) as CspByGame));
 	cpSync(catalogPath, join(out, 'catalog.json'));
 }
 

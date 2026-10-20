@@ -11,16 +11,17 @@
 	],
 	"scripts": {
 		"gen": "node --conditions=source tools/gen.mjs",
-		"predev": "npm run gen && tsc -b apps/games apps/admin",
+		"predev": "npm run gen && tsc -b apps/games apps/admin && npm run build:web",
 		"dev": "node --conditions=source tools/dev.mjs",
 		"predev:fixtures": "npm run gen && tsc -b apps/games apps/admin",
 		"dev:fixtures": "node --conditions=source tools/dev.mjs --fixtures",
-		"pree2e": "npm run gen && tsc -b apps/games apps/admin",
+		"pree2e": "npm run gen && tsc -b apps/games apps/admin && npm run build:web",
 		"e2e": "playwright test",
 		"prebuild": "npm run gen",
-		"build": "tsc -b",
+		"build": "tsc -b && npm run build:web",
+		"build:web": "node tools/build-web.mjs",
 		"pretest": "npm run gen",
-		"test": "node --conditions=source --test \"test/**/*.test.ts\"",
+		"test": "node --conditions=source --test \"test/**/*.test.ts\" && vitest run",
 		"lint": "eslint ."
 	},
 	"devDependencies": {

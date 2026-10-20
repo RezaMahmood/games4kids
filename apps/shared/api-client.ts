@@ -28,6 +28,9 @@ export type ApiClient = {
 	patch<T>(path: string, body: unknown): Promise<T>;
 	delete(path: string): Promise<void>;
 	sendPng<T>(path: string, png: Uint8Array): Promise<T>;
+	sendJpeg<T>(path: string, jpeg: Uint8Array): Promise<T>;
+	/** An authenticated request that hands back the Response as it is, 304 and errors included, for a cache that revalidates with ETags itself. */
+	request(path: string, init?: RequestInit): Promise<Response>;
 	/** A protected image as an object URL. Keeps the ETag and sends If-None-Match, so a 304 reuses the cached bytes. */
 	objectUrl(path: string): Promise<string>;
 };
@@ -116,6 +119,12 @@ export function createApiClient({ baseUrl, tokens, fetchImpl }: Options): ApiCli
 		},
 		async sendPng(path, png) {
 			return parsed(await send(urlFor(path), { method: 'POST', headers: { 'content-type': 'image/png' }, body: png as BodyInit }));
+		},
+		async sendJpeg(path, jpeg) {
+			return parsed(await send(urlFor(path), { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: jpeg as BodyInit }));
+		},
+		request(path, init) {
+			return send(urlFor(path), init);
 		},
 		async objectUrl(path) {
 			const cached = images.get(path);
