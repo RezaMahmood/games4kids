@@ -15,6 +15,10 @@ export type FakeFoundry = {
 	failNext(count: number, status?: number): void;
 	/** The next `count` image calls are refused by the content filter, as a 400 from Foundry is. */
 	refuseNext(count: number): void;
+	/** The next `count` image calls answer 429 and ask to be tried again at once. */
+	rateLimitNext(count: number): void;
+	/** Holds the next image call until `release`, so a test can change the world while a job is at work. `arrived` settles when the call comes in. */
+	holdNext(): { readonly arrived: Promise<void>; release(): void };
 	close(): Promise<void>;
 };
 
@@ -73,6 +77,8 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	const calls: FoundryCall[] = [];
 	let failing = { count: 0, status: 500 };
 	let refusing = 0;
+	let limiting = 0;
+	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const png = (bytes: Uint8Array) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }] });
 
 	const server = createServer(async (req, res) => {
@@ -91,6 +97,17 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
 			const content = schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
 			return json(200, { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }] });
+		}
+		if (held) {
+			const hold = held;
+			held = null;
+			hold.arrive();
+			await hold.released;
+		}
+		if (limiting > 0) {
+			limiting -= 1;
+			res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '0' }).end('{"error":{"message":"slow down"}}');
+			return;
 		}
 		if (refusing > 0) {
 			refusing -= 1;
@@ -114,6 +131,17 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		},
 		refuseNext(count) {
 			refusing = count;
+		},
+		rateLimitNext(count) {
+			limiting = count;
+		},
+		holdNext() {
+			let arrive = () => {};
+			let release = () => {};
+			const arrived = new Promise<void>((resolve) => (arrive = resolve));
+			const released = new Promise<void>((resolve) => (release = resolve));
+			held = { arrive, released };
+			return { arrived, release };
 		},
 		close: () => new Promise<void>((resolve) => (server.close(() => resolve()), server.closeAllConnections())),
 	};
