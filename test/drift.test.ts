@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseEmail, type Email, type EntraObjectId } from '@g4k/sdk';
-import { computeDrift, parseAssignmentId, syncEntra, type Assignment, type Drift, type Member, type MemberView } from '@g4k/host';
+import { computeDrift, ENTRA, parseAssignmentId, syncEntra, type Assignment, type Drift, type Member, type MemberView } from '@g4k/host';
 import { fakeGraph } from './support/graph.ts';
 import { gameId, portalUserId } from './support/ids.ts';
 import { newObjectId, world } from './support/world.ts';
@@ -131,6 +131,43 @@ test('a sync cut short after the invite converges on the next run without a seco
 	const drift = await syncEntra(entra.graph, crashing, null, 'https://games.example/');
 	assert.deepEqual(drift.map((d) => d.kind), ['unmanaged']);
 	assert.equal(entra.calls.filter((call) => call === 'invite').length, 1);
+});
+
+async function wronglyLinked() {
+	const w = world();
+	const entra = fakeGraph();
+	const riz = email('riz74@hotmail.com');
+	const userId = await w.admin.userIdFor(riz);
+	await w.admin.putMember({ userId, state: 'active', games: { kind: 'all' } });
+	const member = newObjectId();
+	const guest = newObjectId();
+	await w.admin.recordIdentity(member, userId);
+	await entra.assign(member);
+	entra.users.set(riz, guest);
+	await entra.assign(bootstrapAdminOid);
+	return { w, entra, userId, member, guest };
+}
+
+test('a member linked to the wrong account is relinked to the account their address resolves to, and the old assignment goes', async () => {
+	const { w, entra, userId, member, guest } = await wronglyLinked();
+	const drift = await syncEntra(entra.graph, w.admin, null, 'https://games.example/');
+	assert.equal((await w.admin.rows()).find((row) => row.member.userId === userId)?.objectId, guest);
+	assert.equal((await w.reader.find({ issuer: ENTRA, subject: guest, email: null })).kind, 'known');
+	assert.equal((await w.reader.find({ issuer: ENTRA, subject: member, email: null })).kind, 'unknown');
+	assert.ok(entra.assignments.has(guest));
+	assert.ok(!entra.assignments.has(member));
+	assert.ok(entra.assignments.has(bootstrapAdminOid), 'an unmanaged assignment is never removed');
+	assert.deepEqual(drift.map((d) => d.kind), ['unmanaged']);
+	assert.equal(entra.calls.filter((call) => call === 'invite').length, 0);
+});
+
+test('a second sync after a relink changes nothing', async () => {
+	const { w, entra } = await wronglyLinked();
+	await syncEntra(entra.graph, w.admin, null, 'https://games.example/');
+	const before = entra.writes().length;
+	const drift = await syncEntra(entra.graph, w.admin, null, 'https://games.example/');
+	assert.equal(entra.writes().length, before);
+	assert.deepEqual(drift.map((d) => d.kind), ['unmanaged']);
 });
 
 test('a sync for one member touches only that member', async () => {

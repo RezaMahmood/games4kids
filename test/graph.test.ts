@@ -118,6 +118,16 @@ test('findUser matches mail, otherMails and the userPrincipalName, and answers n
 	assert.equal(await graph.findUser(email('stranger@example.com')), null);
 });
 
+const RIZ_GUEST = { id: 'c2bb6fcc-0000-4000-8000-000000000001', mail: null, otherMails: ['riz74@hotmail.com'], userPrincipalName: 'riz74_hotmail.com#EXT#@riz74hotmail.onmicrosoft.com', userType: 'Guest' };
+const REZA_MEMBER = { id: '716328f1-0000-4000-8000-000000000002', mail: 'reza@rezamahmood.net', otherMails: ['riz74@hotmail.com'], userPrincipalName: 'reza@rezamahmood.net', userType: 'Member' };
+
+test('findUser resolves riz74@hotmail.com to the guest it signs in as, not the member that lists it in otherMails', async () => {
+	const world = entra({ graphReply: (url) => (url.pathname === '/v1.0/users' ? Response.json({ value: [REZA_MEMBER, RIZ_GUEST] }) : undefined) });
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	assert.equal(await graphAs(e, assertion, config).findUser(email('riz74@hotmail.com')), RIZ_GUEST.id);
+});
+
 test('findUser escapes an apostrophe in the address so it cannot widen the filter', async () => {
 	const world = entra();
 	const { elevation: e } = await elevation();
