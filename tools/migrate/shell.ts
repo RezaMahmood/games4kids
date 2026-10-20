@@ -11,7 +11,7 @@ export type Options = {
 export type Connection = {
 	readonly from: OldAccounts;
 	readonly to: TargetWriter | null;
-	readonly portal: PortalRows;
+	readPortal(): Promise<PortalRows>;
 };
 
 export type Io = {
@@ -92,8 +92,8 @@ export async function runPlayerData(argv: readonly string[], io: Io): Promise<nu
 		return 2;
 	}
 	const command = parseCommand(argv);
-	const { from, to, portal } = await io.connect(parsed.options);
-	const mapping = buildMapping(portal);
+	const { from, to, readPortal } = await io.connect(parsed.options);
+	const mapping = buildMapping(await readPortal());
 	if (command.kind === 'apply' && !to) {
 		io.print('Refusing to write: --apply needs --suffix.');
 		return 2;
