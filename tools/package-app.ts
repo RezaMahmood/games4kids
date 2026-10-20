@@ -45,7 +45,7 @@ export function stageApp(app: string, stage: string, gamesRoot = 'games') {
 	const plan = appPlan(app, gamesRoot);
 	const dist = join(REPO, 'dist');
 	if (!existsSync(join(dist, plan.main))) throw new Error(`${plan.main} is not in dist/. Run npm run gen and npx tsc -b first.`);
-	for (const path of plan.include) cpSync(join(dist, path), join(stage, path), { recursive: true, filter: compiledOnly });
+	for (const path of plan.include) if (existsSync(join(dist, path))) cpSync(join(dist, path), join(stage, path), { recursive: true, filter: compiledOnly });
 	cpSync(join(REPO, plan.hostJson), join(stage, 'host.json'));
 	writeFileSync(join(stage, 'package.json'), `${JSON.stringify({ name: plan.name, private: true, type: 'module', main: plan.main }, null, '\t')}\n`);
 	for (const rel of productionPackages()) copyPackage(rel, stage);

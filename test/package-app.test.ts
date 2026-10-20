@@ -58,3 +58,11 @@ test('the zip carries production dependencies and the host and sdk dist, and no 
 		assert.equal(existsSync(join(dir, path)), false, `${path} is left out`);
 	}
 });
+
+test('the admin app packs before any game exists, with no games folder in dist', { skip }, () => {
+	const dir = mkdtempSync(join(tmpdir(), 'g4k-app-'));
+	const zip = packageApp('admin', mkdtempSync(join(tmpdir(), 'g4k-zip-')), 'no-such-games');
+	assert.equal(spawnSync('unzip', ['-q', zip, '-d', dir]).status, 0);
+	assert.ok(existsSync(join(dir, 'apps/admin/.gen/modules.js')));
+	assert.equal(existsSync(join(dir, 'no-such-games')), false);
+});
