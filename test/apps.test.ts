@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defineGame, definePlayApi, parseEmail } from '@g4k/sdk';
-import { createPlayerApp, EntraRefused, type GraphFor } from '@g4k/host';
+import { createPlayerApp, createPortalApp, EntraRefused, type GraphFor } from '@g4k/host';
 import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
 import { call, codeOf, PNG } from './support/http.ts';
@@ -29,7 +29,7 @@ test('a member saved with one game and synced signs in, chooses a name, plays th
 	const { player, portal, admin } = apps(w, () => entra.graph);
 	const me = await owner(w);
 
-	const saved = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'Kid@Example.com', games: ['fixture'] } });
+	const saved = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'Kid@Example.com', games: { kind: 'some', ids: ['fixture'] } } });
 	assert.equal(saved.status, 201);
 	const userId = (saved.data as { userId: string }).userId;
 
@@ -52,7 +52,7 @@ test('a member saved with one game and synced signs in, chooses a name, plays th
 	});
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid })).status, 200);
 
-	const revoked = await call(admin, 'PUT', `/api/admin/portal/members/${userId}`, { token: me.console, json: { state: 'revoked', games: ['fixture'] } });
+	const revoked = await call(admin, 'PUT', `/api/admin/portal/members/${userId}`, { token: me.console, json: { state: 'revoked', games: { kind: 'some', ids: ['fixture'] } } });
 	assert.equal(revoked.status, 200);
 	assert.equal(codeOf(await call(player, 'GET', '/api/g/fixture/levels', { token: kid })), 'not_invited');
 	assert.deepEqual((await call(portal, 'GET', '/api/portal/me', { token: kid })).data, { state: 'not-invited', email: null });
@@ -103,19 +103,71 @@ test('the members routes parse at the boundary: an unknown game is a 400, an unk
 	const w = world();
 	const { admin } = apps(w);
 	const me = await owner(w);
-	const bad = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'kid@example.com', games: ['fixture', 'nogame'] } });
+	const bad = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'kid@example.com', games: { kind: 'some', ids: ['fixture', 'nogame'] } } });
 	assert.equal(bad.status, 400);
 	assert.deepEqual((bad.data as { problems: string[] }).problems, ['nogame is not a game']);
-	const missing = await call(admin, 'PUT', `/api/admin/portal/members/${newObjectId()}`, { token: me.console, json: { state: 'revoked', games: [] } });
+	const missing = await call(admin, 'PUT', `/api/admin/portal/members/${newObjectId()}`, { token: me.console, json: { state: 'revoked', games: { kind: 'some', ids: [] } } });
 	assert.equal(missing.status, 404);
+});
+
+test('the members routes refuse a malformed grant, and take an all-games grant that the list shows back', async () => {
+	const w = world();
+	const { admin } = apps(w);
+	const me = await owner(w);
+	for (const games of [['fixture'], { kind: 'every' }, { kind: 'all', ids: ['fixture'] }, { kind: 'some' }, { kind: 'some', ids: 'fixture' }, null]) {
+		const reply = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'kid@example.com', games } });
+		assert.equal(codeOf(reply), 'invalid', JSON.stringify(games));
+	}
+	const saved = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'owner@example.com', games: { kind: 'all' } } });
+	assert.equal(saved.status, 201);
+	const userId = (saved.data as { userId: string }).userId;
+	const malformed = await call(admin, 'PUT', `/api/admin/portal/members/${userId}`, { token: me.console, json: { state: 'active', games: { kind: 'all', ids: [] } } });
+	assert.equal(codeOf(malformed), 'invalid');
+	const listed = (await call(admin, 'GET', '/api/admin/portal/members', { token: me.console })).data as { member: { userId: string; games: unknown } }[];
+	assert.deepEqual(listed.map(({ member }) => [member.userId, member.games]), [[userId, { kind: 'all' }]]);
+	assert.equal((await call(admin, 'PUT', `/api/admin/portal/members/${userId}`, { token: me.console, json: { state: 'active', games: { kind: 'some', ids: [] } } })).status, 200);
+	const narrowed = (await call(admin, 'GET', '/api/admin/portal/members', { token: me.console })).data as { member: { games: unknown } }[];
+	assert.deepEqual(narrowed.map(({ member }) => member.games), [{ kind: 'some', ids: [] }]);
+});
+
+/** A game app built after the members row was written, as a newly deployed game is. */
+function laterGame(w: World, raw: string) {
+	const manifest = defineGame({ id: raw, title: raw, summary: '', icon: 'icon.svg', storage: { tables: {}, containers: {}, queues: {} }, play: { web: { kind: 'static' }, settings: {}, services: [] } });
+	return createPlayerApp({ issuers: [idp.games], telemetry: w.telemetry, now: w.now, manifest, create: definePlayApi(manifest, () => ({ routes: [] })), portal: w.reader, accounts: w.accounts, tokens, env: {} });
+}
+
+test('an all-games member plays every game, including one registered after the row was written, and me lists each one', async () => {
+	const w = world();
+	const { player } = apps(w);
+	const everyGame = await seedPlayer(w, idp, { games: 'all', profile: { displayName: 'Owner', timeZone: 'UTC' } });
+	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: everyGame.token })).status, 200);
+	assert.equal((await call(laterGame(w, 'latecomer'), 'GET', '/api/g/latecomer/session', { token: everyGame.token })).status, 200);
+	const portal = createPortalApp({ issuers: [idp.games], telemetry: w.telemetry, now: w.now, portal: w.portal, games: [id, gameId('latecomer')] });
+	assert.deepEqual((await call(portal, 'GET', '/api/portal/me', { token: everyGame.token })).data, {
+		state: 'active',
+		userId: everyGame.userId,
+		profile: { displayName: 'Owner', timeZone: 'UTC' },
+		games: ['fixture', 'latecomer'],
+	});
+});
+
+test('a members row in the old list form still parses, and is still refused a game it was not granted', async () => {
+	const w = world();
+	const { player } = apps(w);
+	const kid = await seedPlayer(w, idp, { games: [], profile: { displayName: 'Ada', timeZone: 'UTC' } });
+	await w.accounts.open('portal').table('members').put({ partitionKey: 'member', rowKey: kid.userId, state: 'active', games: 'fixture' });
+	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
+	assert.equal(codeOf(await call(laterGame(w, 'latecomer'), 'GET', '/api/g/latecomer/session', { token: kid.token })), 'not_entitled');
+	const portal = createPortalApp({ issuers: [idp.games], telemetry: w.telemetry, now: w.now, portal: w.portal, games: [id, gameId('latecomer')] });
+	assert.deepEqual(((await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data as { games: unknown }).games, ['fixture']);
 });
 
 test('a re-invite of the same email keeps the same PortalUserId', async () => {
 	const w = world();
 	const { admin } = apps(w);
 	const me = await owner(w);
-	const first = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'kid@example.com', games: [] } });
-	const second = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'KID@example.com', games: ['fixture'] } });
+	const first = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'kid@example.com', games: { kind: 'some', ids: [] } } });
+	const second = await call(admin, 'POST', '/api/admin/portal/members', { token: me.console, json: { email: 'KID@example.com', games: { kind: 'some', ids: ['fixture'] } } });
 	assert.equal((first.data as { userId: string }).userId, (second.data as { userId: string }).userId);
 });
 

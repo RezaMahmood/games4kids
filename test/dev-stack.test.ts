@@ -26,7 +26,7 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 
 	test('saving a member needs only the console token, and a console token cannot sync', async () => {
 		const console_ = await consoleToken(stack);
-		const saved = await api(stack, 'POST', '/api/admin/portal/members', console_, { email: kidEmail, games: ['fixture'] });
+		const saved = await api(stack, 'POST', '/api/admin/portal/members', console_, { email: kidEmail, games: { kind: 'some', ids: ['fixture'] } });
 		assert.equal(saved.status, 201);
 		userId = (saved.data as { userId: string }).userId;
 		const early = await api(stack, 'POST', '/api/admin/portal/entra/sync', console_, { userId });
@@ -82,7 +82,7 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 
 	test('a revoke is refused on the next call, and a sync then removes the assignment', async () => {
 		const console_ = await consoleToken(stack);
-		assert.equal((await api(stack, 'PUT', `/api/admin/portal/members/${userId}`, console_, { state: 'revoked', games: ['fixture'] })).status, 200);
+		assert.equal((await api(stack, 'PUT', `/api/admin/portal/members/${userId}`, console_, { state: 'revoked', games: { kind: 'some', ids: ['fixture'] } })).status, 200);
 		const refused = await api(stack, 'GET', '/api/g/fixture/levels', kid);
 		assert.equal(refused.status, 403);
 		assert.equal((refused.data as { error: string }).error, 'not_invited');

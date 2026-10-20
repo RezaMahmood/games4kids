@@ -96,3 +96,7 @@ thead th {
 	color: var(--color-danger);
 	font-weight: 700;
 }
+
+.tick:has(input:disabled) {
+	opacity: 0.5;
+}

@@ -232,7 +232,7 @@ test('syncEntra over graphAs invites, assigns, and a second run makes no write',
 	const { config, assertion } = world.config();
 	const kid = email('kid@example.com');
 	const userId = await w.admin.userIdFor(kid);
-	await w.admin.putMember({ userId, state: 'active', games: [gameId('fixture')] });
+	await w.admin.putMember({ userId, state: 'active', games: { kind: 'some', ids: [gameId('fixture')] } });
 	const graph = graphAs(e, assertion, config);
 	await syncEntra(graph, w.admin, null, 'https://games.example/');
 	const invited = world.graph.directory.byEmail('kid@example.com');

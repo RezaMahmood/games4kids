@@ -125,3 +125,47 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 	await adminContext.close();
 	await kidContext.close();
 });
+
+test('a member granted every game sees and plays each one, and the per-game boxes stay off while that is ticked', async ({ browser }) => {
+	const everyEmail = `every-${RUN}@example.com`;
+	const everyName = `Owner${RUN}`;
+	const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const playerContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const admin = await adminContext.newPage();
+	const player = await playerContext.newPage();
+	answerPopups(admin);
+
+	await test.step('the admin ticks every game for a new member, which disables the per-game boxes', async () => {
+		await admin.goto(`${ADMIN}/`);
+		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		const add = admin.getByRole('region', { name: 'Add a member' });
+		await add.getByLabel('Email').fill(everyEmail);
+		await add.getByLabel('Every game, including new ones').check();
+		await expect(add.getByLabel('Fixture')).toBeDisabled();
+		await expect(add.getByLabel('Puzzle')).toBeDisabled();
+		await add.getByRole('button', { name: 'Save member' }).click();
+		await expect(admin.getByRole('status')).toHaveText(`Saved ${everyEmail}.`);
+		const row = admin.getByRole('row', { name: new RegExp(everyEmail) });
+		await expect(row.getByLabel('Every game, including new ones')).toBeChecked();
+		await expect(row.getByLabel('Fixture')).toBeDisabled();
+		await admin.getByRole('button', { name: `Sync ${everyEmail} with Entra` }).click();
+		await expect(admin.getByRole('status')).toHaveText('Synced with Entra.');
+	});
+
+	await test.step('the member sees every game on home and plays each one', async () => {
+		await player.goto(`${GAMES}/`);
+		await signInAtFakeEntra(player, everyEmail);
+		await player.getByLabel('Your name in games').fill(everyName);
+		await player.getByRole('button', { name: "Let's play" }).click();
+		const cards = player.getByRole('list', { name: 'My games' }).getByRole('link');
+		await expect(cards).toHaveCount(2);
+		expect(await cards.evaluateAll((links) => links.map((link) => link.getAttribute('href')))).toEqual(['/g/fixture/', '/g/puzzle/']);
+		await player.goto(`${GAMES}/g/fixture/`);
+		await expect(player.getByRole('heading', { name: `Hello ${everyName}` })).toBeVisible();
+		await player.goto(`${GAMES}/g/puzzle/`);
+		await expect(player.getByRole('heading', { name: /^Puzzle says hello/ })).toBeVisible();
+	});
+
+	await adminContext.close();
+	await playerContext.close();
+});

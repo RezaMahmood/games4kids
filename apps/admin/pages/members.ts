@@ -1,6 +1,6 @@
 import { ApiFailure, enterAdmin } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
-import { describeDrift, parseMembers, syncBody, type MemberRow } from './members-model.ts';
+import { describeDrift, parseMembers, syncBody, type GameGrant, type MemberRow } from './members-model.ts';
 
 const { api, games, elevated } = await enterAdmin({ game: null });
 
@@ -40,16 +40,31 @@ async function attempt(work: () => Promise<void>): Promise<void> {
 	}
 }
 
-const gameBoxes = (container: HTMLElement, name: string, ticked: readonly string[], idPrefix: string) =>
-	container.replaceChildren(
-		...games.map((game) => {
-			const box = el('input', { type: 'checkbox', name, value: game.id, id: `${idPrefix}-${game.id}` });
-			box.checked = ticked.includes(game.id);
-			return el('label', { class: 'tick', for: box.id }, box, ` ${game.title}`);
-		}),
-	);
+const NONE: GameGrant = { kind: 'some', ids: [] };
 
-const ticked = (container: HTMLElement) => [...container.querySelectorAll('input[type=checkbox]')].flatMap((box) => (box instanceof HTMLInputElement && box.checked ? [box.value] : []));
+/** Ticking every game disables the per-game boxes and keeps their ticks, so unticking it restores the list. */
+function gameBoxes(container: HTMLElement, name: string, grant: GameGrant, idPrefix: string): void {
+	const every = el('input', { type: 'checkbox', name: `${name}-all`, class: 'every', id: `${idPrefix}-all` });
+	every.checked = grant.kind === 'all';
+	const boxes = games.map((game) => {
+		const box = el('input', { type: 'checkbox', name, value: game.id, id: `${idPrefix}-${game.id}` });
+		box.checked = grant.kind === 'some' && grant.ids.includes(game.id);
+		return { box, label: el('label', { class: 'tick', for: box.id }, box, ` ${game.title}`) };
+	});
+	const sync = () => {
+		for (const { box } of boxes) box.disabled = every.checked;
+	};
+	every.addEventListener('change', sync);
+	sync();
+	container.replaceChildren(el('label', { class: 'tick', for: every.id }, every, ' Every game, including new ones'), ...boxes.map(({ label }) => label));
+}
+
+function grantOf(container: HTMLElement): GameGrant {
+	const every = container.querySelector('input.every');
+	if (every instanceof HTMLInputElement && every.checked) return { kind: 'all' };
+	const ids = [...container.querySelectorAll('input[type=checkbox]:not(.every)')].flatMap((box) => (box instanceof HTMLInputElement && box.checked ? [box.value] : []));
+	return { kind: 'some', ids };
+}
 
 async function load(): Promise<void> {
 	rows = parseMembers(await api.get('members'));
@@ -86,7 +101,7 @@ function rowFor(row: MemberRow): HTMLTableRowElement {
 		return element;
 	};
 	const change = async (state: 'active' | 'revoked', message: string) => {
-		await api.put(`members/${row.userId}`, { state, games: ticked(boxes) });
+		await api.put(`members/${row.userId}`, { state, games: grantOf(boxes) });
 		await load();
 		say(message);
 		if (state === 'revoked') offerSync(row.userId, row.email);
@@ -108,15 +123,15 @@ function rowFor(row: MemberRow): HTMLTableRowElement {
 	);
 }
 
-gameBoxes(addGames, 'games', [], 'add');
+gameBoxes(addGames, 'games', NONE, 'add');
 
 addForm.addEventListener('submit', (event) => {
 	event.preventDefault();
 	void attempt(async () => {
 		const email = addEmail.value.trim();
-		const saved = await api.post<{ readonly userId: string }>('members', { email, games: ticked(addGames) });
+		const saved = await api.post<{ readonly userId: string }>('members', { email, games: grantOf(addGames) });
 		addEmail.value = '';
-		gameBoxes(addGames, 'games', [], 'add');
+		gameBoxes(addGames, 'games', NONE, 'add');
 		await load();
 		say(`Saved ${email}.`);
 		offerSync(saved.userId, email);

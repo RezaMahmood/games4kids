@@ -141,13 +141,13 @@ Each portal table has one writer, enforced by RBAC per app and per table ([`iden
 
 | Table | Holds | Writer | Readers |
 | --- | --- | --- | --- |
-| `members` | state, granted game ids | admin app | portal app, player apps |
+| `members` | state, granted game ids or `*` for every game | admin app | portal app, player apps |
 | `identities` | issuer and `oid` to `PortalUserId` | admin app, at invite | portal app, player apps, admin app |
 | `emails` | email to `PortalUserId` | admin app | admin app |
 | `profiles` | display name, time zone | portal app, on `/welcome/` | player apps, admin app |
 | `admins` | admin account `oid`, email | bootstrap | admin app |
 
-The admin app writes the identity row in the same step that learns the object id, so a first sign-in finds a complete row and nothing claims anything (review W9). `decide` admits a known identity with an active member, and a player app also needs its game in `members.games`. There is no role anywhere in the games side. `Caller` is `{ userId, displayName, timeZone }`, and a new game is hidden until you grant it. Display names stay unique by listing profiles before writing (review cut 6).
+The admin app writes the identity row in the same step that learns the object id, so a first sign-in finds a complete row and nothing claims anything (review W9). `decide` admits a known identity with an active member, and a player app also needs `members.games` to grant its game. A grant is either a list of game ids or every game. There is no role anywhere in the games side. `Caller` is `{ userId, displayName, timeZone }`. A new game is hidden until you grant it, unless the member holds every game. GET me lists every registered game for that member, so the portal app is built with the registered ids and redeploys when a manifest changes. Display names stay unique by listing profiles before writing (review cut 6).
 
 ### Data ownership
 

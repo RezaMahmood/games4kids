@@ -1,15 +1,23 @@
 import { fieldsOf } from '../../shared/ids.ts';
 
+/** The admin API's grant: every game, including games added later, or the listed ones. */
+export type GameGrant = { readonly kind: 'all' } | { readonly kind: 'some'; readonly ids: readonly string[] };
+
 export type MemberRow = {
 	readonly userId: string;
 	readonly email: string;
 	readonly state: 'active' | 'revoked';
-	readonly games: readonly string[];
+	readonly games: GameGrant;
 	readonly linked: boolean;
 	readonly displayName: string | null;
 };
 
-const strings = (raw: unknown): readonly string[] => (Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []);
+function parseGrant(raw: unknown): GameGrant | null {
+	const { kind, ids } = fieldsOf(raw);
+	if (kind === 'all') return { kind };
+	if (kind === 'some' && Array.isArray(ids)) return { kind, ids: ids.filter((id): id is string => typeof id === 'string') };
+	return null;
+}
 
 /** GET portal/members. A row the page cannot read is left out rather than shown wrong. */
 export function parseMembers(raw: unknown): readonly MemberRow[] {
@@ -17,9 +25,10 @@ export function parseMembers(raw: unknown): readonly MemberRow[] {
 	return raw.flatMap((entry): MemberRow[] => {
 		const { member, email, objectId, profile } = fieldsOf(entry);
 		const { userId, state, games } = fieldsOf(member);
-		if (typeof userId !== 'string' || typeof email !== 'string' || (state !== 'active' && state !== 'revoked')) return [];
+		const grant = parseGrant(games);
+		if (typeof userId !== 'string' || typeof email !== 'string' || (state !== 'active' && state !== 'revoked') || !grant) return [];
 		const displayName = fieldsOf(profile)['displayName'];
-		return [{ userId, email, state, games: strings(games), linked: typeof objectId === 'string', displayName: typeof displayName === 'string' ? displayName : null }];
+		return [{ userId, email, state, games: grant, linked: typeof objectId === 'string', displayName: typeof displayName === 'string' ? displayName : null }];
 	});
 }
 

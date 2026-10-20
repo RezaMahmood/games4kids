@@ -26,7 +26,7 @@ const signedInAdminOid = newObjectId();
 const bootstrapAdminOid = newObjectId();
 
 const view = (userId: typeof ada, state: Member['state'], objectId: EntraObjectId | null): MemberView => ({
-	member: { userId, state, games: [gameId('fixture')] },
+	member: { userId, state, games: { kind: 'some', ids: [gameId('fixture')] } },
 	email: email(`${userId.slice(-1)}@example.com`),
 	objectId,
 	profile: null,
@@ -80,15 +80,15 @@ async function family() {
 	const entra = fakeGraph();
 	const fixture = gameId('fixture');
 	const newKid = await w.admin.userIdFor(email('new@example.com'));
-	await w.admin.putMember({ userId: newKid, state: 'active', games: [fixture] });
+	await w.admin.putMember({ userId: newKid, state: 'active', games: { kind: 'some', ids: [fixture] } });
 	const existingGuest = await w.admin.userIdFor(email('guest@example.com'));
-	await w.admin.putMember({ userId: existingGuest, state: 'active', games: [fixture] });
+	await w.admin.putMember({ userId: existingGuest, state: 'active', games: { kind: 'all' } });
 	const guestOid = newObjectId();
 	entra.users.set(email('guest@example.com'), guestOid);
 	const leaver = await w.admin.userIdFor(email('leaver@example.com'));
 	const leaverOid = newObjectId();
 	await w.admin.recordIdentity(leaverOid, leaver);
-	await w.admin.putMember({ userId: leaver, state: 'revoked', games: [fixture] });
+	await w.admin.putMember({ userId: leaver, state: 'revoked', games: { kind: 'some', ids: [fixture] } });
 	await entra.assign(leaverOid);
 	await entra.assign(bootstrapAdminOid);
 	return { w, entra, newKid, existingGuest, guestOid, leaver, leaverOid };

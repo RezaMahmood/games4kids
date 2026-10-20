@@ -273,12 +273,15 @@ test('a game_session beat goes out each minute only while the page is visible, a
 
 test('the members page reads rows defensively and describes each drift in plain words', () => {
 	const rows = parseMembers([
-		{ member: { userId: 'u1', state: 'active', games: ['fixture'] }, email: 'kid@example.com', objectId: null, profile: null },
-		{ member: { userId: 'u2', state: 'revoked', games: [] }, email: 'old@example.com', objectId: 'o', profile: { displayName: 'Ben' } },
-		{ member: { userId: 'u3', state: 'weird', games: [] }, email: 'bad@example.com' },
+		{ member: { userId: 'u1', state: 'active', games: { kind: 'some', ids: ['fixture'] } }, email: 'kid@example.com', objectId: null, profile: null },
+		{ member: { userId: 'u2', state: 'revoked', games: { kind: 'some', ids: [] } }, email: 'old@example.com', objectId: 'o', profile: { displayName: 'Ben' } },
+		{ member: { userId: 'u3', state: 'weird', games: { kind: 'some', ids: [] } }, email: 'bad@example.com' },
+		{ member: { userId: 'u4', state: 'active', games: { kind: 'all' } }, email: 'owner@example.com', objectId: null, profile: null },
+		{ member: { userId: 'u5', state: 'active', games: ['fixture'] }, email: 'list@example.com', objectId: null, profile: null },
 		'junk',
 	]);
-	assert.deepEqual(rows.map((row) => [row.userId, row.state, row.linked, row.displayName]), [['u1', 'active', false, null], ['u2', 'revoked', true, 'Ben']]);
+	assert.deepEqual(rows.map((row) => [row.userId, row.state, row.linked, row.displayName]), [['u1', 'active', false, null], ['u2', 'revoked', true, 'Ben'], ['u4', 'active', false, null]]);
+	assert.deepEqual(rows.map((row) => row.games), [{ kind: 'some', ids: ['fixture'] }, { kind: 'some', ids: [] }, { kind: 'all' }]);
 	const lines = describeDrift(
 		[
 			{ kind: 'needs-account', userId: 'u1', email: 'kid@example.com' },

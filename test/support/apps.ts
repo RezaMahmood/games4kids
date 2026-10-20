@@ -12,15 +12,16 @@ const tokens = async () => 'token';
 /** The three apps over one world, as func-g4k-fixture, func-g4k-portal and func-g4k-admin. */
 export function fixtureApps(w: World, idp: FakeIdp, graph: GraphFor = () => fakeGraph().graph, accounts: Accounts = w.accounts) {
 	const common = { telemetry: w.telemetry, now: w.now };
+	const games = [gameId('fixture')];
 	return {
 		player: createPlayerApp({ ...common, issuers: [idp.games], manifest: fixture, create: createPlayApi, portal: w.reader, accounts, tokens, env: {} }),
-		portal: createPortalApp({ ...common, issuers: [idp.games], portal: w.portal }),
+		portal: createPortalApp({ ...common, issuers: [idp.games], portal: w.portal, games }),
 		admin: createAdminApp({
 			...common,
 			issuer: idp.admin,
 			store: w.admin,
 			graph,
-			games: [gameId('fixture')],
+			games,
 			modules: [adminModule(fixture, createAdminApi)],
 			accounts,
 			tokens,
