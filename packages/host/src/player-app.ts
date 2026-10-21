@@ -1,6 +1,7 @@
 import { HttpError, type CreatePlayApi, type GameId, type GameManifest, type Method, type PlayRoute, type Profile } from '@g4k/sdk';
 import { failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type HostReply, type HostRequest } from './http.ts';
 import { decide, meFor, verifyGamesToken, type Authentication, type PortalAdmission, type PortalReader, type PortalStore } from './identity.ts';
+import { isKindName } from './names.ts';
 import { playPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
 import type { Accounts } from './storage.ts';
 import type { Telemetry } from './telemetry.ts';
@@ -132,6 +133,7 @@ export function createPortalApp(deps: PortalAppDeps): App {
 			const userId = admission.kind === 'player' ? admission.caller.userId : admission.userId;
 			const profile = parseProfile(await readJson(request));
 			if ('problems' in profile) throw new HttpError(400, 'invalid', 'That name or time zone is not valid.', profile.problems);
+			if (!isKindName(profile.displayName)) throw new HttpError(400, 'name_not_allowed', 'That name is not allowed. Choose another.');
 			if ((await deps.portal.setProfile(userId, profile)) === 'name_taken') throw new HttpError(409, 'name_taken', 'Someone already has that name.');
 			return { status: 204, headers: {}, body: null };
 		} catch (error) {
