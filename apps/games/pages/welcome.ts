@@ -1,4 +1,5 @@
-import { ApiFailure, enterWelcome, ready, report, whileLoading } from '../shell/v1/index.ts';
+import { enterWelcome, ready, report, whileLoading } from '../shell/v1/index.ts';
+import { nameMessage } from './name-message.ts';
 import { safeReturn } from './return-to.ts';
 
 function must<T extends HTMLElement>(id: string, kind: new () => T): T {
@@ -45,9 +46,6 @@ form.addEventListener('submit', async (event) => {
 		location.assign(safeReturn(new URLSearchParams(location.search).get('return'), location.origin));
 	} catch (error) {
 		report(error);
-		if (!(error instanceof ApiFailure)) return complain('We could not save your name. Try again.');
-		if (error.code === 'name_taken') return complain('Someone already has that name. Try another.');
-		if (error.code === 'name_not_allowed') return complain('Please choose a kinder name. Try another.');
-		complain(error.problems[0] ?? error.message);
+		complain(nameMessage(error));
 	}
 });

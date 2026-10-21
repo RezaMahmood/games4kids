@@ -103,3 +103,9 @@ input[aria-invalid='true'] {
 	color: var(--color-danger);
 	font-weight: 700;
 }
+
+.saved {
+	min-height: 1.5em;
+	color: var(--color-success);
+	font-weight: 700;
+}

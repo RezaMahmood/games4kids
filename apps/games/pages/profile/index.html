@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>My profile</title>
+	<link rel="stylesheet" href="/shared/tokens.css">
+	<link rel="stylesheet" href="/shared/shell.css">
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body aria-busy="true">
+	<portal-bar></portal-bar>
+	<main class="page narrow" inert>
+		<h1>My profile</h1>
+		<form id="form" novalidate>
+			<div class="field">
+				<label for="name">Your name in games</label>
+				<input id="name" name="name" autocomplete="off" maxlength="24" required aria-describedby="name-help error">
+				<p id="name-help" class="help">Up to 24 letters, numbers or spaces.</p>
+			</div>
+			<p id="error" class="error" role="alert"></p>
+			<p id="saved" class="saved" role="status"></p>
+			<button id="save" class="g4k-button" type="submit">Save</button>
+		</form>
+	</main>
+	<script type="module" src="/profile.js"></script>
+</body>
+</html>

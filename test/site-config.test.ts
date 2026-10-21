@@ -35,7 +35,7 @@ const GAMES = {
 test('the games site is laid out as the shell expects, with sources left out and placeholders left in', { skip }, () => {
 	const out = compose('games');
 	const files = tree(out);
-	for (const path of ['index.html', 'redirect.html', 'welcome/index.html', 'home.js', 'shell/v1/index.js', 'shared/api-client.js', 'shared/shell.css', 'shared/tokens.css', 'shared/vendor/msal-browser.min.js', 'g/fixture/index.html', 'g/puzzle/index.js', 'staticwebapp.config.json', 'catalog.json']) {
+	for (const path of ['index.html', 'redirect.html', 'welcome/index.html', 'profile/index.html', 'home.js', 'profile.js', 'shell/v1/index.js', 'shared/api-client.js', 'shared/shell.css', 'shared/tokens.css', 'shared/vendor/msal-browser.min.js', 'g/fixture/index.html', 'g/puzzle/index.js', 'staticwebapp.config.json', 'catalog.json']) {
 		assert.ok(files.includes(path), `${path} is in the site`);
 	}
 	assert.deepEqual(files.filter((path) => path.endsWith('.ts') || path.endsWith('.map') || path.endsWith('.tsbuildinfo')), []);
