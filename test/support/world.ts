@@ -19,10 +19,10 @@ export function world() {
 	const accounts: MemoryAccounts = memoryAccounts();
 	const portal = accounts.open('portal');
 	const table = (name: PortalTableName) => portal.table(name);
-	const reader = portalReader({ identities: table('identities'), members: table('members'), profiles: table('profiles') });
-	const portalWrites = portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') });
+	const reader = portalReader({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') });
+	const portalWrites = portalStore({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') });
 	const admin = adminStore(
-		{ members: table('members'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') },
+		{ members: table('members'), games: table('games'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') },
 		randomUUID,
 	);
 	return { accounts, reader, portal: portalWrites, admin, telemetry: recordingTelemetry(), now: () => NOW };

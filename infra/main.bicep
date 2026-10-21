@@ -150,6 +150,7 @@ resource portalStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     name: 'default'
 
     resource members 'tables' = { name: 'members' }
+    resource games 'tables' = { name: 'games' }
     resource identities 'tables' = { name: 'identities' }
     resource emails 'tables' = { name: 'emails' }
     resource profiles 'tables' = { name: 'profiles' }
@@ -234,6 +235,16 @@ resource membersWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource gamesWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: portalStorage::tableService::games
+  name: guid(portalStorage::tableService::games.id, adminIdentity.id, tableDataContributor)
+  properties: {
+    principalId: adminIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', tableDataContributor)
+  }
+}
+
 resource identitiesWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: portalStorage::tableService::identities
   name: guid(portalStorage::tableService::identities.id, adminIdentity.id, tableDataContributor)
@@ -287,6 +298,16 @@ resource adminsAdminReader 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 resource membersPortalReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: portalStorage::tableService::members
   name: guid(portalStorage::tableService::members.id, 'func-g4k-portal', tableDataReader)
+  properties: {
+    principalId: portalApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', tableDataReader)
+  }
+}
+
+resource gamesPortalReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: portalStorage::tableService::games
+  name: guid(portalStorage::tableService::games.id, 'func-g4k-portal', tableDataReader)
   properties: {
     principalId: portalApp.outputs.principalId
     principalType: 'ServicePrincipal'
