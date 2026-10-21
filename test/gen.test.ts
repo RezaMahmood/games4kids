@@ -81,12 +81,12 @@ test('gen writes the registry for valid games, and a second run changes nothing'
 
 test('gen writes each game a player app entry, the catalogs, and the admin modules', () => {
 	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
-	game(root, 'alpha', { id: 'alpha', title: 'Alpha', summary: 'First.' });
+	game(root, 'alpha', { id: 'alpha', title: 'Alpha', summary: 'First.', scoreboard: true });
 	game(root, 'beta', { id: 'beta', title: 'Beta', admin: part, storage: { tables: { content: 'admin' }, containers: {}, queues: {} } }, ['data/index.ts', 'play/api/index.ts', 'admin/api/index.ts']);
 	assert.equal(gen(root).status, 0);
 
 	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/games/.gen/catalog.json'), 'utf8')), [
-		{ id: 'alpha', title: 'Alpha', summary: 'First.', icon: 'icon.svg', path: '/g/alpha/' },
+		{ id: 'alpha', title: 'Alpha', summary: 'First.', icon: 'icon.svg', path: '/g/alpha/', scoreboard: true },
 		{ id: 'beta', title: 'Beta', summary: '', icon: 'icon.svg', path: '/g/beta/' },
 	]);
 	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/admin/.gen/catalog.json'), 'utf8')), [
@@ -145,4 +145,14 @@ test('gen needs a vite.config.ts for each part built with Vite, and writes the c
 	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/games/.gen/csp.json'), 'utf8')), { alpha: { 'img-src': ['https://cdn.example'] } });
 	assert.deepEqual(JSON.parse(readFileSync(join(root, 'apps/admin/.gen/csp.json'), 'utf8')), { alpha: { 'worker-src': ['blob:'] } });
 	assert.deepEqual(JSON.parse(readFileSync(join(root, 'tsconfig.games.json'), 'utf8')), { files: [], references: [{ path: 'games/alpha/play/web' }] });
+});
+
+test('gen refuses a scoreboard that is not true, and writes nothing', () => {
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	game(root, 'good', { id: 'good', scoreboard: true });
+	game(root, 'loose', { id: 'loose', scoreboard: 'yes' });
+	const { status, problems } = gen(root);
+	assert.equal(status, 1);
+	assert.deepEqual(problems, ['gen: bad-manifest: loose: scoreboard must be true or left out']);
+	assert.equal(existsSync(join(root, 'apps/games/.gen/catalog.json')), false);
 });

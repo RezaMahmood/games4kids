@@ -109,3 +109,69 @@ input[aria-invalid='true'] {
 	color: var(--color-success);
 	font-weight: 700;
 }
+
+.boards-section {
+	margin-top: var(--space-lg);
+}
+
+.boards {
+	display: grid;
+	gap: var(--space-md);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.board-switch {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
+	min-height: var(--touch-default);
+	margin: 0;
+	cursor: pointer;
+}
+
+.board-switch input {
+	position: relative;
+	flex: none;
+	width: 3.5rem;
+	height: 2rem;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border-radius: var(--radius-chip);
+	background: var(--color-canvas);
+	cursor: inherit;
+	appearance: none;
+}
+
+.board-switch input::after {
+	content: '';
+	position: absolute;
+	top: 0.25rem;
+	left: 0.25rem;
+	width: 1.25rem;
+	height: 1.25rem;
+	border-radius: 50%;
+	background: var(--color-muted);
+}
+
+.board-switch input:checked {
+	border-color: var(--color-primary);
+	background: var(--color-primary);
+}
+
+.board-switch input:checked::after {
+	transform: translateX(1.5rem);
+	background: var(--color-canvas);
+}
+
+.board-switch input:disabled {
+	opacity: 0.6;
+	cursor: progress;
+}
+
+.board-switch input:focus-visible {
+	outline: 3px solid var(--color-ink);
+	outline-offset: 3px;
+}

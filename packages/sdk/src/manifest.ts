@@ -56,6 +56,11 @@ export type GameManifest = {
 	};
 	readonly play: Part & { readonly hosting?: Hosting };
 	readonly admin?: Part;
+	/**
+	 * The play API answers GET and PUT `board/me` for a child's own switch: `{ optedIn }`, and `{ on }` to change it.
+	 * The profile page shows a switch for each granted game that sets this.
+	 */
+	readonly scoreboard?: true;
 	readonly exports?: ReservedExports;
 };
 
