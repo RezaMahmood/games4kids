@@ -17,7 +17,7 @@
  *   packages/sdk/**               every target
  *   infra/**                      infra-shared
  *   games/<id>/*.bicep            infra-game <id>   (infra.bicep and the modules beside it)
- *   package.json, package-lock.json, tsconfig*.json, tools/{gen,package-app,site-config}.mjs, tools/site-layout.ts
+ *   package.json, package-lock.json, tsconfig*.json, tools/{gen,package-app,site-config,build-web}.mjs and .ts, tools/site-layout.ts
  *                                 every app and both sites
  * A path no row matches (docs, tests, dev, workflows) deploys nothing, and a game folder that no longer exists deploys
  * only the sites.

@@ -32,7 +32,7 @@ export const RULES: readonly Rule[] = [
 	{ pattern: /^packages\/host\//, emit: ['every-player-app', 'portal-app', 'admin-app'] },
 	{ pattern: /^packages\/sdk\//, emit: EVERYTHING },
 	{ pattern: /^infra\//, emit: ['infra-shared'] },
-	{ pattern: /^(package\.json|package-lock\.json|tsconfig(\.base)?\.json|games\/tsconfig\.[a-z]+\.json|tools\/(gen|package-app|site-config|build-web)\.mjs|tools\/site-layout\.ts)$/, emit: APPS_AND_SITES },
+	{ pattern: /^(package\.json|package-lock\.json|tsconfig(\.base)?\.json|games\/tsconfig\.[a-z]+\.json|tools\/(gen|package-app|site-config|build-web)\.(mjs|ts)|tools\/site-layout\.ts)$/, emit: APPS_AND_SITES },
 ];
 
 const ORDER: readonly Kind[] = ['infra-shared', 'infra-game', 'player-app', 'portal-app', 'admin-app', 'games-site', 'admin-site'];
