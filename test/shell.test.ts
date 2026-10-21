@@ -181,11 +181,13 @@ test('catalogs keep valid entries and drop the rest, and the browser id rule equ
 	assert.deepEqual(
 		parseCatalog([
 			{ id: 'drawpad', title: 'Draw Pad', summary: 'Draw.', icon: 'icon.svg', apiBaseUrl: 'https://func-drawpad.example' },
+			{ id: 'letterjoin', title: 'Letter Tracing', summary: 'Trace.', icon: 'icon.svg', apiBaseUrl: 'https://func-letterjoin.example', scoreboard: true },
+			{ id: 'puzzle', title: 'Puzzle', summary: 'Solve.', icon: 'icon.svg', apiBaseUrl: 'https://func-puzzle.example', scoreboard: 'yes' },
 			{ id: 'Bad Id', title: 'x', summary: '', icon: '', apiBaseUrl: 'https://x.example' },
 			{ id: 'nourl', title: 'x', summary: '', icon: '', apiBaseUrl: 'not a url' },
 			'junk',
-		]).map((entry) => entry.id),
-		['drawpad'],
+		]).map((entry) => [entry.id, entry.scoreboard === true]),
+		[['drawpad', false], ['letterjoin', true], ['puzzle', false]],
 	);
 	assert.deepEqual(parseAdminCatalog([{ id: 'drawpad', title: 'Draw Pad', hasAdmin: true }, { id: 'x', title: 'short', hasAdmin: true }, { id: 'letterjoin', title: 'L', hasAdmin: 'yes' }]).map((entry) => entry.id), ['drawpad']);
 	assert.equal(BROWSER_GAME_ID.source, GAME_ID.source);

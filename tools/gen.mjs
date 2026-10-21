@@ -6,7 +6,7 @@
 // Writes (gitignored, rewritten on predev, prebuild and pretest). Each registry writes the same outputs:
 //   games/<id>/.gen/play-app.ts   the player app entry: playerAppFromEnv + registerWithFunctions
 //   games/<id>/.gen/params.json   the ARM parameters for infra/game.bicep: id, storage with owners, memoryMb, maxInstances
-//   catalog.json                  the games site's home cards, minus apiBaseUrl, which the site deploy job fills in
+//   catalog.json                  the games site's home cards, minus apiBaseUrl, which the site deploy job fills in, with scoreboard where a game sets it
 //   admin-catalog.json            the admin site's game list, with whether each game has an admin part
 //   apps/<site>/.gen/csp.json     each game's CSP widening for that site's pages, which the site's staticwebapp.config.json applies
 //   tsconfig.games.json           the games' web projects, so tsc -b builds every game's pages
@@ -84,11 +84,12 @@ async function scanFolder(folder) {
 	}
 	const adminOwned = Object.values(storage).flatMap((names) => Object.entries(names ?? {}).filter(([, owner]) => ADMIN_OWNED.includes(owner)).map(([name]) => name));
 	if (!hasAdmin && adminOwned.length > 0) problems.push(`no-admin-writer: ${id}: ${adminOwned.join(', ')} need an admin part to write them`);
+	if (manifest.scoreboard !== undefined && manifest.scoreboard !== true) problems.push(`bad-manifest: ${id}: scoreboard must be true or left out`);
 	const exportNames = Object.keys(manifest.exports ?? {});
 	if (exportNames.length > 0) problems.push(`exports-reserved: ${id}: ${exportNames.join(', ')}; exports must stay empty`);
 	const hosting = { ...DEFAULT_HOSTING, ...manifest.play?.hosting };
 	const csp = { games: manifest.play?.csp ?? {}, admin: manifest.admin?.csp ?? {} };
-	return { problems, game: { id, folder, hasAdmin, csp, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
+	return { problems, game: { id, folder, hasAdmin, csp, scoreboard: manifest.scoreboard === true, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
 }
 
 async function scan(gamesDir) {
@@ -197,7 +198,7 @@ function renderWebProjects(root, games) {
 	return `${JSON.stringify({ files: [], references }, null, '\t')}\n`;
 }
 
-const renderCatalog = (games) => `${JSON.stringify(games.map(({ id, title, summary, icon }) => ({ id, title, summary, icon, path: `/g/${id}/` })), null, '\t')}\n`;
+const renderCatalog = (games) => `${JSON.stringify(games.map(({ id, title, summary, icon, scoreboard }) => ({ id, title, summary, icon, path: `/g/${id}/`, ...(scoreboard ? { scoreboard } : {}) })), null, '\t')}\n`;
 const renderAdminCatalog = (games) => `${JSON.stringify(games.map(({ id, title, hasAdmin }) => ({ id, title, hasAdmin, path: `/g/${id}/` })), null, '\t')}\n`;
 
 const kebab = (name) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);

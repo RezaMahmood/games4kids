@@ -9,6 +9,8 @@ export type CatalogEntry = {
 	readonly path: `/g/${string}/`;
 	/** func-g4k-<id>'s origin. Gen leaves it out; the games-site deploy job and the dev stack fill it in. */
 	readonly apiBaseUrl: string;
+	/** The game's manifest sets `scoreboard`, so /profile/ offers the child a switch for it. */
+	readonly scoreboard?: true;
 };
 
 /** One row of the admin site's game list: what a member can be granted, and whether the game has admin pages. */

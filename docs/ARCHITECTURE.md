@@ -97,7 +97,7 @@ The player side is one trust domain. Every player app accepts the same audience,
 
 1. A child opens `/`. With no cached account, the shell calls `loginRedirect`, and Entra signs in only accounts assigned to games4kids.
 2. The shell calls `GET /api/portal/me` on `func-g4k-portal`. The app verifies the token, reads the identities, members, profiles, and games rows, and the pure `decide` returns an admission. Not invited draws a screen, no profile goes to `/welcome/`, and an active player gets `me` with their games.
-3. Home reads `catalog.json` and draws a card for each game in `me.games`, greyed out and not a link when it is paused.
+3. Home reads `catalog.json` and draws a card for each game in `me.games`, greyed out and not a link when it is paused. A manifest that sets `scoreboard` has it copied into its catalog row, and `/profile/` shows that game's switch to each child granted it. The page calls the game's own `GET` and `PUT board/me` with the child's games token, because the portal app cannot write a game's tables.
 4. On `/g/drawpad/`, `enter({ game: 'drawpad' })` gets a token silently and calls `GET /api/g/drawpad/session` on `func-g4k-drawpad`. Only that app wakes, so a game page costs one cold start, not two (review W7).
 5. `api.post('drawings', ...)` runs `createPlayerApp`'s fixed order in [`host.ts`](sketch/host.ts): verify, find, decide with this game's id, parse, `run`, and map errors to one shape.
 

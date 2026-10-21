@@ -164,6 +164,12 @@ export function runPlayConformance<M extends GameManifest>(manifest: M, create: 
 			assert.equal(new Set(app.functions.map((fn) => `${fn.method} ${fn.route}`)).size, app.functions.length);
 		});
 
+		it('answers GET and PUT board/me when the manifest declares a scoreboard', () => {
+			const { seen } = setup();
+			const has = (method: string) => seen.probes.some((p) => p.method === method && p.path === `${prefix}board/me`);
+			if (manifest.scoreboard) assert.deepEqual([has('GET'), has('PUT')], [true, true]);
+		});
+
 		it('creates the API with no storage I/O', () => {
 			assert.equal(setup().seen.createOps, 0);
 		});

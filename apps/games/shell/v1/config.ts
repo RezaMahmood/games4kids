@@ -41,7 +41,7 @@ export function parseCatalog(raw: unknown): readonly CatalogEntry[] {
 		const id = asGameId(fields['id']);
 		const { title, summary, icon, apiBaseUrl } = fields;
 		if (!id || typeof title !== 'string' || typeof summary !== 'string' || typeof icon !== 'string' || typeof apiBaseUrl !== 'string' || !URL.canParse(apiBaseUrl)) return [];
-		return [{ id, title, summary, icon, path: `/g/${id}/`, apiBaseUrl }];
+		return [{ id, title, summary, icon, path: `/g/${id}/`, apiBaseUrl, ...(fields['scoreboard'] === true ? { scoreboard: true as const } : {}) }];
 	});
 }
 
