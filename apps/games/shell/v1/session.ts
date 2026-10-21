@@ -2,7 +2,7 @@ import type { CatalogEntry, GameId, PortalUserId, Profile } from '@g4k/sdk';
 import { ApiFailure, createApiClient, type ApiClient } from '../../../shared/api-client.ts';
 import { showScreen, stylesheet, type ScreenAction } from '../../../shared/dom.ts';
 import { asGameId } from '../../../shared/ids.ts';
-import { createTelemetry, startGameSession, type Telemetry } from '../../../shared/telemetry.ts';
+import { createTelemetry, listen, report, reportTo, startGameSession, type Telemetry } from '../../../shared/telemetry.ts';
 import { startGamesAuth, type SignedIn } from './auth.ts';
 import { loadCatalog, loadGamesConfig, type GamesSiteConfig } from './config.ts';
 import { parseCaller, parseMe } from './me.ts';
@@ -33,6 +33,7 @@ const toGames: ScreenAction = { label: 'Back to my games', run: () => location.a
 
 /** `extra` sits between Try again and Sign out: on a game page, the way back to the games list. */
 function failed(error: unknown, signOut: () => Promise<void>, ...extra: readonly ScreenAction[]): Promise<never> {
+	if (error !== null) report(error);
 	showScreen('Something went wrong', error instanceof ApiFailure ? error.message : 'We could not reach the games. Try again in a moment.', [
 		{ label: 'Try again', run: () => location.reload() },
 		...extra,
@@ -71,18 +72,22 @@ function refused(error: ApiFailure, signedIn: SignedIn): Promise<never> | null {
 
 type Context = { readonly config: GamesSiteConfig; readonly signedIn: SignedIn; readonly telemetry: Telemetry };
 
-async function start(): Promise<Context> {
+async function start(game: GameId | 'portal' | null): Promise<Context> {
+	listen(window);
 	const config = await loadGamesConfig();
+	const telemetry = createTelemetry(config.telemetryConnectionString);
+	reportTo(telemetry, { site: 'games', game, user: null });
 	stylesheet('/shared/tokens.css');
 	stylesheet('/shared/shell.css');
 	const auth = await startGamesAuth(config);
 	if (!auth.session) return auth.signIn();
-	return { config, signedIn: auth.session, telemetry: createTelemetry(config.telemetryConnectionString) };
+	return { config, signedIn: auth.session, telemetry };
 }
 
 function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUserId; readonly profile: Profile }, game: GameId | 'portal', place: BarState['place']): GameSession {
 	const { signedIn, telemetry } = ctx;
 	mountPortalBar({ place, displayName: who.profile.displayName, switchPlayer: () => void signedIn.switchAccount(), signOut: () => void signedIn.signOut() });
+	reportTo(telemetry, { site: 'games', game, user: who.userId });
 	telemetry.track({ name: 'page_view', site: 'games', game, user: who.userId });
 	if (game !== 'portal') startGameSession(telemetry, game, who.userId, crypto.randomUUID());
 	return { me: who, api, storage: createGameStorage(localStorage, game, who.userId), signOut: signedIn.signOut, switchAccount: signedIn.switchAccount };
@@ -101,7 +106,7 @@ function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUse
 export function enter(options: { readonly game: null }): Promise<PortalSession>;
 export function enter(options: { readonly game: string }): Promise<GameSession>;
 export async function enter(options: { readonly game: string | null }): Promise<GameSession | PortalSession> {
-	const ctx = await start();
+	const ctx = await start(options.game === null ? 'portal' : asGameId(options.game));
 	const { config, signedIn } = ctx;
 
 	if (options.game === null) {
@@ -141,7 +146,7 @@ export async function enter(options: { readonly game: string | null }): Promise<
 
 /** The welcome page's entry: signed in, any invited member. A member who is not invited gets the same screen as anywhere else. */
 export async function enterWelcome(): Promise<WelcomeSession> {
-	const ctx = await start();
+	const ctx = await start('portal');
 	const api = createApiClient({ baseUrl: `${ctx.config.portalApiOrigin}/api/portal`, tokens: ctx.signedIn.tokens });
 	const me = parseMe(await api.get('me').catch((error: unknown) => failed(error, ctx.signedIn.signOut)));
 	if (me?.state === 'not-invited') {
