@@ -22,7 +22,12 @@ export type GameSession = {
 };
 
 /** What a portal page (home) gets: the same session, bound to the portal app, plus a card for each game switched on for this child. A paused game keeps its card. `canRenameToday` is the server's word on the once-a-day rename. */
-export type PortalSession = GameSession & { readonly games: readonly (CatalogEntry & { readonly paused: boolean })[]; readonly canRenameToday: boolean };
+export type PortalSession = GameSession & {
+	readonly games: readonly (CatalogEntry & { readonly paused: boolean })[];
+	readonly canRenameToday: boolean;
+	/** A client for one game's own player API, signed in as this child, for a portal page that reads or sets something that lives in a game. */
+	gameApi(game: CatalogEntry): ApiClient;
+};
 
 /** /welcome/ runs for a member who has no profile yet, which `enter` would send back here. */
 export type WelcomeSession = { readonly api: ApiClient; signOut(): Promise<void> };
@@ -73,6 +78,8 @@ function refused(error: ApiFailure, signedIn: SignedIn): Promise<never> | null {
 }
 
 type Context = { readonly config: GamesSiteConfig; readonly signedIn: SignedIn; readonly telemetry: Telemetry };
+
+const gameApiFor = (ctx: Context, game: CatalogEntry) => createApiClient({ baseUrl: `${game.apiBaseUrl}/api/g/${game.id}`, tokens: ctx.signedIn.tokens });
 
 async function start(game: GameId | 'portal' | null): Promise<Context> {
 	listen(window);
@@ -126,7 +133,7 @@ export async function enter(options: { readonly game: string | null; readonly pl
 			case 'active': {
 				const catalog = await loadCatalog();
 				const games = catalog.flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
-				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games, canRenameToday: me.canRenameToday };
+				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games, canRenameToday: me.canRenameToday, gameApi: (game) => gameApiFor(ctx, game) };
 			}
 		}
 	}
@@ -137,7 +144,7 @@ export async function enter(options: { readonly game: string | null; readonly pl
 		showScreen('That game is not here', 'Pick a game from your home page.', [toGames]);
 		return never();
 	}
-	const api = createApiClient({ baseUrl: `${entry.apiBaseUrl}/api/g/${entry.id}`, tokens: signedIn.tokens });
+	const api = gameApiFor(ctx, entry);
 	try {
 		const caller = parseCaller(await api.get('session'));
 		if (!caller) return failed(null, signedIn.signOut, toGames);
