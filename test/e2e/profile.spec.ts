@@ -1,5 +1,5 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
-import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, pageReady, signInAtFakeEntra } from './support.ts';
+import { expect, test } from '@playwright/test';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, namedChild, pageReady, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const RENAMED_TODAY = 'You already changed your name today. You can change it again tomorrow.';
@@ -7,20 +7,6 @@ const SIZES = [
 	{ name: 'on a desktop', options: { viewport: { width: 1280, height: 800 } } },
 	{ name: 'on a phone', options: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
 ];
-
-/** A child the admin invited, signed in and named, on their home page. */
-async function namedChild(browser: Browser, admin: Page, email: string, name: string, options: Parameters<Browser['newContext']>[0]): Promise<Page> {
-	await addAndSync(admin, email, 'Draw Pad');
-	const context = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
-	const kid = await context.newPage();
-	await kid.goto(`${GAMES}/`);
-	await signInAtFakeEntra(kid, email);
-	await pageReady(kid);
-	await kid.getByLabel('Your name in games').fill(name);
-	await kid.getByRole('button', { name: "Let's play" }).click();
-	await expect(kid.getByRole('banner')).toContainText(`Playing as ${name}`);
-	return kid;
-}
 
 for (const { name, options } of SIZES) {
 	test(`${name}, a child renames themselves from the portal bar once a day, and a taken or unkind name is refused`, async ({ browser }) => {
@@ -33,8 +19,8 @@ for (const { name, options } of SIZES) {
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
 		await adminReady(admin);
 
-		const kid = await namedChild(browser, admin, `rename-${tag}@example.com`, `Ada${tag}`, options);
-		const friend = await namedChild(browser, admin, `friend-${tag}@example.com`, `Bea${tag}`, options);
+		const kid = await namedChild(browser, admin, `rename-${tag}@example.com`, `Ada${tag}`, 'Draw Pad', options);
+		const friend = await namedChild(browser, admin, `friend-${tag}@example.com`, `Bea${tag}`, 'Draw Pad', options);
 		const problems = collectProblems([kid, friend]);
 
 		await kid.getByRole('banner').getByRole('link', { name: `Ada${tag}` }).click();

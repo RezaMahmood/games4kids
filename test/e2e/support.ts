@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Browser, type Page } from '@playwright/test';
 import { REAL_PORT_BASE } from './ports.ts';
 
 export const GAMES = `http://localhost:${REAL_PORT_BASE}`;
@@ -51,4 +51,18 @@ export async function addAndSync(admin: Page, email: string, game: string): Prom
 	await expect(add.getByRole('status')).toHaveText(`${email} is synced with Entra and can sign in now.`);
 	await add.getByRole('button', { name: 'Done' }).click();
 	await expect(add).toBeHidden();
+}
+
+/** A child the admin invited to `game`, signed in and named, on their home page. */
+export async function namedChild(browser: Browser, admin: Page, email: string, name: string, game: string, options: Parameters<Browser['newContext']>[0]): Promise<Page> {
+	await addAndSync(admin, email, game);
+	const context = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
+	const kid = await context.newPage();
+	await kid.goto(`${GAMES}/`);
+	await signInAtFakeEntra(kid, email);
+	await pageReady(kid);
+	await kid.getByLabel('Your name in games').fill(name);
+	await kid.getByRole('button', { name: "Let's play" }).click();
+	await expect(kid.getByRole('banner')).toContainText(`Playing as ${name}`);
+	return kid;
 }

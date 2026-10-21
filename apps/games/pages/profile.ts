@@ -1,5 +1,6 @@
 import { ApiFailure, enter, ready, report } from '../shell/v1/index.ts';
 import { nameMessage } from './name-message.ts';
+import { mountBoardSwitches } from './profile-boards.ts';
 
 function must<T extends HTMLElement>(id: string, kind: new () => T): T {
 	const found = document.getElementById(id);
@@ -13,12 +14,14 @@ const errorText = must('error', HTMLElement);
 const savedText = must('saved', HTMLElement);
 const renameNote = must('rename-note', HTMLElement);
 const saveButton = must('save', HTMLButtonElement);
+const boardList = must('boards', HTMLElement);
 
-const { me, api, renamed, canRenameToday } = await enter({ game: null, place: { kind: 'game', title: 'My profile' } });
+const { me, api, renamed, canRenameToday, games, gameApi } = await enter({ game: null, place: { kind: 'game', title: 'My profile' } });
 let currentName = me.profile.displayName;
 nameInput.value = currentName;
 if (canRenameToday) nameInput.focus();
 else lockForToday();
+mountBoardSwitches(boardList, games, gameApi);
 ready();
 
 /** A child gets one rename a day, so after it the form stays shut until tomorrow rather than inviting a refusal. */
