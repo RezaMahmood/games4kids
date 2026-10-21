@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
+import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const KID_EMAIL = `kid-${RUN}@example.com`;
@@ -75,13 +75,7 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
 		await adminReady(admin);
 		await expect(admin.getByRole('heading', { name: 'Members' })).toBeVisible();
-		const add = admin.getByRole('region', { name: 'Add a member' });
-		await add.getByLabel('Email').fill(KID_EMAIL);
-		await add.getByLabel('Letter Tracing').check();
-		await add.getByRole('button', { name: 'Save member' }).click();
-		await expect(admin.getByRole('status')).toHaveText(`Saved ${KID_EMAIL}.`);
-		await admin.getByRole('button', { name: `Sync ${KID_EMAIL} with Entra` }).click();
-		await expect(admin.getByRole('status')).toHaveText('Synced with Entra.');
+		await addAndSync(admin, KID_EMAIL, 'Letter Tracing');
 	});
 
 	await test.step('the child signs in and chooses a name', async () => {
