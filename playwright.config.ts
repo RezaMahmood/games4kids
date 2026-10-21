@@ -4,7 +4,7 @@ import { PORT_BASE, REAL_PORT_BASE } from './test/e2e/ports.ts';
 export default defineConfig({
 	testDir: 'test/e2e',
 	testMatch: '*.spec.ts',
-	fullyParallel: false,
+	fullyParallel: true,
 	workers: 1,
 	retries: 0,
 	timeout: 90_000,

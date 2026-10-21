@@ -12,8 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# A hosted runner has two cores and the suites already keep both busy, so the work is split across jobs, not threads.
 jobs:
-  check:
+  static:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -28,7 +29,36 @@ jobs:
       - run: npm run gen
       - run: npm run lint
       - run: npx tsc -b
-      - run: npm test
+      - run: npx vitest run
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run gen
+      - run: npx tsc -b
+      - run: npm run build:web
+      - run: node --conditions=source --test --test-shard=${{ matrix.shard }}/3 "test/**/*.test.ts" "test/**/*.test.mjs"
+
+  bicep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Bicep builds and lints clean
         run: |
           set -euo pipefail
@@ -37,5 +67,22 @@ jobs:
             findings=$(az bicep lint --file "$file" 2>&1)
             if [ -n "$findings" ]; then echo "$findings"; exit 1; fi
           done
-      - run: npx playwright install --with-deps chromium
-      - run: npm run e2e
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps --only-shell chromium
+      - run: npm run e2e -- --shard=${{ matrix.shard }}/3
