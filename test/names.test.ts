@@ -61,3 +61,39 @@ test('two real names side by side are not read as one word', () => {
 		assert.equal(isKindName(name), true, `${name} is allowed`);
 	}
 });
+
+test('short surnames beside a first name pass, however they are joined', () => {
+	for (const first of ['Anna', 'Ana', 'Dana', 'Lana', 'Jana', 'Sana', 'Hasan', 'Lan']) {
+		for (const last of ['Le', 'Li', 'Ly', 'Lu', 'La', 'Al']) {
+			for (const name of [`${first} ${last}`, `${first}-${last}`, `${last} ${first}`]) assert.equal(isKindName(name), true, `${name} is allowed`);
+		}
+	}
+	for (const name of ['Cu Mia', 'Cu Max', 'Cu Minh', 'Cu Mai', 'Sana Al Ali']) assert.equal(isKindName(name), true, `${name} is allowed`);
+});
+
+test('real names from many backgrounds that hold a flagged word pass', () => {
+	for (const name of ['Harshit', 'Shitanshu', 'Dikshit', 'Bich Ngoc', 'Thi Bich', 'Fukuda', 'Shitara', 'Analia', 'Cumhur', 'Pakistan', 'Raccoon', 'Gunn', 'Hoang', 'Butt', 'Kit', 'King', 'Kirk', 'Poppy']) {
+		assert.equal(isKindName(name), true, `${name} is allowed`);
+	}
+});
+
+test('slurs, hate words and threats a child might try are refused', () => {
+	for (const name of [
+		'Paki', 'Paki Boy', 'P4ki', 'Pak1', 'spic', 'sp1c', 'coon', 'c00n', 'gook', 'g00k', 'wog', 'w0g', 'Raghead', 'Towelhead', 'Golliwog', 'Jungle Bunny', 'Batty Boy', 'Spacker', 'Lesbo', 'Homo', 'Shemale',
+		'Naziboy', 'Heil', 'Sieg Heil', 'White Power', '1488', 'Fuhrer', 'Fuehrer', 'KKK', 'Kkk Boy', 'K K K', 'k.k.k',
+		'Murderer', 'Murder', 'Suicide', 'Stab', 'Stabber', 'Gunman', 'Shoot You', 'Bomb', 'Bomber', 'Terrorist', 'Jihad', 'Groomer', 'Killer', 'Killa', 'IKillYou', 'IHateYou',
+	]) {
+		assert.equal(isKindName(name), false, `${name} is refused`);
+	}
+});
+
+test('swearing split into longer pieces, respelled, or with an ending added is refused', () => {
+	for (const name of [
+		'fuc ker', 'fuc king', 'shi thead', 'dic khead', 'coc ksucker', 'bit chy', 'bas tard', 'bast ard', 'wan ker', 'bol lock', 'bol locks', 'ret ard', 'ret arded', 'tos ser', 'slu tty', 'hit ler', 'pa ki', 'Poopy', 'Poop Head',
+		'fuq', 'phuck', 'fcuk', 'shyt', 'biatch', 'beyotch', 'azz', 'sl00t', 'frick', 'frig', 'stfu', 'wtf', 'gtfo', 'lmfao',
+		'buttface', 'Butt Head', 'jackass', 'bellend', 'knobhead', 'tosser', 'minger', 'slag', 'skank', 'Fatty', 'IdiotFace', 'Bumhole', 'b u m', 'Pee Pee', 'Wee Wee', 'Poop', 'pus sy', 'puss y',
+		'Hellboy', 'Damnit', 'Crappy', 'Pedobear', 'Peadophile', 'Fart', 'Farty', 'Nude', 'Naked', 'Horny', 'Hoe', 'Thot', 'Incel',
+	]) {
+		assert.equal(isKindName(name), false, `${name} is refused`);
+	}
+});
