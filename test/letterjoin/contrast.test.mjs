@@ -29,6 +29,7 @@ const PAIRS = [
   ['muted text on a card', A.muted, A.paper],
   ['muted text on the soft blue panels', A.muted, A['accent-soft']],
   ['white on the blue buttons and the picked style', WHITE, A.accent],
+  ['white on the board\'s You marker', WHITE, A['accent-dark']],
   ['headings on the page', A['accent-dark'], A.bg],
   ['headings on the soft blue toolbar', A['accent-dark'], A['accent-soft']],
   ['white on the Starter heading', WHITE, A.starter],

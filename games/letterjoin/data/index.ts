@@ -1,4 +1,5 @@
 export * from './activity.ts';
+export * from './board.ts';
 export * from './ids.ts';
 export * from './practice.ts';
 export * from './results.ts';

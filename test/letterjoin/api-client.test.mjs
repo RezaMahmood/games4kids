@@ -49,6 +49,26 @@ test('practice calls carry the local day and seconds, and a report at page exit 
   assert.equal(sent[2].keepalive, true);
 });
 
+test('the board is asked for with the local day, a child who is off it gets nothing else, and a malformed board is refused', async () => {
+  const on = { optedIn: true, days: ['2026-10-16', '2026-10-17'], levels: [{ level: 'starter', children: [{ name: 'Amy', me: true, points: [0, 80], total: 80 }] }] };
+  const { sent, play } = recorded(BASE, () => json(200, on));
+  assert.deepEqual(await play.board('2026-10-17'), on);
+  assert.equal(sent[0].url, `${BASE}/board?day=2026-10-17`);
+  const { play: off } = recorded(BASE, () => json(200, { optedIn: false, levels: [{ level: 'starter', children: [] }] }));
+  assert.deepEqual(await off.board('2026-10-17'), { optedIn: false });
+  for (const bad of [{}, { optedIn: true }, { ...on, levels: [{ level: 'novice', children: [] }] }, { ...on, levels: [{ level: 'starter', children: [{ name: 'Amy', me: true, points: ['x'], total: 1 }] }] }]) {
+    const { play: next } = recorded(BASE, () => json(200, bad));
+    assert.equal((await next.board('2026-10-17').catch((e) => e)).status, 502, JSON.stringify(bad));
+  }
+});
+
+test('switching the board sends on as true or false', async () => {
+  const { sent, play } = recorded(BASE, (url, init) => json(200, { optedIn: JSON.parse(init.body).on }));
+  assert.deepEqual(await play.setBoard(true), { optedIn: true });
+  assert.deepEqual(await play.setBoard(false), { optedIn: false });
+  assert.deepEqual(sent.map((c) => [c.method, c.url, JSON.parse(c.body)]), [['PUT', `${BASE}/board/me`, { on: true }], ['PUT', `${BASE}/board/me`, { on: false }]]);
+});
+
 test('the admin saves settings and reads the practice report for a day, and a malformed report is refused', async () => {
   const good = { days: ['2026-10-16', '2026-10-17'], goalMinutes: 15, children: [{ userId: 'u1', name: 'Amy', seconds: [0, 900], totalSeconds: 900 }] };
   const { sent, admin } = recorded(ADMIN_BASE, () => json(200, good));

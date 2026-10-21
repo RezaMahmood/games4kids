@@ -7,8 +7,10 @@ import { FONT_REGISTRY, loadFace, startingStyle } from './fonts.js';
 import { startFireworks } from './fireworks.js';
 import { HARD_KEY, HARD_TYPES, createHardMode } from './hard-mode.js';
 import { createApi } from './api.js';
+import { dayLabel as boardDayLabel, emptyLevelText, pointsText } from './board.js';
 import { createInk } from './ink.js';
 import { createPracticeClock } from './practice-clock.js';
+import { localDay } from './practice.js';
 import { dayLabel, localDayKey, summarizeDays } from './progress.js';
 import { buildMask, drawPaper, drawTarget, sizeSheet } from './render.js';
 import { HARD_BONUS, cheerFor, chipText, summarize } from './scoreboard.js';
@@ -175,6 +177,7 @@ function showList() {
   leaveTracing();
   $('scoreboard-screen').hidden = true;
   $('progress-screen').hidden = true;
+  $('board-screen').hidden = true;
   $('list-screen').hidden = false;
   if (played) sections.choose(played.level, true);
   renderList();
@@ -223,6 +226,7 @@ function showScoreboard() {
   leaveTracing();
   $('list-screen').hidden = true;
   $('progress-screen').hidden = true;
+  $('board-screen').hidden = true;
   $('scoreboard-screen').hidden = false;
   const summary = summarize(activities);
   countUp($('sb-points'), summary.points);
@@ -277,6 +281,7 @@ async function showProgress() {
   leaveTracing();
   $('list-screen').hidden = true;
   $('scoreboard-screen').hidden = true;
+  $('board-screen').hidden = true;
   $('progress-screen').hidden = false;
   const run = ++progressRun;
   $('pg-status').hidden = false;
@@ -294,6 +299,84 @@ async function showProgress() {
   } catch (err) {
     if (run === progressRun) $('pg-status').textContent = err.message;
   }
+}
+
+/** One level's table: a row per child, a column per day, and the child's own row marked. */
+function boardLevel({ level, children }, days) {
+  const { label } = LEVEL_INFO[level];
+  const today = days.at(-1);
+  const table = h('table', { className: 'bd-table' },
+    h('thead', {}, h('tr', {},
+      h('th', { scope: 'col', textContent: 'Name' }),
+      ...days.map((day) => h('th', { scope: 'col', textContent: boardDayLabel(day), className: day === today ? 'today' : '' })),
+      h('th', { scope: 'col', textContent: 'Total' }))),
+    h('tbody', {}, ...children.map((child) => h('tr', { className: child.me ? 'me' : '' },
+      h('th', { scope: 'row' }, child.name, ...(child.me ? [h('span', { className: 'bd-you', textContent: 'You' })] : [])),
+      ...child.points.map((points) => h('td', { textContent: pointsText(points), className: points === 0 ? 'none' : '' })),
+      h('td', { className: 'total', textContent: pointsText(child.total) })))));
+  const section = h('section', { className: 'bd-level' },
+    h('h3', { textContent: label }),
+    children.length > 0 ? h('div', { className: 'bd-wrap' }, table) : h('p', { className: 'empty', textContent: emptyLevelText(label) }));
+  section.dataset.level = level;
+  return section;
+}
+
+function renderBoard(board) {
+  $('bd-status').hidden = true;
+  $('bd-switch').hidden = false;
+  $('bd-switch').disabled = false;
+  $('bd-switch').setAttribute('aria-checked', String(board.optedIn));
+  $('bd-explain').hidden = board.optedIn;
+  $('bd-note').hidden = !board.optedIn;
+  $('bd-levels').replaceChildren(...(board.optedIn ? board.levels.map((group) => boardLevel(group, board.days)) : []));
+}
+
+/** Bumped each time the board loads, so a slow answer cannot replace a newer one. */
+let boardRun = 0;
+
+async function loadBoard() {
+  const run = ++boardRun;
+  try {
+    const board = await api.board(localDay(Date.now()));
+    if (run === boardRun) renderBoard(board);
+  } catch (err) {
+    if (run !== boardRun) return;
+    $('bd-switch').disabled = false;
+    $('bd-status').hidden = false;
+    $('bd-status').textContent = err.message;
+  }
+}
+
+function showBoard() {
+  leaveTracing();
+  $('list-screen').hidden = true;
+  $('scoreboard-screen').hidden = true;
+  $('progress-screen').hidden = true;
+  $('board-screen').hidden = false;
+  $('bd-switch').hidden = true;
+  $('bd-explain').hidden = true;
+  $('bd-note').hidden = true;
+  $('bd-levels').replaceChildren();
+  $('bd-status').hidden = false;
+  $('bd-status').textContent = 'Loading…';
+  return loadBoard();
+}
+
+async function toggleBoard() {
+  const sw = $('bd-switch');
+  const on = sw.getAttribute('aria-checked') !== 'true';
+  sw.disabled = true;
+  try {
+    await api.setBoard(on);
+  } catch (err) {
+    sw.disabled = false;
+    $('bd-status').hidden = false;
+    $('bd-status').textContent = err.message;
+    return;
+  }
+  sw.setAttribute('aria-checked', String(on));
+  $('bd-status').hidden = true;
+  await loadBoard();
 }
 
 let fireworks = null;
@@ -325,6 +408,7 @@ function open(activity) {
   $('list-screen').hidden = true;
   $('scoreboard-screen').hidden = true;
   $('progress-screen').hidden = true;
+  $('board-screen').hidden = true;
   if (hardMode.isHard(activity)) {
     writeView.open(activity);
     return;
@@ -621,6 +705,9 @@ $('score-chip').addEventListener('click', showScoreboard);
 $('sb-back').addEventListener('click', showList);
 $('progress-open').addEventListener('click', showProgress);
 $('pg-back').addEventListener('click', showList);
+$('board-open').addEventListener('click', showBoard);
+$('bd-back').addEventListener('click', showList);
+$('bd-switch').addEventListener('click', toggleBoard);
 $('back-to-list').addEventListener('click', showList);
 $('next-activity').addEventListener('click', () => open(nextAfter(current)));
 document.addEventListener('visibilitychange', () => {

@@ -27,7 +27,8 @@ type Problems = { problems: string[] };
 async function setup(env: Env = { VISION_ENDPOINT: vision.origin }) {
 	const w = world();
 	const tokens = async (service: string) => `tok-${service}`;
-	const common = { telemetry: w.telemetry, now: w.now };
+	const clock = { at: NOW };
+	const common = { telemetry: w.telemetry, now: () => clock.at };
 	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, accounts: w.accounts, tokens, env });
 	const admin = createAdminApp({
 		...common,
@@ -49,7 +50,7 @@ async function setup(env: Env = { VISION_ENDPOINT: vision.origin }) {
 	const as = (token: string) => (method: string, path: string, send: Send = {}) => call(player, method, `/api/g/letterjoin/${path}`, { token, ...send });
 	const asAdmin = (method: string, path: string, send: Send = {}) => call(admin, method, `/api/admin/g/letterjoin/${path}`, { token: adminToken, ...send });
 	const ada = await child('Ada');
-	return { w, adminId, ada, child, asAda: as(ada.token), as, asAdmin, account: w.accounts.open(letterjoin), exceptions: w.telemetry.exceptions };
+	return { w, clock, adminId, ada, child, asAda: as(ada.token), as, asAdmin, account: w.accounts.open(letterjoin), exceptions: w.telemetry.exceptions };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -219,6 +220,107 @@ test('the admin sees each child\'s last seven days by the name they chose, with 
 	assert.deepEqual(report.children.map((c) => [c.name, c.seconds, c.totalSeconds]), [['Ada', [0, 0, 0, 0, 0, 30, 60], 90], ['Zed', [0, 0, 0, 0, 0, 0, 0], 0]], 'a day outside the window is not counted');
 	assert.equal(JSON.stringify(report).includes('@'), false, 'no email reaches the report');
 	assert.equal((await s.asAdmin('GET', 'practice?day=bad')).status, 400);
+});
+
+const STEP = 10 * 60 * 1000;
+type BoardReply = { optedIn: boolean; days?: string[]; levels?: { level: string; children: { name: string; me: boolean; points: number[]; total: number }[] }[] };
+const boardOf = async (s: Setup, as = s.asAda) => (await as('GET', `board?day=${TODAY}`)).data as BoardReply;
+const lineFor = (reply: BoardReply, level: string) => reply.levels?.find((l) => l.level === level)?.children.map((c) => [c.name, c.me, c.total]);
+
+test('a child who has not switched the board on sees nothing of it and is not on anyone else\'s', async () => {
+	const s = await setup();
+	const { id } = await publish(s, 'Trace me');
+	const bea = await s.child('Bea');
+	await s.as(bea.token)('PUT', 'board/me', { json: { on: true } });
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(1) });
+	assert.deepEqual(await boardOf(s), { optedIn: false });
+	s.clock.at = new Date(NOW.getTime() + STEP);
+	await s.as(bea.token)('PUT', `activities/${id}/result`, { json: result(2, { score: 60 }) });
+	assert.deepEqual(await boardOf(s), { optedIn: false }, 'no names, no points');
+	assert.deepEqual(lineFor(await boardOf(s, s.as(bea.token)), 'explorer'), [['Bea', true, 60]], 'Ada scored but is not on the board');
+});
+
+test('a child on the board shows only what they scored since switching it on, with the best score for each activity each day', async () => {
+	const s = await setup();
+	const one = await publish(s, 'One', { level: 'starter' });
+	const two = await publish(s, 'Two', { level: 'champion' });
+	const bea = await s.child('Bea');
+	const asBea = s.as(bea.token);
+	await s.asAda('PUT', `activities/${one.id}/result`, { json: result(1, { score: 100 }) });
+
+	s.clock.at = new Date(NOW.getTime() + STEP);
+	assert.deepEqual((await s.asAda('PUT', 'board/me', { json: { on: true } })).data, { optedIn: true });
+	assert.deepEqual(await boardOf(s), { optedIn: true, days: daysEndingAt(TODAY), levels: [{ level: 'starter', children: [] }, { level: 'explorer', children: [] }, { level: 'champion', children: [] }] }, 'the score from before does not count');
+
+	s.clock.at = new Date(NOW.getTime() + 2 * STEP);
+	await s.asAda('PUT', `activities/${one.id}/result`, { json: result(2, { score: 40 }) });
+	await s.asAda('PUT', `activities/${one.id}/result`, { json: result(3, { score: 70 }) });
+	await s.asAda('PUT', `activities/${one.id}/result`, { json: result(4, { score: 50 }) });
+	await s.asAda('PUT', `activities/${two.id}/result`, { json: result(5, { score: 50, hard: true }) });
+	await asBea('PUT', 'board/me', { json: { on: true } });
+	await asBea('PUT', `activities/${one.id}/result`, { json: result(6, { score: 90 }) });
+
+	const forBea = await boardOf(s, asBea);
+	assert.deepEqual(lineFor(forBea, 'starter'), [['Bea', true, 90], ['Ada', false, 70]]);
+	assert.deepEqual(lineFor(forBea, 'champion'), [['Ada', false, 60]], 'hard mode earns the bonus');
+	assert.deepEqual(forBea.levels?.find((l) => l.level === 'starter')?.children[1]?.points, [0, 0, 0, 0, 0, 0, 70]);
+	assert.equal(JSON.stringify(forBea).includes(s.ada.userId), false, 'no user id reaches another child');
+	assert.deepEqual(lineFor(await boardOf(s), 'starter'), [['Bea', false, 90], ['Ada', true, 70]]);
+});
+
+test('switching the board off removes the child at once, and switching it on again counts only from then', async () => {
+	const s = await setup();
+	const { id } = await publish(s, 'Trace me');
+	const bea = await s.child('Bea');
+	const asBea = s.as(bea.token);
+	await asBea('PUT', 'board/me', { json: { on: true } });
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	s.clock.at = new Date(NOW.getTime() + STEP);
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(1, { score: 80 }) });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada', false, 80]]);
+
+	assert.deepEqual((await s.asAda('PUT', 'board/me', { json: { on: false } })).data, { optedIn: false });
+	assert.deepEqual(await boardOf(s), { optedIn: false });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [], 'gone from the others\' board');
+	assert.deepEqual((await s.asAda('PUT', 'board/me', { json: { on: false } })).data, { optedIn: false }, 'off twice is still off');
+
+	s.clock.at = new Date(NOW.getTime() + 2 * STEP);
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(2, { score: 60 }) });
+	s.clock.at = new Date(NOW.getTime() + 3 * STEP);
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [], 'what was scored while off never comes back');
+	s.clock.at = new Date(NOW.getTime() + 4 * STEP);
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(3, { score: 30 }) });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada', false, 30]]);
+});
+
+test('switching the board on twice keeps the first moment, and the board shows the name and time zone the child has now', async () => {
+	const s = await setup();
+	const { id } = await publish(s, 'Trace me');
+	const bea = await s.child('Bea');
+	const asBea = s.as(bea.token);
+	await asBea('PUT', 'board/me', { json: { on: true } });
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	s.clock.at = new Date(NOW.getTime() + STEP);
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(1, { score: 80 }) });
+	s.clock.at = new Date(NOW.getTime() + 2 * STEP);
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada', false, 80]], 'the second switch on did not move since past the first score');
+
+	await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Europe/London' });
+	assert.deepEqual(lineFor(await boardOf(s, s.asAda), 'explorer'), [['Ada B', true, 80]], 'her own board refreshes the name');
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada B', false, 80]]);
+	await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Pacific/Auckland' });
+	await boardOf(s, s.asAda);
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [], 'in Auckland that score fell on the 20th, past the window');
+});
+
+test('the board asks for a device day within a day of today and the switch for true or false', async () => {
+	const s = await setup();
+	assert.equal((await s.asAda('GET', 'board')).status, 400);
+	assert.equal((await s.asAda('GET', 'board?day=2026-10-30')).status, 400);
+	for (const json of [{}, { on: 'yes' }, { on: 1 }, null]) assert.equal((await s.asAda('PUT', 'board/me', { json })).status, 400, JSON.stringify(json));
+	assert.deepEqual(await boardOf(s), { optedIn: false }, 'a bad request never switches it on');
 });
 
 test('a copy is a PNG for a trace then copy activity; each child keeps the newest three and the oldest is replaced', async () => {

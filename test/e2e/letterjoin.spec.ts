@@ -119,6 +119,21 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await expect(admin.locator('#activities .card .title', { hasText: TITLE, hasNotText: 'leap' })).toHaveCount(0);
 	});
 
+	await test.step('the child switches on the Friends board, which has no scores yet', async () => {
+		await kid.goto(`${GAMES}/g/letterjoin/`);
+		await pageReady(kid);
+		await kid.locator('#board-open').click();
+		const toggle = kid.getByRole('switch', { name: 'Show my scores on the board' });
+		await expect(toggle).toHaveAttribute('aria-checked', 'false');
+		await expect(kid.locator('#bd-explain')).toBeVisible();
+		await expect(kid.locator('.bd-level')).toHaveCount(0);
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-checked', 'true');
+		await expect(kid.locator('#bd-explain')).toBeHidden();
+		await expect(kid.locator('.bd-level')).toHaveCount(3);
+		await expect(kid.locator('.bd-level .empty')).toHaveCount(3);
+	});
+
 	await test.step('the child traces it and the result is saved', async () => {
 		await kid.goto(`${GAMES}/g/letterjoin/?debug=1`);
 		await expect(kid.getByRole('heading', { level: 1 })).toHaveText('Letter Tracing');
@@ -146,6 +161,15 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await kid.locator('#progress-open').click();
 		const today = kid.locator('.pg-day', { has: kid.getByRole('heading', { name: 'Today' }) });
 		await expect(today).toContainText('1 activity');
+	});
+
+	await test.step('the child is on the Friends board with the points just scored', async () => {
+		await kid.locator('#pg-back').click();
+		await kid.locator('#board-open').click();
+		const mine = kid.locator('.bd-table tr.me', { has: kid.getByRole('rowheader', { name: KID_NAME }) });
+		await expect(mine).toHaveCount(1);
+		await expect(mine.locator('td').nth(6)).not.toHaveText('–');
+		await expect(mine.locator('td.total')).not.toHaveText('–');
 		await kid.goto('about:blank');
 	});
 
