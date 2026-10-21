@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { composeSite, fillSite, telemetryOrigin, widenCsp, withGameCsp } from '../tools/site-config.ts';
+import { catalogFile, gameWebDir } from '../tools/site-layout.ts';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURES = 'test/fixtures/games';
@@ -40,6 +42,22 @@ test('the games site is laid out as the shell expects, with sources left out and
 	assert.equal(files.some((path) => path.startsWith('g/fixture/admin') || path.startsWith('g/admin')), false);
 	assert.match(read(out, 'staticwebapp.config.json'), /__API_ORIGINS__ __AUTHORITY_ORIGIN__ __TELEMETRY_ORIGIN__/);
 	assert.equal(existsSync(join(out, 'config.json')), false);
+});
+
+test('each site ships every committed file of a static game, so a page never asks for one the site lacks', { skip }, () => {
+	for (const kind of ['games', 'admin'] as const) {
+		const out = mkdtempSync(join(tmpdir(), `g4k-site-real-${kind}-`));
+		const rows = (JSON.parse(readFileSync(catalogFile(repo, kind), 'utf8')) as { id: string }[]).filter(({ id }) => !gameWebDir(repo, 'games', kind, id).endsWith('dist'));
+		const catalog = join(out, '..', `${out.split('/').at(-1)}-catalog.json`);
+		writeFileSync(catalog, JSON.stringify(rows));
+		composeSite(repo, kind, out, { catalog });
+		for (const { id } of rows) {
+			const web = gameWebDir(repo, 'games', kind, id);
+			const committed = execFileSync('git', ['ls-files', '-z', '--', '.'], { cwd: web, encoding: 'utf8' }).split('\0').filter((path) => path && !path.endsWith('.ts'));
+			const missing = committed.filter((path) => !existsSync(join(out, 'g', id, path)));
+			assert.deepEqual(missing, [], `the ${kind} site lacks these files of ${id}`);
+		}
+	}
 });
 
 test('the admin site serves admin pages only for games that have them', { skip }, () => {

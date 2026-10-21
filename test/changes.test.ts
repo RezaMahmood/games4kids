@@ -53,6 +53,8 @@ const rows: readonly (readonly [name: string, paths: string[], expected: DeployT
 	['the lockfile', ['package-lock.json'], [...allApps, ...allSites]],
 	['the gen tool', ['tools/gen.mjs'], [...allApps, ...allSites]],
 	['the Vite page build', ['tools/build-web.mjs'], [...allApps, ...allSites]],
+	['the site composer the deploy runs', ['tools/site-config.ts'], [...allApps, ...allSites]],
+	['the app packer the deploy runs', ['tools/package-app.ts'], [...allApps, ...allSites]],
 	['a project that compiles every game', ['games/tsconfig.admin.json'], [...allApps, ...allSites]],
 	['the bootstrap tool', ['tools/bootstrap.mjs', 'tools/bootstrap.ts', 'tools/bootstrap-shell.ts'], []],
 	['the dev stack', ['dev/stack.ts'], []],
