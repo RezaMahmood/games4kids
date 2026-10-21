@@ -46,6 +46,8 @@ form.addEventListener('submit', async (event) => {
 	} catch (error) {
 		report(error);
 		if (!(error instanceof ApiFailure)) return complain('We could not save your name. Try again.');
-		complain(error.code === 'name_taken' ? 'Someone already has that name. Try another.' : (error.problems[0] ?? error.message));
+		if (error.code === 'name_taken') return complain('Someone already has that name. Try another.');
+		if (error.code === 'name_not_allowed') return complain('Please choose a kinder name. Try another.');
+		complain(error.problems[0] ?? error.message);
 	}
 });
