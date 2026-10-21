@@ -87,6 +87,17 @@ test('a slow or failing game holds up only its own switch, never the name', asyn
 	const toggle = kid.getByRole('switch', { name: SWITCH });
 	const note = kid.locator('.boards .help');
 
+	await test.step('a game that cannot be reached leaves its switch off and the rest of the page usable', async () => {
+		await kid.route('**/api/g/letterjoin/board/me', (route) => route.abort());
+		await kid.goto(`${GAMES}/profile/`);
+		await pageReady(kid);
+		await expect(note).toHaveText('We could not load this. Try again.');
+		await expect(toggle).toBeDisabled();
+		await expect(kid.getByLabel('Your name in games')).toBeEnabled();
+		await expect(kid.getByRole('button', { name: 'Save' })).toBeEnabled();
+		await kid.unroute('**/api/g/letterjoin/board/me');
+	});
+
 	await test.step('while the game answers nothing, the page is ready, the switch says Loading…, and a rename saves', async () => {
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => (release = resolve));
@@ -132,16 +143,6 @@ test('a slow or failing game holds up only its own switch, never the name', asyn
 		await expect(toggle).toBeChecked();
 		await expect(toggle).toBeEnabled();
 		await kid.unroute('**/api/g/letterjoin/board/me');
-	});
-
-	await test.step('a game that cannot be reached leaves its switch off and the rest of the page usable', async () => {
-		await kid.route('**/api/g/letterjoin/board/me', (route) => route.abort());
-		await kid.reload();
-		await pageReady(kid);
-		await expect(note).toHaveText('We could not load this. Try again.');
-		await expect(toggle).toBeDisabled();
-		await kid.getByLabel('Your name in games').fill(`Dora${tag}`);
-		await expect(kid.getByRole('button', { name: 'Save' })).toBeEnabled();
 	});
 
 	await adminContext.close();
