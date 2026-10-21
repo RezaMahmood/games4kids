@@ -268,11 +268,12 @@ test('the portal app lets a child rename once a day, by their own calendar day, 
 	assert.equal((refused.data as { message: string }).message, 'You can change your name again tomorrow.');
 	assert.deepEqual((await me()).profile, { displayName: 'Bea', timeZone: 'Europe/London' }, 'nothing was written');
 
-	assert.equal((await put('Bea', 'Pacific/Auckland')).status, 204, 'a time zone change keeps the name, so it is no rename');
-	assert.equal((await me()).canRenameToday, false, 'and it keeps the day of the last rename');
-	assert.equal(codeOf(await put('Cleo', 'Pacific/Auckland')), 'rename_tomorrow');
+	assert.equal(codeOf(await put('Bea', 'Pacific/Kiritimati')), 'rename_tomorrow', 'a zone already past midnight cannot start a new day');
+	assert.deepEqual((await me()).profile, { displayName: 'Bea', timeZone: 'Europe/London' }, 'nothing was written');
 	clock.at = new Date(NOW.getTime() + 24 * 3_600_000);
-	assert.equal((await put('Dee')).status, 204, 'a day later');
+	assert.equal((await put('Bea', 'Pacific/Auckland')).status, 204, 'a later day may change the time zone, and that is no rename');
+	assert.equal((await me()).canRenameToday, true);
+	assert.equal((await put('Dee', 'Pacific/Auckland')).status, 204, 'a day later');
 	assert.equal((await me()).canRenameToday, false);
 });
 

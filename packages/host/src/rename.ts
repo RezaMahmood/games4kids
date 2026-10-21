@@ -13,10 +13,13 @@ export function renamedToday(renamedAt: string | undefined, timeZone: string, no
 export type Save = { readonly kind: 'refused' } | { readonly kind: 'write'; readonly renamedAt: string | undefined };
 
 /**
- * What a save may do to a profiles row. The first name, and any save that keeps the name (a time zone change), are
- * not renames and keep `renamedAt` as it was. A rename is once a day, by the stored time zone.
+ * What a save may do to a profiles row. The first name, and any save that keeps the name, are not renames and keep
+ * `renamedAt` as it was. A rename is once a day, by the stored time zone. On a day the child renamed, the time zone is
+ * fixed too, because moving to a zone already past midnight would start a new day.
  */
 export function planSave(stored: StoredProfile | undefined, next: Profile, now: Date): Save {
-	if (stored === undefined || stored.displayName === next.displayName) return { kind: 'write', renamedAt: stored?.renamedAt };
-	return renamedToday(stored.renamedAt, stored.timeZone, now) ? { kind: 'refused' } : { kind: 'write', renamedAt: now.toISOString() };
+	if (stored === undefined) return { kind: 'write', renamedAt: undefined };
+	const renamed = renamedToday(stored.renamedAt, stored.timeZone, now);
+	if (renamed && (stored.displayName !== next.displayName || stored.timeZone !== next.timeZone)) return { kind: 'refused' };
+	return { kind: 'write', renamedAt: stored.displayName === next.displayName ? stored.renamedAt : now.toISOString() };
 }
