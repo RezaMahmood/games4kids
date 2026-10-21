@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseEmail, type Email } from '@g4k/sdk';
+import { parseEmail, parseEntraObjectId, type Email, type EntraObjectId } from '@g4k/sdk';
 import {
 	ASSIGN_RETRY_MS,
 	elevate,
@@ -25,6 +25,12 @@ const TENANT = '11111111-2222-4333-8444-555555555555';
 
 function email(raw: string): Email {
 	const parsed = parseEmail(raw);
+	assert.ok(parsed);
+	return parsed;
+}
+
+function objectId(raw: string): EntraObjectId {
+	const parsed = parseEntraObjectId(raw);
 	assert.ok(parsed);
 	return parsed;
 }
@@ -104,18 +110,59 @@ test('graphAs exchanges once per instance and never shares a Graph token between
 	assert.equal(world.tokenCalls.length, 2);
 });
 
-test('findUser matches mail, otherMails and the userPrincipalName, and answers null for a stranger', async () => {
+const found = (objectId: string) => ({ kind: 'found', objectId });
+
+test('findUser matches mail, the userPrincipalName, or the address a guest UPN encodes, and finds no one for a stranger', async () => {
 	const world = entra();
 	const { elevation: e } = await elevation();
 	const { config, assertion } = world.config();
-	const mail = world.graph.directory.add({ mail: 'ada@example.com', guest: true });
-	const other = world.graph.directory.add({ mail: 'primary@corp.example', otherMails: ['ben@home.example'], guest: false });
+	const mail = world.graph.directory.add({ mail: 'ada@example.com', guest: false, upn: 'ada@tenant.example' });
 	const upnOnly = world.graph.directory.add({ mail: '', upn: 'cy@tenant.example', guest: false });
+	const guest = world.graph.directory.add({ mail: '', upn: 'dee_home.example#EXT#@tenant.onmicrosoft.com', guest: true });
 	const graph = graphAs(e, assertion, config);
-	assert.equal(await graph.findUser(email('ada@example.com')), mail.id);
-	assert.equal(await graph.findUser(email('ben@home.example')), other.id);
-	assert.equal(await graph.findUser(email('cy@tenant.example')), upnOnly.id);
-	assert.equal(await graph.findUser(email('stranger@example.com')), null);
+	assert.deepEqual(await graph.findUser(email('ADA@example.com')), found(mail.id));
+	assert.deepEqual(await graph.findUser(email('cy@tenant.example')), found(upnOnly.id));
+	assert.deepEqual(await graph.findUser(email('dee@home.example')), found(guest.id));
+	assert.deepEqual(await graph.findUser(email('stranger@example.com')), { kind: 'none' });
+});
+
+test('findUser never matches on otherMails, because anyone can list an alternate email', async () => {
+	const world = entra();
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	world.graph.directory.add({ mail: 'primary@corp.example', otherMails: ['ben@home.example'], guest: false });
+	assert.deepEqual(await graphAs(e, assertion, config).findUser(email('ben@home.example')), { kind: 'none' });
+});
+
+const RIZ_GUEST = { id: 'c2bb6fcc-0000-4000-8000-000000000001', mail: null, otherMails: ['riz74@hotmail.com'], userPrincipalName: 'riz74_hotmail.com#EXT#@riz74hotmail.onmicrosoft.com', userType: 'Guest' };
+const REZA_MEMBER = { id: '716328f1-0000-4000-8000-000000000002', mail: 'reza@rezamahmood.net', otherMails: ['riz74@hotmail.com'], userPrincipalName: 'reza@rezamahmood.net', userType: 'Member' };
+
+test('findUser resolves riz74@hotmail.com to the guest it signs in as, not the member that lists it in otherMails', async () => {
+	const world = entra({ graphReply: (url) => (url.pathname === '/v1.0/users' ? Response.json({ value: [REZA_MEMBER, RIZ_GUEST] }) : undefined) });
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	assert.deepEqual(await graphAs(e, assertion, config).findUser(email('riz74@hotmail.com')), found(RIZ_GUEST.id));
+});
+
+test('findUser asks Graph for the riz74 guest by its encoded UPN, and the member with the address in otherMails does not come back', async () => {
+	const world = entra();
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	world.graph.directory.add({ id: objectId(REZA_MEMBER.id), mail: REZA_MEMBER.mail, upn: REZA_MEMBER.userPrincipalName, otherMails: REZA_MEMBER.otherMails, guest: false });
+	world.graph.directory.add({ id: objectId(RIZ_GUEST.id), mail: '', upn: RIZ_GUEST.userPrincipalName, otherMails: RIZ_GUEST.otherMails, guest: true });
+	assert.deepEqual(await graphAs(e, assertion, config).findUser(email('riz74@hotmail.com')), found(RIZ_GUEST.id));
+});
+
+test('findUser answers ambiguous with both UPNs when two accounts match, and no criterion outranks another', async () => {
+	const world = entra();
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	world.graph.directory.add({ mail: 'sam@home.example', upn: 'sam@tenant.example', guest: false });
+	world.graph.directory.add({ mail: '', upn: 'sam_home.example#EXT#@tenant.onmicrosoft.com', guest: true });
+	assert.deepEqual(await graphAs(e, assertion, config).findUser(email('sam@home.example')), {
+		kind: 'ambiguous',
+		userPrincipalNames: ['sam@tenant.example', 'sam_home.example#EXT#@tenant.onmicrosoft.com'],
+	});
 });
 
 test('findUser escapes an apostrophe in the address so it cannot widen the filter', async () => {
@@ -125,8 +172,8 @@ test('findUser escapes an apostrophe in the address so it cannot widen the filte
 	const person = world.graph.directory.add({ mail: "o'brien@example.com", guest: true });
 	world.graph.directory.add({ mail: 'other@example.com', guest: true });
 	const graph = graphAs(e, assertion, config);
-	assert.equal(await graph.findUser(email("o'brien@example.com")), person.id);
-	assert.equal(await graph.findUser(email("x'-or-'a@example.com")), null);
+	assert.deepEqual(await graph.findUser(email("o'brien@example.com")), found(person.id));
+	assert.deepEqual(await graph.findUser(email("x'-or-'a@example.com")), { kind: 'none' });
 });
 
 test('inviteGuest returns the new guest, who findUser then finds', async () => {
@@ -135,7 +182,7 @@ test('inviteGuest returns the new guest, who findUser then finds', async () => {
 	const { config, assertion } = world.config();
 	const graph = graphAs(e, assertion, config);
 	const invited = await graph.inviteGuest(email('new@example.com'), 'https://games.example/');
-	assert.equal(await graph.findUser(email('new@example.com')), invited);
+	assert.deepEqual(await graph.findUser(email('new@example.com')), found(invited));
 });
 
 test('assignments lists only users and follows every page', async () => {
@@ -267,4 +314,18 @@ test('syncEntra over graphAs invites, assigns, and a second run makes no write',
 	const before = writes();
 	await syncEntra(graph, w.admin, null, 'https://games.example/');
 	assert.equal(writes(), before);
+});
+
+test('syncEntra over graphAs sends no invitation and assigns nothing when two accounts match the email', async () => {
+	const world = entra();
+	const w = portalWorld();
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	const sam = email('sam@home.example');
+	await w.admin.putMember({ userId: await w.admin.userIdFor(sam), state: 'active', games: { kind: 'all' } });
+	world.graph.directory.add({ mail: 'sam@home.example', upn: 'sam@tenant.example', guest: false });
+	world.graph.directory.add({ mail: '', upn: 'sam_home.example#EXT#@tenant.onmicrosoft.com', guest: true });
+	const drift = await syncEntra(graphAs(e, assertion, config), w.admin, null, 'https://games.example/');
+	assert.deepEqual(drift.map((d) => d.kind), ['ambiguous-account']);
+	assert.deepEqual(world.graph.calls.filter((call) => call.method !== 'GET'), []);
 });

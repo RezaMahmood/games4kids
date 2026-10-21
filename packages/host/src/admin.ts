@@ -50,6 +50,8 @@ export type AdminStore = {
 	putMember(member: Member): Promise<void>;
 	/** identities insert-if-absent, `entra|<objectId>` -> userId. */
 	recordIdentity(objectId: EntraObjectId, userId: PortalUserId): Promise<void>;
+	/** identities delete of `entra|<objectId>`, so that account signs in as no one. A missing row counts as done. */
+	forgetIdentity(objectId: EntraObjectId): Promise<void>;
 	rows(): Promise<readonly MemberView[]>;
 };
 

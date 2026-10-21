@@ -12,7 +12,7 @@
  *                   ELEVATION_MAX_AGE_SECONDS after that sign-in, and only then runs OBO.
  * Its credential is id-g4k-admin, a user-assigned identity, as a federated identity credential: no secret. It holds
  * no Graph application permission and no directory role. Delegated Graph scopes, consented per user (consentType
- * Principal) for the admin account only: User.Invite.All, User.Read.All, AppRoleAssignment.ReadWrite.All,
+ * Principal) for the admin account only: User.Invite.All, User.ReadBasic.All, AppRoleAssignment.ReadWrite.All,
  * Application.Read.All. The admin account's own standing (Guest Inviter, and ownership of the games4kids service
  * principal) bounds what those scopes reach.
  *
@@ -98,10 +98,20 @@ export class EntraRefused extends Error {
 	}
 }
 
+/** What findUser learns about an address. Two matches are never guessed between. */
+export type UserLookup =
+	| { readonly kind: 'found'; readonly objectId: EntraObjectId }
+	| { readonly kind: 'none' }
+	| { readonly kind: 'ambiguous'; readonly userPrincipalNames: readonly string[] };
+
 /** Graph as the elevated admin, for one request. Every method throws EntraRefused when Entra refuses. */
 export type OboGraph = {
-	/** GET /users?$filter=mail eq '<email>' or otherMails/any(m:m eq '<email>') or userPrincipalName eq '<email>', under User.Read.All. */
-	findUser(email: Email): Promise<EntraObjectId | null>;
+	/**
+	 * GET /users?$filter=mail eq '<email>' or userPrincipalName eq '<email>' or startswith(userPrincipalName,'<local>_<domain>#EXT#@'),
+	 * under User.ReadBasic.All. A user matches on an exact mail, an exact UPN, or a guest UPN that decodes to the email.
+	 * One match is found, none is none, more is ambiguous. otherMails is never consulted.
+	 */
+	findUser(email: Email): Promise<UserLookup>;
 	/** POST /invitations with sendInvitationMessage and a redirect to the games site. Only for someone findUser did not find. */
 	inviteGuest(email: Email, redirectUrl: string): Promise<EntraObjectId>;
 	/** GET /servicePrincipals/{games4kids}/appRoleAssignedTo, users only. */
@@ -144,6 +154,8 @@ export type AdminStore = {
 	putMember(member: Member): Promise<void>;
 	/** identities insert-if-absent, `entra|<objectId>` -> userId. */
 	recordIdentity(objectId: EntraObjectId, userId: PortalUserId): Promise<void>;
+	/** identities delete of `entra|<objectId>`, so that account signs in as no one. */
+	forgetIdentity(objectId: EntraObjectId): Promise<void>;
 	rows(): Promise<readonly MemberView[]>;
 };
 
@@ -166,10 +178,16 @@ export function setAccess(userId: PortalUserId, change: Pick<Member, 'state' | '
 
 /** One way Entra and the rows disagree. */
 export type Drift =
-	/** Active member with no identity row. Fix: findUser, else inviteGuest; recordIdentity; assign. */
-	| { readonly kind: 'needs-account'; readonly userId: PortalUserId; readonly email: Email }
+	/** Active member with no identity row. Fix: the account findUser found, else inviteGuest; recordIdentity; assign. */
+	| { readonly kind: 'needs-account'; readonly userId: PortalUserId; readonly email: Email; readonly account: EntraObjectId | null }
 	/** Active member Entra does not admit. Fix: assign. */
 	| { readonly kind: 'not-assigned'; readonly userId: PortalUserId; readonly objectId: EntraObjectId }
+	/** Active member linked to another account than findUser finds. Fix: unassign the old one, forgetIdentity, recordIdentity, assign. */
+	| { readonly kind: 'wrong-account'; readonly userId: PortalUserId; readonly email: Email; readonly linked: EntraObjectId; readonly account: EntraObjectId; readonly assignment: Assignment | null }
+	/** More than one account matches an active member's email. No fix. */
+	| { readonly kind: 'ambiguous-account'; readonly userId: PortalUserId; readonly email: Email; readonly userPrincipalNames: readonly string[] }
+	/** The account an active member's email finds is another member's sign-in. No fix. */
+	| { readonly kind: 'account-taken'; readonly userId: PortalUserId; readonly email: Email; readonly account: EntraObjectId; readonly owner: PortalUserId }
 	/** Revoked member still assigned, such as a revoke not yet synced. Fix: unassign. */
 	| { readonly kind: 'assigned-revoked'; readonly userId: PortalUserId; readonly assignment: Assignment }
 	/** An assignment with no identity row, such as one bootstrap made. Shown as unmanaged; no fix ever removes it. */
@@ -177,8 +195,8 @@ export type Drift =
 	/** games4kids-admin's own principal holds an app role. An alarm: shown in red, never changed from here. */
 	| { readonly kind: 'admin-app-grant'; readonly grant: AppRoleGrant };
 
-/** Pure, table-tested. */
-export function computeDrift(assignments: readonly Assignment[], adminGrants: readonly AppRoleGrant[], rows: readonly MemberView[]): readonly Drift[] {
+/** Pure, table-tested. `lookups` is findUser's answer for each active member. */
+export function computeDrift(assignments: readonly Assignment[], adminGrants: readonly AppRoleGrant[], rows: readonly MemberView[], lookups: ReadonlyMap<PortalUserId, UserLookup>): readonly Drift[] {
 	throw new Error('not implemented');
 }
 
@@ -189,7 +207,7 @@ export function checkEntra(graph: OboGraph, store: AdminStore): Promise<readonly
 
 /**
  * POST /api/admin/portal/entra/sync (elevated), for every member or one. Computes drift, applies the fix for each
- * needs-account, not-assigned and assigned-revoked entry, and returns a fresh computeDrift. Invite is saveMember
+ * needs-account, not-assigned, wrong-account and assigned-revoked entry, and returns a fresh computeDrift. Invite is saveMember
  * followed by a sync for that member; revoke is setAccess followed by a sync. A second run finds nothing to do.
  */
 export function syncEntra(graph: OboGraph, store: AdminStore, only: PortalUserId | null, redirectUrl: string): Promise<readonly Drift[]> {

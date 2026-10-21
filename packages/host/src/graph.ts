@@ -1,6 +1,6 @@
 import { HttpError, parseEntraObjectId, type Email, type EntraObjectId } from '@g4k/sdk';
 import type { Elevation } from './admin.ts';
-import { EntraRefused, parseAssignmentId, type AppRoleGrant, type Assignment, type EntraCall, type OboGraph } from './entra.ts';
+import { EntraRefused, guestUpnPrefix, parseAssignmentId, resolveUser, type AppRoleGrant, type Assignment, type EntraCall, type EntraUser, type OboGraph } from './entra.ts';
 import type { Telemetry } from './telemetry.ts';
 
 /** id-g4k-admin's token for api://AzureADTokenExchange from the managed identity endpoint, used as the OBO client_assertion. */
@@ -106,10 +106,16 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 	return {
 		async findUser(email: Email) {
 			const quoted = odataString(email);
-			const filter = `mail eq ${quoted} or otherMails/any(m:m eq ${quoted}) or userPrincipalName eq ${quoted}`;
-			const { status, data } = await send('find-user', 'GET', `/v1.0/users?$filter=${encodeURIComponent(filter)}&$select=id&$count=true`, undefined, { consistencylevel: 'eventual' });
+			const filter = `mail eq ${quoted} or userPrincipalName eq ${quoted} or startswith(userPrincipalName,${odataString(guestUpnPrefix(email))})`;
+			const { status, data } = await send('find-user', 'GET', `/v1.0/users?$filter=${encodeURIComponent(filter)}&$select=id,mail,userPrincipalName&$count=true`, undefined, { consistencylevel: 'eventual' });
 			if (status !== 200) throw unexpected('find-user', status);
-			return asList(data['value']).map((user) => parseEntraObjectId(asRecord(user)['id'])).find((id) => id !== null) ?? null;
+			const users = asList(data['value']).flatMap((raw): EntraUser[] => {
+				const user = asRecord(raw);
+				const id = parseEntraObjectId(user['id']);
+				const mail = typeof user['mail'] === 'string' ? user['mail'] : null;
+				return id ? [{ id, mail, userPrincipalName: String(user['userPrincipalName'] ?? '') }] : [];
+			});
+			return resolveUser(email, users);
 		},
 		async inviteGuest(email, redirectUrl) {
 			const { status, data } = await send('invite', 'POST', '/v1.0/invitations', { invitedUserEmailAddress: email, inviteRedirectUrl: redirectUrl, sendInvitationMessage: true });
