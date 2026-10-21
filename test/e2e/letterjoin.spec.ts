@@ -121,6 +121,7 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 
 	await test.step('the child traces it and the result is saved', async () => {
 		await kid.goto(`${GAMES}/g/letterjoin/?debug=1`);
+		await expect(kid.getByRole('heading', { level: 1 })).toHaveText('Letter Tracing');
 		await kid.locator('.activity-card', { hasText: RENAMED }).click();
 		await kid.waitForFunction(() => Boolean((window as unknown as { __tracing?: { layout(): unknown } }).__tracing?.layout()) && !document.getElementById('trace-screen')!.hidden);
 		await draw(kid, await outlineStrokes(kid));
