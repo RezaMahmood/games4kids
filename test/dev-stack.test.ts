@@ -144,7 +144,7 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 		for (const path of ['/shell/v1/index.js', '/shared/api-client.js', '/shared/vendor/msal-browser.min.js', '/shared/tokens.css', '/home.js', '/welcome/', '/g/fixture/', '/g/puzzle/icon.svg']) {
 			assert.equal((await fetch(`${stack.gamesOrigin}${path}`)).status, 200, path);
 		}
-		for (const path of ['/shell/v1/index.js', '/members.js', '/g/fixture/']) assert.equal((await fetch(`${stack.adminOrigin}${path}`)).status, 200, path);
+		for (const path of ['/shell/v1/index.js', '/members.js', '/games/', '/games.js', '/g/fixture/']) assert.equal((await fetch(`${stack.adminOrigin}${path}`)).status, 200, path);
 		assert.equal((await fetch(`${stack.gamesOrigin}/members.js`)).status, 404, 'the games site serves none of the admin pages');
 		for (const path of ['/../../package.json', '/shared/..%2f..%2f..%2fpackage.json', '/g/fixture/../../../package.json']) assert.equal(await rawStatus(stack.gamesOrigin, path), 404, path);
 	});
