@@ -25,8 +25,9 @@ export type EntraRefusal =
 export class EntraRefused extends Error {
 	readonly refusal: EntraRefusal;
 
-	constructor(refusal: EntraRefusal) {
-		super(refusal.kind);
+	/** `message` is the detail App Insights records, such as Graph's error code. Never a token. */
+	constructor(refusal: EntraRefusal, message: string = refusal.kind) {
+		super(message);
 		this.refusal = refusal;
 	}
 }
