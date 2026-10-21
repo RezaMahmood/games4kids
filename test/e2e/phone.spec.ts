@@ -85,6 +85,21 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		await expectNoSideways(player);
 	});
 
+	await test.step('on a game page, the child taps the big back button and lands on the games list', async () => {
+		await player.getByRole('list', { name: 'My games' }).getByRole('link', { name: /Draw Pad/ }).click();
+		await pageReady(player);
+		const bar = player.locator('portal-bar .g4k-bar');
+		const back = bar.getByRole('link', { name: 'Back to all games' });
+		await expect(back).toHaveText('All games');
+		await expect(bar).toContainText('Draw Pad');
+		await expectTouchSized(back);
+		await expectNoSideways(player);
+		await back.tap();
+		await expect(player).toHaveURL(`${GAMES}/`);
+		await expect(player.getByRole('list', { name: 'My games' }).getByRole('link').first()).toBeVisible();
+		await expect(player.locator('portal-bar .g4k-bar').getByRole('link', { name: 'Back to all games' })).toHaveCount(0);
+	});
+
 	const strangerContext = await browser.newContext(PHONE);
 	const stranger = await strangerContext.newPage();
 
