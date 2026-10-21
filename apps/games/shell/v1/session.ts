@@ -14,6 +14,8 @@ export type GameSession = {
 	readonly me: { readonly userId: PortalUserId; readonly profile: Profile };
 	readonly api: ApiClient;
 	readonly storage: GameStorage;
+	/** Shows a name the child just changed in the portal bar, with no reload. */
+	renamed(displayName: string): void;
 	signOut(): Promise<void>;
 	/** Signs out and asks Entra for an account picker. For the family iPad passed between children. */
 	switchAccount(): Promise<void>;
@@ -86,11 +88,12 @@ async function start(game: GameId | 'portal' | null): Promise<Context> {
 
 function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUserId; readonly profile: Profile }, game: GameId | 'portal', place: BarState['place']): GameSession {
 	const { signedIn, telemetry } = ctx;
-	mountPortalBar({ place, displayName: who.profile.displayName, switchPlayer: () => void signedIn.switchAccount(), signOut: () => void signedIn.signOut() });
+	const showBar = (displayName: string) => mountPortalBar({ place, displayName, switchPlayer: () => void signedIn.switchAccount(), signOut: () => void signedIn.signOut() });
+	showBar(who.profile.displayName);
 	reportTo(telemetry, { site: 'games', game, user: who.userId });
 	telemetry.track({ name: 'page_view', site: 'games', game, user: who.userId });
 	if (game !== 'portal') startGameSession(telemetry, game, who.userId, crypto.randomUUID());
-	return { me: who, api, storage: createGameStorage(localStorage, game, who.userId), signOut: signedIn.signOut, switchAccount: signedIn.switchAccount };
+	return { me: who, api, storage: createGameStorage(localStorage, game, who.userId), renamed: showBar, signOut: signedIn.signOut, switchAccount: signedIn.switchAccount };
 }
 
 /**
@@ -103,9 +106,9 @@ function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUse
  *   not_entitled   "This game is not switched on for you"
  *   game_paused    "This game is having a rest"
  */
-export function enter(options: { readonly game: null }): Promise<PortalSession>;
+export function enter(options: { readonly game: null; readonly place?: BarState['place'] }): Promise<PortalSession>;
 export function enter(options: { readonly game: string }): Promise<GameSession>;
-export async function enter(options: { readonly game: string | null }): Promise<GameSession | PortalSession> {
+export async function enter(options: { readonly game: string | null; readonly place?: BarState['place'] }): Promise<GameSession | PortalSession> {
 	const ctx = await start(options.game === null ? 'portal' : asGameId(options.game));
 	const { config, signedIn } = ctx;
 
@@ -123,7 +126,7 @@ export async function enter(options: { readonly game: string | null }): Promise<
 			case 'active': {
 				const catalog = await loadCatalog();
 				const games = catalog.flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
-				return { ...session(ctx, api, me, 'portal', { kind: 'home' }), games };
+				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games };
 			}
 		}
 	}

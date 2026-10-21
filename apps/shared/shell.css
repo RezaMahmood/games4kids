@@ -137,6 +137,15 @@ a {
 	color: var(--color-ink-soft);
 }
 
+.g4k-bar .who .name {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--touch-min);
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+}
+
 .g4k-bar.admin {
 	background: var(--color-admin-bar);
 	color: #fff;
