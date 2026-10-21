@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const KID_EMAIL = `kid-${RUN}@example.com`;
@@ -17,6 +17,7 @@ test('a child draws and saves until time_up on the games site, after an admin ma
 	await test.step('the admin gives a child Draw Pad and links their account', async () => {
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		await adminReady(admin);
 		await expect(admin.getByRole('heading', { name: 'Members' })).toBeVisible();
 		const add = admin.getByRole('region', { name: 'Add a member' });
 		await add.getByLabel('Email').fill(KID_EMAIL);
@@ -38,6 +39,7 @@ test('a child draws and saves until time_up on the games site, after an admin ma
 	let title = '';
 	await test.step('the admin describes a picture, the AI job finishes, and the admin adds one of its pictures to the library', async () => {
 		await admin.goto(`${ADMIN}/g/drawpad/`);
+		await adminReady(admin);
 		await admin.getByLabel('What should the picture show?').fill('A fox asleep under an autumn tree');
 		await admin.getByRole('button', { name: 'Make 3 pictures' }).click();
 		const processing = admin.getByRole('region', { name: 'Processing' });
@@ -100,6 +102,7 @@ test('a child draws and saves until time_up on the games site, after an admin ma
 
 	await test.step('the admin sees the child\'s drawing in the gallery', async () => {
 		await admin.goto(`${ADMIN}/g/drawpad/`);
+		await adminReady(admin);
 		await admin.getByRole('button', { name: 'Gallery' }).click();
 		await expect(admin.getByRole('button', { name: `Enlarge ${KID_NAME}: ${title}` })).toBeVisible();
 		const thumbnail = admin.locator('.gallery-thumb img').first();

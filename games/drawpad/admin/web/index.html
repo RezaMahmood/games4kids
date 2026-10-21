@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Draw Pad admin</title>
   </head>
-  <body>
-    <div id="app"></div>
+  <body aria-busy="true">
+    <div id="app" inert></div>
+    <!-- After the bundle's own CSS in the cascade, as enterAdmin used to append them, and early enough to show the overlay before any script runs. -->
+    <link rel="stylesheet" href="/shared/tokens.css">
+    <link rel="stylesheet" href="/shared/shell.css">
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

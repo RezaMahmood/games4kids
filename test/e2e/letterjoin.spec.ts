@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const KID_EMAIL = `kid-${RUN}@example.com`;
@@ -73,6 +73,7 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 	await test.step('the admin gives a child Letter Tracing and links their account', async () => {
 		await admin.goto(`${ADMIN}/`);
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
+		await adminReady(admin);
 		await expect(admin.getByRole('heading', { name: 'Members' })).toBeVisible();
 		const add = admin.getByRole('region', { name: 'Add a member' });
 		await add.getByLabel('Email').fill(KID_EMAIL);
@@ -93,6 +94,7 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 
 	await test.step('the admin sets a daily practice goal and writes a sentence to trace, then copy', async () => {
 		await admin.goto(`${ADMIN}/g/letterjoin/#settings`);
+		await adminReady(admin);
 		await expect(admin.locator('#s-summary')).not.toBeEmpty();
 		await admin.locator('#s-minutes').fill('15');
 		await admin.locator('#s-save').click();
@@ -163,6 +165,7 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 
 	await test.step('the admin sees the child\'s practice and progress', async () => {
 		await admin.goto(`${ADMIN}/g/letterjoin/#practice`);
+		await adminReady(admin);
 		const row = admin.locator('#practice-body tr', { has: admin.getByRole('rowheader', { name: KID_NAME }) });
 		await expect(row).toBeVisible();
 		await expect(row.locator('td').nth(6)).not.toHaveText('–');

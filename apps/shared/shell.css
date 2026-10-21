@@ -139,9 +139,44 @@ a {
 	background: var(--color-ink-soft);
 }
 
+body[aria-busy="true"]::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+	cursor: progress;
+}
+
+body[aria-busy="true"]::after {
+	content: "";
+	content: "" / "Loading";
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	z-index: 101;
+	width: 3.5rem;
+	height: 3.5rem;
+	margin: -1.75rem 0 0 -1.75rem;
+	border: 0.4rem solid var(--color-line);
+	border-top-color: var(--color-primary);
+	border-radius: 50%;
+	animation: g4k-spin 0.9s linear infinite;
+}
+
+@keyframes g4k-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	* {
 		animation: none !important;
 		transition: none !important;
+	}
+
+	body[aria-busy="true"]::after {
+		animation: none;
 	}
 }

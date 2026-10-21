@@ -1,4 +1,4 @@
-import { enterAdmin } from '/shell/v1/index.js';
+import { enterAdmin, ready } from '/shell/v1/index.js';
 import { render } from 'preact';
 import '@fontsource/atkinson-hyperlegible/latin-400.css';
 import '@fontsource/atkinson-hyperlegible/latin-700.css';
@@ -15,3 +15,4 @@ const session = await enterAdmin({ game: 'drawpad' });
 configureApi(session.api);
 configureBlobs(request);
 render(<App />, document.getElementById('app')!);
+ready();

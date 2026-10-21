@@ -55,7 +55,7 @@ import { enterAdmin } from '/shell/v1/index.js';    // an admin page, admin orig
 const { api } = await enterAdmin({ game: 'letterjoin' });
 ```
 
-The play part may import the data part. The admin part may import the data part and the play part's pure modules, such as letterjoin's `render.js` for the editor preview. Nothing imports the admin part. TS project references and ESLint enforce this. A game writes no auth or telemetry code ([drawpad](sketch/examples/drawpad/), [letterjoin](sketch/examples/letterjoin/)).
+The play part may import the data part. The admin part may import the data part and the play part's pure modules, such as letterjoin's `render.js` for the editor preview. Nothing imports the admin part. TS project references and ESLint enforce this. An admin page greys out until its first load finishes: its HTML puts `aria-busy="true"` on `<body>` and `inert` on the page's content element, links `/shared/tokens.css` and `/shared/shell.css`, and calls `ready()` (also exported by `/shell/v1/index.js`) once the first data has rendered, whether that load succeeded or failed. A game writes no auth or telemetry code ([drawpad](sketch/examples/drawpad/), [letterjoin](sketch/examples/letterjoin/)).
 
 ## Shape
 
