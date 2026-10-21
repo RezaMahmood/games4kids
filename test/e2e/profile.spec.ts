@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
 import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, pageReady, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
+const RENAMED_TODAY = 'You already changed your name today. You can change it again tomorrow.';
 const SIZES = [
 	{ name: 'on a desktop', options: { viewport: { width: 1280, height: 800 } } },
 	{ name: 'on a phone', options: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
@@ -22,7 +23,7 @@ async function namedChild(browser: Browser, admin: Page, email: string, name: st
 }
 
 for (const { name, options } of SIZES) {
-	test(`${name}, a child renames themselves from the portal bar, and a taken or unkind name is refused`, async ({ browser }) => {
+	test(`${name}, a child renames themselves from the portal bar once a day, and a taken or unkind name is refused`, async ({ browser }) => {
 		test.setTimeout(180_000);
 		const tag = `${RUN}${name.length}`;
 		const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -41,6 +42,7 @@ for (const { name, options } of SIZES) {
 		await pageReady(kid);
 		await expect(kid.getByLabel('Your name in games')).toHaveValue(`Ada${tag}`);
 		await expect(kid.getByRole('link', { name: 'All games' })).toBeVisible();
+		await expect(kid.getByText(RENAMED_TODAY)).toHaveCount(0);
 
 		await test.step('a name another child has is refused, ignoring case', async () => {
 			await kid.getByLabel('Your name in games').fill(`bea${tag}`.toUpperCase());
@@ -62,13 +64,21 @@ for (const { name, options } of SIZES) {
 			await expect(kid.getByRole('status')).toHaveText(`Saved. Your name in games is Cleo${tag}.`);
 			await expect(kid.getByRole('alert')).toHaveText('');
 			await expect(kid.getByRole('banner')).toContainText(`Playing as Cleo${tag}`);
-			await expect(kid.getByRole('button', { name: 'Save' })).toBeEnabled();
+		});
+
+		await test.step('the name and Save lock for the rest of the day, with one note that says why', async () => {
+			await expect(kid.getByLabel('Your name in games')).toBeDisabled();
+			await expect(kid.getByRole('button', { name: 'Save' })).toBeDisabled();
+			await expect(kid.getByText(RENAMED_TODAY)).toHaveCount(1);
+			await expect(kid.getByText('You can change your name again tomorrow.', { exact: true })).toHaveCount(0);
 		});
 
 		await test.step('the new name sticks on the next visit, and the old one is free', async () => {
 			await kid.reload();
 			await pageReady(kid);
 			await expect(kid.getByLabel('Your name in games')).toHaveValue(`Cleo${tag}`);
+			await expect(kid.getByLabel('Your name in games')).toBeDisabled();
+			await expect(kid.getByText(RENAMED_TODAY)).toBeVisible();
 			await kid.getByRole('link', { name: 'All games' }).click();
 			await expect(kid.getByRole('banner')).toContainText(`Playing as Cleo${tag}`);
 			await friend.goto(`${GAMES}/profile/`);

@@ -42,5 +42,8 @@ export function parseEntraObjectId(raw: unknown): EntraObjectId | null {
 export type Me =
 	| { readonly state: 'not-invited'; readonly email: Email | null }
 	| { readonly state: 'no-profile' }
-	/** `games` lists only the granted games. A paused one stays listed, so home can grey it out. */
-	| { readonly state: 'active'; readonly userId: PortalUserId; readonly profile: Profile; readonly games: readonly { readonly id: GameId; readonly paused: boolean }[] };
+	/**
+	 * `games` lists only the granted games. A paused one stays listed, so home can grey it out. `canRenameToday` is
+	 * false once the child has renamed themselves on this calendar day, in their own time zone.
+	 */
+	| { readonly state: 'active'; readonly userId: PortalUserId; readonly profile: Profile; readonly canRenameToday: boolean; readonly games: readonly { readonly id: GameId; readonly paused: boolean }[] };

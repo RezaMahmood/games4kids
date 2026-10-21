@@ -21,8 +21,8 @@ export type GameSession = {
 	switchAccount(): Promise<void>;
 };
 
-/** What a portal page (home) gets: the same session, bound to the portal app, plus a card for each game switched on for this child. A paused game keeps its card. */
-export type PortalSession = GameSession & { readonly games: readonly (CatalogEntry & { readonly paused: boolean })[] };
+/** What a portal page (home) gets: the same session, bound to the portal app, plus a card for each game switched on for this child. A paused game keeps its card. `canRenameToday` is the server's word on the once-a-day rename. */
+export type PortalSession = GameSession & { readonly games: readonly (CatalogEntry & { readonly paused: boolean })[]; readonly canRenameToday: boolean };
 
 /** /welcome/ runs for a member who has no profile yet, which `enter` would send back here. */
 export type WelcomeSession = { readonly api: ApiClient; signOut(): Promise<void> };
@@ -126,7 +126,7 @@ export async function enter(options: { readonly game: string | null; readonly pl
 			case 'active': {
 				const catalog = await loadCatalog();
 				const games = catalog.flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
-				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games };
+				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games, canRenameToday: me.canRenameToday };
 			}
 		}
 	}

@@ -48,6 +48,7 @@ test('a member saved with one game and synced signs in, chooses a name, plays th
 		state: 'active',
 		userId,
 		profile: { displayName: 'Ada', timeZone: 'Europe/London' },
+		canRenameToday: true,
 		games: [{ id: 'fixture', paused: false }],
 	});
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid })).status, 200);
@@ -192,6 +193,7 @@ test('an all-games member plays every game, including one registered after the r
 		state: 'active',
 		userId: everyGame.userId,
 		profile: { displayName: 'Owner', timeZone: 'UTC' },
+		canRenameToday: true,
 		games: [
 			{ id: 'fixture', paused: false },
 			{ id: 'latecomer', paused: false },
@@ -245,6 +247,34 @@ test('the portal app refuses an unkind display name with name_not_allowed and wr
 	assert.deepEqual((await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data, { state: 'no-profile' });
 	const kind = await call(portal, 'PUT', '/api/portal/profile', { token: kid.token, json: { displayName: 'Ada', timeZone: 'UTC' } });
 	assert.equal(kind.status, 204);
+});
+
+test('the portal app lets a child rename once a day, by their own calendar day, and a refused rename writes nothing', async () => {
+	const w = world();
+	const clock = { at: NOW };
+	const portal = createPortalApp({ issuers: [idp.games], telemetry: w.telemetry, now: () => clock.at, portal: w.portal, games: [id] });
+	const kid = await seedPlayer(w, idp, { games: [id], profile: null });
+	const put = (displayName: string, timeZone = 'Europe/London') => call(portal, 'PUT', '/api/portal/profile', { token: kid.token, json: { displayName, timeZone } });
+	const me = async () => (await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data as { profile: { displayName: string; timeZone: string }; canRenameToday: boolean };
+
+	assert.equal((await put('Ada')).status, 204, 'the first name is not a rename');
+	assert.equal((await me()).canRenameToday, true);
+	assert.equal((await put('Bea')).status, 204, 'so the first rename is still open');
+	assert.equal((await me()).canRenameToday, false);
+
+	const refused = await put('Cleo');
+	assert.equal(refused.status, 429);
+	assert.equal(codeOf(refused), 'rename_tomorrow');
+	assert.equal((refused.data as { message: string }).message, 'You can change your name again tomorrow.');
+	assert.deepEqual((await me()).profile, { displayName: 'Bea', timeZone: 'Europe/London' }, 'nothing was written');
+
+	assert.equal(codeOf(await put('Bea', 'Pacific/Kiritimati')), 'rename_tomorrow', 'a zone already past midnight cannot start a new day');
+	assert.deepEqual((await me()).profile, { displayName: 'Bea', timeZone: 'Europe/London' }, 'nothing was written');
+	clock.at = new Date(NOW.getTime() + 24 * 3_600_000);
+	assert.equal((await put('Bea', 'Pacific/Auckland')).status, 204, 'a later day may change the time zone, and that is no rename');
+	assert.equal((await me()).canRenameToday, true);
+	assert.equal((await put('Dee', 'Pacific/Auckland')).status, 204, 'a day later');
+	assert.equal((await me()).canRenameToday, false);
 });
 
 test('the fixture game: the admin writes a level, the player reads it and scores, and the admin sees the score by name', async () => {

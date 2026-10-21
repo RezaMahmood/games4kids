@@ -2,6 +2,7 @@ import { HttpError, type CreatePlayApi, type GameId, type GameManifest, type Met
 import { failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type HostReply, type HostRequest } from './http.ts';
 import { decide, meFor, verifyGamesToken, type Authentication, type PortalAdmission, type PortalReader, type PortalStore } from './identity.ts';
 import { isKindName } from './names.ts';
+import { renamedToday } from './rename.ts';
 import { playPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
 import type { Accounts } from './storage.ts';
 import type { Telemetry } from './telemetry.ts';
@@ -98,7 +99,7 @@ export type PortalAppDeps = AppEnv & {
 	readonly games: readonly GameId[];
 };
 
-/** func-g4k-portal, serving /api/portal/*: GET me for home and /welcome/, and PUT profile. It runs no game. */
+/** func-g4k-portal, serving /api/portal/*: GET me for home, /welcome/ and /profile/, and PUT profile. It runs no game. */
 export function createPortalApp(deps: PortalAppDeps): App {
 	const prefix = '/api/portal/' as const;
 	const routes = [
@@ -110,11 +111,12 @@ export function createPortalApp(deps: PortalAppDeps): App {
 
 	async function admit(
 		request: HostRequest,
-	): Promise<{ readonly auth: Extract<Authentication, { ok: true }>; readonly admission: PortalAdmission; readonly paused: ReadonlySet<GameId> } | HostReply> {
+	): Promise<{ readonly auth: Extract<Authentication, { ok: true }>; readonly admission: PortalAdmission; readonly paused: ReadonlySet<GameId>; readonly canRenameToday: boolean } | HostReply> {
 		const auth = await verifyGamesToken(deps.issuers, request.headers.get('authorization'));
 		if (!auth.ok) return refuse(auth.code);
 		const [found, paused] = await Promise.all([deps.portal.find(auth.identity), deps.portal.paused()]);
-		return { auth, admission: decide(found, null), paused };
+		const renamed = found.kind === 'known' && found.profile !== undefined && renamedToday(found.renamedAt, found.profile.timeZone, deps.now());
+		return { auth, admission: decide(found, null), paused, canRenameToday: !renamed };
 	}
 
 	async function handle(request: HostRequest): Promise<HostReply> {
@@ -126,15 +128,17 @@ export function createPortalApp(deps: PortalAppDeps): App {
 			if (matched.target === 'health') return json(200, { ok: true });
 			const admitted = await admit(request);
 			if ('status' in admitted) return admitted;
-			const { auth, admission, paused } = admitted;
+			const { auth, admission, paused, canRenameToday } = admitted;
 			if (admission.kind === 'player') deps.telemetry.setUser(admission.caller.userId);
-			if (matched.target === 'me') return json(200, meFor(auth.identity, admission, deps.games, paused));
+			if (matched.target === 'me') return json(200, meFor(auth.identity, admission, deps.games, paused, canRenameToday));
 			if (admission.kind === 'not-invited') return refuse('not_invited');
 			const userId = admission.kind === 'player' ? admission.caller.userId : admission.userId;
 			const profile = parseProfile(await readJson(request));
 			if ('problems' in profile) throw new HttpError(400, 'invalid', 'That name or time zone is not valid.', profile.problems);
 			if (!isKindName(profile.displayName)) throw new HttpError(400, 'name_not_allowed', 'That name is not allowed. Choose another.');
-			if ((await deps.portal.setProfile(userId, profile)) === 'name_taken') throw new HttpError(409, 'name_taken', 'Someone already has that name.');
+			const saved = await deps.portal.setProfile(userId, profile, deps.now());
+			if (saved === 'rename_tomorrow') throw new HttpError(429, 'rename_tomorrow', 'You can change your name again tomorrow.');
+			if (saved === 'name_taken') throw new HttpError(409, 'name_taken', 'Someone already has that name.');
 			return { status: 204, headers: {}, body: null };
 		} catch (error) {
 			return failure(error, deps.telemetry);
