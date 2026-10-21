@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, addAndSync, adminReady, answerPopups, GAMES, pageReady, signInAtFakeEntra } from './support.ts';
 
 const MEMBERS = '**/api/admin/portal/members';
 const SIZES = [
@@ -133,5 +133,77 @@ for (const { name, options } of SIZES) {
 		await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
 		await expect(page.getByRole('alert').filter({ hasText: /recent uploads/i })).toBeVisible();
 		await context.close();
+	});
+}
+
+const RUN = Date.now().toString(36);
+
+/** Holds every request matching `url` until the returned function runs, then answers it with `answer`, or lets it through. */
+async function hold(page: Page, url: string, answer?: Parameters<Page['route']>[1]): Promise<() => void> {
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => (release = resolve));
+	await page.route(url, async (route) => {
+		await held;
+		return answer ? answer(route, route.request()) : route.continue();
+	});
+	return release;
+}
+
+const GAMES_PAGES = [
+	{ game: 'Letter Tracing', path: '/g/letterjoin/', api: '**/api/g/letterjoin/session', loaded: (page: Page) => page.getByRole('heading', { name: 'Choose an activity' }) },
+	{ game: 'Draw Pad', path: '/g/drawpad/', api: '**/api/g/drawpad/session', loaded: (page: Page) => page.getByRole('heading', { name: /^What do you want to do/ }) },
+] as const;
+
+for (const { game, path, api, loaded } of GAMES_PAGES) {
+	test(`while the Function app wakes, home and ${game} show the overlay instead of a blank page, and lift it once they load or fail`, async ({ browser }) => {
+		test.setTimeout(120_000);
+		const adminContext = await browser.newContext();
+		const admin = await adminContext.newPage();
+		answerPopups(admin);
+		const kidEmail = `wake-${path.split('/')[2]}-${RUN}@example.com`;
+		await signedInAdmin(admin);
+		await addAndSync(admin, kidEmail, game);
+
+		const kidContext = await browser.newContext({ ignoreHTTPSErrors: true });
+		const kid = await kidContext.newPage();
+		await kid.goto(`${GAMES}/`);
+		await signInAtFakeEntra(kid, kidEmail);
+		await pageReady(kid);
+		await kid.getByLabel('Your name in games').fill(`W${RUN}${path.length}`);
+		await kid.getByRole('button', { name: "Let's play" }).click();
+		await expect(kid.getByRole('list', { name: 'My games' }).getByRole('link')).toHaveCount(1);
+
+		const releaseMe = await hold(kid, '**/api/portal/me');
+		try {
+			await kid.reload();
+			await expect(kid.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(kid), 'home is greyed with a spinning ring while GET me hangs').toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			releaseMe();
+		}
+		await pageReady(kid);
+		await expect(kid.getByRole('list', { name: 'My games' }).getByRole('link', { name: new RegExp(game) })).toBeVisible();
+		await kid.unroute('**/api/portal/me');
+
+		const releaseSession = await hold(kid, api);
+		try {
+			await kid.goto(`${GAMES}${path}`);
+			await expect(kid.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(kid), `${game} is greyed with a spinning ring while GET session hangs`).toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			releaseSession();
+		}
+		await pageReady(kid);
+		await expect(loaded(kid)).toBeVisible();
+		expect((await overlay(kid)).shown, 'the grey layer is gone').toBe(false);
+		await kid.unroute(api);
+
+		await kid.route(api, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The game is unavailable.' }) }));
+		await kid.goto(`${GAMES}${path}`);
+		await expect(kid.getByRole('heading', { name: 'Something went wrong' })).toBeVisible();
+		await pageReady(kid);
+
+		await kidContext.close();
+		await adminContext.close();
 	});
 }

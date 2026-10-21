@@ -1,7 +1,7 @@
-import { ApiFailure, type ApiClient } from '/shell/v1/index.js';
+import { ApiFailure, whileLoading, type ApiClient } from '/shell/v1/index.js';
 import type { DrawingMeta, Picture, PictureKind, UsageToday } from '../../../data/types';
 
-export { ApiFailure };
+export { ApiFailure, whileLoading };
 
 let client: ApiClient | null = null;
 

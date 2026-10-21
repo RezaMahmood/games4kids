@@ -16,7 +16,7 @@ import { score, toleranceFor } from './scoring.js';
 import { SECTIONS_KEY, childGroups, createSections, nextActivity, workingLevel } from './sections.js';
 import { GRID_SCALE, SIZE_STEPS, layoutSheet, stepSize } from './sheet.js';
 import { createWriteView } from './write.js';
-import { enter } from '/shell/v1/index.js';
+import { enter, ready } from '/shell/v1/index.js';
 
 const session = await enter({ game: 'letterjoin' });
 const api = createApi(session.api);
@@ -661,3 +661,4 @@ try {
   $('list-empty').hidden = false;
   $('list-empty').textContent = err.message;
 }
+ready();

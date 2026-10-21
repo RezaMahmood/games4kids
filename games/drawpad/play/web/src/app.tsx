@@ -1,6 +1,6 @@
 import { useReducer, useState } from 'preact/hooks';
 import type { Picture, PictureKind } from '../../../data/types';
-import { api, ApiFailure } from './api';
+import { api, ApiFailure, whileLoading } from './api';
 import { Dialog } from './components/Dialog';
 import { PlayerBar } from './components/PlayerBar';
 import { initialState, journeysOpen, reduce, type PlayerView } from './session/state';
@@ -23,7 +23,7 @@ export function App({ name }: { name: string }) {
     setStarting(true);
     setNotice(null);
     try {
-      dispatch({ type: 'openCanvas', picture, drawing: await api.createDrawing(picture.id, kind), returnTo });
+      dispatch({ type: 'openCanvas', picture, drawing: await whileLoading(api.createDrawing(picture.id, kind)), returnTo });
     } catch (e) {
       if (e instanceof ApiFailure && e.code === 'time_up') dispatch({ type: 'timeUp' });
       else setNotice('Couldn’t start that drawing. Try again.');

@@ -9,7 +9,7 @@ import { ACCURACY_STEP, MIN_TREND_DAYS, SPEED_STEP, TREND_DAYS, accuracyText, da
 import { drawTarget, sizeSheet } from './render.js';
 import { SECTIONS_KEY, createSections } from './sections.js';
 import { IPAD_STAGE_WIDTH, layoutSheet } from './sheet.js';
-import { enterAdmin, ready } from '/shell/v1/index.js';
+import { enterAdmin, ready, whileLoading } from '/shell/v1/index.js';
 
 const $ = (id) => document.getElementById(id);
 const field = (id) => $(`f-${id}`);
@@ -364,7 +364,7 @@ const practiceSummary = (minutes) => (minutes === 0
 
 /** The last seven days for every child, from the server. Reloaded each time the Practice tab opens. */
 async function loadPractice(api) {
-  const report = await api.practiceReport(localDay(Date.now()));
+  const report = await whileLoading(api.practiceReport(localDay(Date.now())));
   const today = report.days.at(-1);
   $('practice-goal').textContent = goalText(report.goalMinutes);
   $('practice-head').replaceChildren(h('tr', {},

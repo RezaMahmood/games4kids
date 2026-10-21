@@ -9,10 +9,35 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attributes: Re
 
 export type ScreenAction = { readonly label: string; run(): void | Promise<void> };
 
+/** A warm Function app answers inside this, so the overlay does not flash on every tap. */
+const SHOW_AFTER_MS = 300;
+
+/** Every page starts with body[aria-busy] in its HTML until ready(). */
+let starting = true;
+let waiting = 0;
+
+const settle = () => {
+	if (!starting && waiting === 0) document.body.removeAttribute('aria-busy');
+};
+
 /** Ends a page's first load: the overlay on body[aria-busy] lifts and any inert region takes input again. */
 export function ready(): void {
-	document.body.removeAttribute('aria-busy');
+	starting = false;
+	settle();
 	for (const region of document.querySelectorAll('[inert]')) region.removeAttribute('inert');
+}
+
+/** Greys the page out with the loading ring while a view waits on a reply that may come from a cold Function app. */
+export async function whileLoading<T>(work: Promise<T>): Promise<T> {
+	waiting++;
+	const show = setTimeout(() => document.body.setAttribute('aria-busy', 'true'), SHOW_AFTER_MS);
+	try {
+		return await work;
+	} finally {
+		clearTimeout(show);
+		waiting--;
+		settle();
+	}
 }
 
 /** A full-page message from the shell: not invited, not switched on, or a failure. Replaces the page and takes focus. */

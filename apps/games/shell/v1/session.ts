@@ -134,6 +134,9 @@ export async function enterWelcome(): Promise<WelcomeSession> {
 		showScreen('Ask your grown-up to invite you', 'This sign-in is not on the list yet.', [{ label: 'Sign out', run: ctx.signedIn.signOut }]);
 		return never();
 	}
-	if (me?.state === 'active') location.replace('/');
+	if (me?.state === 'active') {
+		location.replace('/');
+		return never();
+	}
 	return { api, signOut: ctx.signedIn.signOut };
 }
