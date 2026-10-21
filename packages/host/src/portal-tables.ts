@@ -6,6 +6,8 @@ import { ENTRA } from './token.ts';
 /**
  * The portal account's tables, one writer each:
  *   members     PK 'member'    RK PortalUserId               admin app
+ *               PK 'game'      RK GameId, state 'paused'     admin app; no row is available. In members because every
+ *                                                            games-side app already reads it, so pausing needs no new role
  *   identities  PK 'identity'  RK `${IssuerKey}|${subject}`  admin app, when sync learns the object id
  *   emails      PK 'email'     RK Email                      admin app; no games-side app reads it
  *   profiles    PK 'profile'   RK PortalUserId               portal app, on /welcome/
@@ -55,6 +57,16 @@ function parseProfile(row: Row | undefined): Profile | undefined {
 
 const userIdOf = (row: Row | undefined): PortalUserId | null => parsePortalUserId(row?.['userId']);
 
+const PAUSED = 'paused';
+
+/** A row whose key is no game id, or whose state is not paused, pauses nothing. */
+function parsePaused(rows: readonly Row[]): ReadonlySet<GameId> {
+	return new Set(rows.flatMap((row) => {
+		const id = parseGameId(row.rowKey);
+		return typeof id === 'string' && row['state'] === PAUSED ? [id] : [];
+	}));
+}
+
 export type ReaderTables = { readonly identities: ReadTable; readonly members: ReadTable; readonly profiles: ReadTable };
 
 /** Every games-side app: Table Data Reader on identities, members and profiles. */
@@ -65,6 +77,9 @@ export function portalReader(tables: ReaderTables): PortalReader {
 			if (!userId) return { kind: 'unknown' };
 			const [member, profile] = await Promise.all([tables.members.get('member', userId), tables.profiles.get('profile', userId)]);
 			return { kind: 'known', userId, member: parseMember(member), profile: parseProfile(profile) };
+		},
+		async paused() {
+			return parsePaused(await tables.members.inPartition('game'));
 		},
 	};
 }
@@ -145,6 +160,13 @@ export function adminStore(tables: AdminTables, newId: () => string): AdminStore
 					? [{ member, email, objectId: objectIdOf.get(member.userId) ?? null, profile: profileOf.get(member.userId) ?? null }]
 					: [];
 			});
+		},
+		async paused() {
+			return parsePaused(await tables.members.inPartition('game'));
+		},
+		async setPaused(game, paused) {
+			if (paused) await tables.members.put({ partitionKey: 'game', rowKey: game, state: PAUSED });
+			else await tables.members.remove('game', game);
 		},
 	};
 }

@@ -53,6 +53,7 @@ const REFUSALS: { readonly [R in Refusal]: { readonly status: 401 | 403; readonl
 	not_invited: { status: 403, message: 'Ask your grown-up to invite you.' },
 	no_profile: { status: 403, message: 'Choose your name first.' },
 	not_entitled: { status: 403, message: 'This game is not switched on for you.' },
+	game_paused: { status: 403, message: 'This game is having a rest. Try again later.' },
 };
 
 export function refuse(refusal: Refusal): HostReply {

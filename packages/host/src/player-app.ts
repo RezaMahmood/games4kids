@@ -21,13 +21,14 @@ export type PlayerAppDeps<M extends GameManifest> = AppEnv & {
 	readonly env: Env;
 };
 
-const ADMISSION_REFUSALS = { 'not-invited': 'not_invited', 'no-profile': 'no_profile', 'not-entitled': 'not_entitled' } as const;
+const ADMISSION_REFUSALS = { 'not-invited': 'not_invited', 'no-profile': 'no_profile', 'not-entitled': 'not_entitled', paused: 'game_paused' } as const;
 
 type PlayTarget = { readonly kind: 'health' } | { readonly kind: 'session' } | { readonly kind: 'route'; readonly route: PlayRoute };
 
 /**
  * func-g4k-<id>, serving /api/g/<id>/*. The only auth path, in fixed order: match route (404), verifyGamesToken
- * (401), portal.find and decide (403), parse body (400, 413, 415), run, HttpError to its status, else 500.
+ * (401), portal.find and portal.paused, then decide (403), parse body (400, 413, 415), run, HttpError to its status,
+ * else 500.
  * GET health needs no token. GET session answers the Caller, so a game page wakes only its own app.
  */
 export function createPlayerApp<M extends GameManifest>(deps: PlayerAppDeps<M>): App {
@@ -51,7 +52,8 @@ export function createPlayerApp<M extends GameManifest>(deps: PlayerAppDeps<M>):
 			if (matched.target.kind === 'health') return json(200, { ok: true });
 			const auth = await verifyGamesToken(deps.issuers, request.headers.get('authorization'));
 			if (!auth.ok) return refuse(auth.code);
-			const admission = decide(await deps.portal.find(auth.identity), id);
+			const [found, paused] = await Promise.all([deps.portal.find(auth.identity), deps.portal.paused()]);
+			const admission = decide(found, id, paused);
 			if (admission.kind !== 'player') return refuse(ADMISSION_REFUSALS[admission.kind]);
 			deps.telemetry.setUser(admission.caller.userId);
 			if (matched.target.kind === 'session') return json(200, admission.caller);
@@ -105,10 +107,13 @@ export function createPortalApp(deps: PortalAppDeps): App {
 	] as const satisfies readonly { name: string; method: Method; path: string; target: PortalTarget }[];
 	const match = matcher<PortalTarget>(routes);
 
-	async function admit(request: HostRequest): Promise<{ readonly auth: Extract<Authentication, { ok: true }>; readonly admission: PortalAdmission } | HostReply> {
+	async function admit(
+		request: HostRequest,
+	): Promise<{ readonly auth: Extract<Authentication, { ok: true }>; readonly admission: PortalAdmission; readonly paused: ReadonlySet<GameId> } | HostReply> {
 		const auth = await verifyGamesToken(deps.issuers, request.headers.get('authorization'));
 		if (!auth.ok) return refuse(auth.code);
-		return { auth, admission: decide(await deps.portal.find(auth.identity), null) };
+		const [found, paused] = await Promise.all([deps.portal.find(auth.identity), deps.portal.paused()]);
+		return { auth, admission: decide(found, null), paused };
 	}
 
 	async function handle(request: HostRequest): Promise<HostReply> {
@@ -120,9 +125,9 @@ export function createPortalApp(deps: PortalAppDeps): App {
 			if (matched.target === 'health') return json(200, { ok: true });
 			const admitted = await admit(request);
 			if ('status' in admitted) return admitted;
-			const { auth, admission } = admitted;
+			const { auth, admission, paused } = admitted;
 			if (admission.kind === 'player') deps.telemetry.setUser(admission.caller.userId);
-			if (matched.target === 'me') return json(200, meFor(auth.identity, admission, deps.games));
+			if (matched.target === 'me') return json(200, meFor(auth.identity, admission, deps.games, paused));
 			if (admission.kind === 'not-invited') return refuse('not_invited');
 			const userId = admission.kind === 'player' ? admission.caller.userId : admission.userId;
 			const profile = parseProfile(await readJson(request));

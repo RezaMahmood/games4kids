@@ -46,7 +46,7 @@ export type ApiError = {
 };
 
 /** What a player app sends before `run`, in check order. A game's own HttpError codes reach the page untouched. */
-export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_invited' | 'no_profile' | 'not_entitled';
+export type Refusal = 'unauthenticated' | 'invalid_token' | 'not_invited' | 'no_profile' | 'not_entitled' | 'game_paused';
 
 export type HttpErrorStatus = 400 | 403 | 404 | 409 | 412 | 413 | 415 | 429 | 502 | 503;
 

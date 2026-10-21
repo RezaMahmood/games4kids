@@ -48,7 +48,7 @@ test('a member saved with one game and synced signs in, chooses a name, plays th
 		state: 'active',
 		userId,
 		profile: { displayName: 'Ada', timeZone: 'Europe/London' },
-		games: ['fixture'],
+		games: [{ id: 'fixture', paused: false }],
 	});
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid })).status, 200);
 
@@ -130,6 +130,43 @@ test('the members routes refuse a malformed grant, and take an all-games grant t
 	assert.deepEqual(narrowed.map(({ member }) => member.games), [{ kind: 'some', ids: [] }]);
 });
 
+test('pausing a game converges however often it is sent, and a bad game or body changes nothing', async () => {
+	const w = world();
+	const { admin, player } = apps(w);
+	const me = await owner(w);
+	const kid = await seedPlayer(w, idp, { games: [id] });
+	const put = (path: string, json: unknown) => call(admin, 'PUT', `/api/admin/portal/games/${path}`, { token: me.console, json });
+	const listed = async () => (await call(admin, 'GET', '/api/admin/portal/games', { token: me.console })).data;
+
+	for (let i = 0; i < 2; i++) assert.deepEqual((await put('fixture', { paused: true })).data, { id: 'fixture', paused: true });
+	assert.deepEqual(await listed(), [{ id: 'fixture', paused: true }]);
+	assert.equal(codeOf(await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })), 'game_paused');
+
+	for (let i = 0; i < 2; i++) assert.deepEqual((await put('fixture', { paused: false })).data, { id: 'fixture', paused: false });
+	assert.deepEqual(await listed(), [{ id: 'fixture', paused: false }]);
+	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
+
+	assert.equal((await put('nogame', { paused: true })).status, 404);
+	assert.equal((await put('No%20Good', { paused: true })).status, 404);
+	for (const body of [{}, { paused: 'yes' }, { paused: 1 }, null]) assert.equal(codeOf(await put('fixture', body)), 'invalid', JSON.stringify(body));
+	assert.deepEqual(await listed(), [{ id: 'fixture', paused: false }]);
+});
+
+test('a game row with a key that is no game id, or a state that is not paused, pauses nothing', async () => {
+	const w = world();
+	const { admin, player } = apps(w);
+	const me = await owner(w);
+	const kid = await seedPlayer(w, idp, { games: [id] });
+	const members = w.accounts.open('portal').table('members');
+	await members.put({ partitionKey: 'game', rowKey: 'fixture', state: 'stopped' });
+	await members.put({ partitionKey: 'game', rowKey: 'No Good', state: 'paused' });
+	await members.put({ partitionKey: 'game', rowKey: 'latecomer', state: 'paused' });
+	assert.deepEqual([...(await w.reader.paused())], ['latecomer']);
+	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
+	assert.deepEqual((await call(admin, 'GET', '/api/admin/portal/games', { token: me.console })).data, [{ id: 'fixture', paused: false }], 'only registered games are listed');
+	assert.equal(codeOf(await call(laterGame(w, 'latecomer'), 'GET', '/api/g/latecomer/session', { token: kid.token })), 'not_entitled', 'a paused game not granted stays hidden');
+});
+
 /** A game app built after the members row was written, as a newly deployed game is. */
 function laterGame(w: World, raw: string) {
 	const manifest = defineGame({ id: raw, title: raw, summary: '', icon: 'icon.svg', storage: { tables: {}, containers: {}, queues: {} }, play: { web: { kind: 'static' }, settings: {}, services: [] } });
@@ -147,7 +184,10 @@ test('an all-games member plays every game, including one registered after the r
 		state: 'active',
 		userId: everyGame.userId,
 		profile: { displayName: 'Owner', timeZone: 'UTC' },
-		games: ['fixture', 'latecomer'],
+		games: [
+			{ id: 'fixture', paused: false },
+			{ id: 'latecomer', paused: false },
+		],
 	});
 });
 
@@ -159,7 +199,7 @@ test('a members row in the old list form still parses, and is still refused a ga
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
 	assert.equal(codeOf(await call(laterGame(w, 'latecomer'), 'GET', '/api/g/latecomer/session', { token: kid.token })), 'not_entitled');
 	const portal = createPortalApp({ issuers: [idp.games], telemetry: w.telemetry, now: w.now, portal: w.portal, games: [id, gameId('latecomer')] });
-	assert.deepEqual(((await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data as { games: unknown }).games, ['fixture']);
+	assert.deepEqual(((await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data as { games: unknown }).games, [{ id: 'fixture', paused: false }]);
 });
 
 test('a re-invite of the same email keeps the same PortalUserId', async () => {

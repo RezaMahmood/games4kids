@@ -53,6 +53,9 @@ export type AdminStore = {
 	/** identities delete of `entra|<objectId>`, so that account signs in as no one. A missing row counts as done. */
 	forgetIdentity(objectId: EntraObjectId): Promise<void>;
 	rows(): Promise<readonly MemberView[]>;
+	paused(): Promise<ReadonlySet<GameId>>;
+	/** Pausing puts the game row and resuming deletes it, so a repeat of either changes nothing. */
+	setPaused(game: GameId, paused: boolean): Promise<void>;
 };
 
 /** A request from an account assigned to games4kids-admin that has an admins row. Minted only by openAdminSession. */
@@ -121,6 +124,14 @@ export function parseAccessChange(raw: unknown, known: readonly GameId[]): Parse
 	if (state !== 'active' && state !== 'revoked') problems.push('state must be active or revoked');
 	const games = parseGrant(fieldOf(raw, 'games'), known, problems);
 	return (state === 'active' || state === 'revoked') && problems.length === 0 ? { state, games } : { problems };
+}
+
+/** One row of the games screen: a registered game and whether the admin paused it. */
+export type GameState = { readonly id: GameId; readonly paused: boolean };
+
+export function parsePauseChange(raw: unknown): Parsed<boolean> {
+	const paused = fieldOf(raw, 'paused');
+	return typeof paused === 'boolean' ? paused : { problems: ['paused must be true or false'] };
 }
 
 /** POST portal/members (admin.console). userIdFor, then the active member row. No Graph. */

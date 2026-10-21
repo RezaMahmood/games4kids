@@ -5,11 +5,13 @@ import {
 	openAdminSession,
 	parseAccessChange,
 	parseMemberRequest,
+	parsePauseChange,
 	saveMember,
 	setAccess,
 	verifyAdminToken,
 	type AdminSession,
 	type AdminStore,
+	type GameState,
 } from './admin.ts';
 import { checkEntra, EntraRefused, syncEntra, type GraphFor, type OboGraph } from './entra.ts';
 import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type AppWorker, type HostReply, type HostRequest } from './http.ts';
@@ -140,6 +142,36 @@ export function createAdminApp(deps: AdminAppDeps): App {
 					const change = parseAccessChange(await readJson(request), known);
 					if ('problems' in change) throw new HttpError(400, 'invalid', 'That change is not valid.', change.problems);
 					return { status: 200, json: await setAccess(userId, change, session, deps.store) };
+				},
+			},
+		},
+		{
+			owner: 'portal',
+			name: 'games-list',
+			method: 'GET',
+			path: 'portal/games',
+			target: {
+				kind: 'console',
+				async run() {
+					const paused = await deps.store.paused();
+					return { status: 200, json: known.map((id): GameState => ({ id, paused: paused.has(id) })) };
+				},
+			},
+		},
+		{
+			owner: 'portal',
+			name: 'games-pause',
+			method: 'PUT',
+			path: 'portal/games/{gameId}',
+			target: {
+				kind: 'console',
+				async run({ params, request }) {
+					const id = known.find((game) => game === params['gameId']);
+					if (!id) throw new HttpError(404, 'not_found', 'That game does not exist.');
+					const paused = parsePauseChange(await readJson(request));
+					if (typeof paused !== 'boolean') throw new HttpError(400, 'invalid', 'That change is not valid.', paused.problems);
+					await deps.store.setPaused(id, paused);
+					return { status: 200, json: { id, paused } satisfies GameState };
 				},
 			},
 		},

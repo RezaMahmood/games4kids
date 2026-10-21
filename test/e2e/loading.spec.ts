@@ -92,6 +92,42 @@ for (const { name, options } of SIZES) {
 	});
 }
 
+const GAMES_LIST = '**/api/admin/portal/games';
+
+for (const { name, options } of SIZES) {
+	test(`${name}, the admin Games page stays greyed out until the game list loads or fails, then lifts`, async ({ browser }) => {
+		const context = await browser.newContext(options);
+		const page = await context.newPage();
+		await signedInAdmin(page);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(GAMES_LIST, async (route) => {
+			await held;
+			return route.continue();
+		});
+
+		try {
+			await page.goto(`${ADMIN}/games/`);
+			await expect(page.getByRole('status')).toHaveText('Loading games.');
+			await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(page), 'a grey layer and a spinning ring cover the page').toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			release();
+		}
+
+		await pageReady(page);
+		expect((await overlay(page)).shown, 'the grey layer is gone').toBe(false);
+		await expect(page.getByRole('button', { name: 'Pause' }).first()).toBeEnabled();
+		await page.unroute(GAMES_LIST);
+
+		await page.route(GAMES_LIST, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The game list is unavailable.' }) }));
+		await page.reload();
+		await pageReady(page);
+		await expect(page.getByRole('status')).toHaveText('The game list is unavailable.');
+		await context.close();
+	});
+}
+
 const DRAWPAD_API = '**/api/admin/g/drawpad/**';
 
 for (const { name, options } of SIZES) {

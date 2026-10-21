@@ -30,9 +30,30 @@
 	text-decoration: none;
 }
 
-.card:hover {
+a.card:hover {
 	border-color: var(--color-primary);
 	background: var(--color-primary-tint);
+}
+
+.card.paused {
+	border-style: dashed;
+	background: var(--color-desk);
+	color: var(--color-ink-soft);
+	cursor: not-allowed;
+}
+
+.card.paused img {
+	filter: grayscale(1);
+	opacity: 0.5;
+}
+
+.card .paused-label {
+	padding: 2px 12px;
+	border-radius: var(--radius-chip);
+	background: var(--color-ink-soft);
+	color: var(--color-surface);
+	font-size: var(--size-caption);
+	font-weight: 700;
 }
 
 .card .title {

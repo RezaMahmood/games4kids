@@ -194,13 +194,22 @@ test('catalogs keep valid entries and drop the rest, and the browser id rule equ
 });
 
 test('each refusal the host can send is either retried after a refresh or shown as a screen', () => {
-	const expected: Record<Refusal, string> = { unauthenticated: 'retry-after-refresh', invalid_token: 'retry-after-refresh', not_invited: 'screen', no_profile: 'screen', not_entitled: 'screen' };
+	const expected: Record<Refusal, string> = { unauthenticated: 'retry-after-refresh', invalid_token: 'retry-after-refresh', not_invited: 'screen', no_profile: 'screen', not_entitled: 'screen', game_paused: 'screen' };
 	for (const [code, handling] of Object.entries(expected)) assert.equal(onRefusal(code as Refusal), handling, code);
 });
 
 test('GET me and GET session are parsed at the boundary, and anything else is refused', () => {
 	const id = '00000000-0000-4000-8000-00000000000a';
-	assert.deepEqual(parseMe({ state: 'active', userId: id, profile: { displayName: 'Ada', timeZone: 'UTC' }, games: ['fixture', 'No Good'] }), { state: 'active', userId: id, profile: { displayName: 'Ada', timeZone: 'UTC' }, games: ['fixture'] });
+	const games = [{ id: 'fixture', paused: false }, { id: 'puzzle', paused: true }, { id: 'No Good', paused: false }, { id: 'drawpad' }, { id: 'letterjoin', paused: 'yes' }, 'fixture'];
+	assert.deepEqual(parseMe({ state: 'active', userId: id, profile: { displayName: 'Ada', timeZone: 'UTC' }, games }), {
+		state: 'active',
+		userId: id,
+		profile: { displayName: 'Ada', timeZone: 'UTC' },
+		games: [
+			{ id: 'fixture', paused: false },
+			{ id: 'puzzle', paused: true },
+		],
+	});
 	assert.deepEqual(parseMe({ state: 'no-profile' }), { state: 'no-profile' });
 	assert.deepEqual(parseMe({ state: 'not-invited', email: 'kid@example.com' }), { state: 'not-invited', email: 'kid@example.com' });
 	assert.equal(parseMe({ state: 'active', userId: 'x', profile: {}, games: [] }), null);
