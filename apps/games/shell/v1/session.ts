@@ -19,8 +19,8 @@ export type GameSession = {
 	switchAccount(): Promise<void>;
 };
 
-/** What a portal page (home) gets: the same session, bound to the portal app, plus a card for each game switched on for this child. */
-export type PortalSession = GameSession & { readonly games: readonly CatalogEntry[] };
+/** What a portal page (home) gets: the same session, bound to the portal app, plus a card for each game switched on for this child. A paused game keeps its card. */
+export type PortalSession = GameSession & { readonly games: readonly (CatalogEntry & { readonly paused: boolean })[] };
 
 /** /welcome/ runs for a member who has no profile yet, which `enter` would send back here. */
 export type WelcomeSession = { readonly api: ApiClient; signOut(): Promise<void> };
@@ -58,6 +58,12 @@ function refused(error: ApiFailure, signedIn: SignedIn): Promise<never> | null {
 				{ label: 'Sign out', run: signedIn.signOut },
 			]);
 			return never();
+		case 'game_paused':
+			showScreen('This game is having a rest', 'Your grown-up has paused it for now. Try again later.', [
+				toGames,
+				{ label: 'Sign out', run: signedIn.signOut },
+			]);
+			return never();
 		default:
 			return null;
 	}
@@ -90,6 +96,7 @@ function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUse
  *   not_invited    "Ask your grown-up to invite you", with a sign-out button
  *   no_profile     location = /welcome/?return=<this page>
  *   not_entitled   "This game is not switched on for you"
+ *   game_paused    "This game is having a rest"
  */
 export function enter(options: { readonly game: null }): Promise<PortalSession>;
 export function enter(options: { readonly game: string }): Promise<GameSession>;
@@ -108,8 +115,11 @@ export async function enter(options: { readonly game: string | null }): Promise<
 			case 'no-profile':
 				location.replace(welcomeUrl('/'));
 				return never();
-			case 'active':
-				return { ...session(ctx, api, me, 'portal', { kind: 'home' }), games: (await loadCatalog()).filter((entry) => me.games.includes(entry.id)) };
+			case 'active': {
+				const catalog = await loadCatalog();
+				const games = catalog.flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
+				return { ...session(ctx, api, me, 'portal', { kind: 'home' }), games };
+			}
 		}
 	}
 

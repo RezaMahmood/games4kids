@@ -27,7 +27,7 @@ test('one node server answers every app on its own prefix with the real token ch
 			state: 'active',
 			userId: kid.userId,
 			profile: { displayName: 'Ada', timeZone: 'UTC' },
-			games: ['fixture'],
+			games: [{ id: 'fixture', paused: false }],
 		});
 		assert.equal((await fetch(`${server.origin}/api/g/fixture/session`)).status, 401);
 		assert.equal((await fetch(`${server.origin}/api/admin/portal/members`, { headers: bearer })).status, 401, 'a games token is no admin token');

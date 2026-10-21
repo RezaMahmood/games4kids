@@ -62,28 +62,33 @@ export type Admission =
 	/** Active member without a profile. The portal app lets this through to /welcome/; a game app answers no_profile. */
 	| { readonly kind: 'no-profile'; readonly userId: PortalUserId }
 	| { readonly kind: 'not-invited' }
-	| { readonly kind: 'not-entitled' };
+	| { readonly kind: 'not-entitled' }
+	/** Granted, but the admin paused the game for everyone. A child not granted it is not-entitled, so it stays hidden. */
+	| { readonly kind: 'paused' };
 
-/** The portal app asks about no game, so nothing it sees is not-entitled. */
-export type PortalAdmission = Exclude<Admission, { readonly kind: 'not-entitled' }>;
+/** The portal app asks about no game, so nothing it sees is not-entitled or paused. */
+export type PortalAdmission = Exclude<Admission, { readonly kind: 'not-entitled' | 'paused' }>;
 
 /**
  * Pure. Checks in Refusal order: known identity with an active member, then a profile, then (for a game app) the
- * game in the member's grants. The portal app passes null.
+ * game in the member's grants, then the game not paused. The portal app passes null.
  */
 export function decide(found: Found, game: null): PortalAdmission;
-export function decide(found: Found, game: GameId): Admission;
-export function decide(found: Found, game: GameId | null): Admission {
+export function decide(found: Found, game: GameId, paused: ReadonlySet<GameId>): Admission;
+export function decide(found: Found, game: GameId | null, paused: ReadonlySet<GameId> = new Set()): Admission {
 	if (found.kind === 'unknown' || found.member?.state !== 'active') return { kind: 'not-invited' };
 	const member = found.member;
 	if (!found.profile) return { kind: 'no-profile', userId: found.userId };
 	if (game !== null && !grants(member.games, game)) return { kind: 'not-entitled' };
+	if (game !== null && paused.has(game)) return { kind: 'paused' };
 	return { kind: 'player', caller: { userId: found.userId, ...found.profile }, games: member.games };
 }
 
 /** What every player app may read of the portal tables. */
 export type PortalReader = {
 	find(identity: Identity): Promise<Found>;
+	/** The games the admin paused for everyone. */
+	paused(): Promise<ReadonlySet<GameId>>;
 };
 
 /** The portal app's view: the reader plus the one table it writes. No member, identity or email writer. */
@@ -93,7 +98,7 @@ export type PortalStore = PortalReader & {
 };
 
 /** `registered` is every game on the site. An all-games member gets each one, so the shell shows them. */
-export function meFor(identity: Identity, admission: PortalAdmission, registered: readonly GameId[]): Me {
+export function meFor(identity: Identity, admission: PortalAdmission, registered: readonly GameId[], paused: ReadonlySet<GameId>): Me {
 	switch (admission.kind) {
 		case 'not-invited':
 			return { state: 'not-invited', email: identity.email };
@@ -101,7 +106,7 @@ export function meFor(identity: Identity, admission: PortalAdmission, registered
 			return { state: 'no-profile' };
 		case 'player': {
 			const { userId, displayName, timeZone } = admission.caller;
-			return { state: 'active', userId, profile: { displayName, timeZone }, games: registered.filter((game) => grants(admission.games, game)) };
+			return { state: 'active', userId, profile: { displayName, timeZone }, games: registered.filter((game) => grants(admission.games, game)).map((id) => ({ id, paused: paused.has(id) })) };
 		}
 	}
 }

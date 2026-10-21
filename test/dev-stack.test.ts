@@ -52,11 +52,39 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 		kid = await gamesToken(stack, kidEmail);
 		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'no-profile' });
 		assert.equal((await api(stack, 'PUT', '/api/portal/profile', kid, { displayName: 'Ada', timeZone: 'Europe/London' })).status, 204);
-		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'active', userId, profile: { displayName: 'Ada', timeZone: 'Europe/London' }, games: ['fixture'] });
+		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'active', userId, profile: { displayName: 'Ada', timeZone: 'Europe/London' }, games: [{ id: 'fixture', paused: false }] });
 		assert.equal((await api(stack, 'GET', '/api/g/fixture/session', kid)).status, 200);
 		const other = await api(stack, 'GET', '/api/g/puzzle/session', kid);
 		assert.equal(other.status, 403);
 		assert.equal((other.data as { error: string }).error, 'not_entitled');
+	});
+
+	test('a paused game stays on the child’s list but refuses play, and plays again once the admin makes it available', async () => {
+		const console_ = await consoleToken(stack);
+		const paused = await api(stack, 'PUT', '/api/admin/portal/games/fixture', console_, { paused: true });
+		assert.deepEqual(paused.data, { id: 'fixture', paused: true });
+		const refused = await api(stack, 'GET', '/api/g/fixture/session', kid);
+		assert.equal(refused.status, 403);
+		assert.equal((refused.data as { error: string }).error, 'game_paused');
+		assert.deepEqual(((await api(stack, 'GET', '/api/portal/me', kid)).data as { games: unknown }).games, [{ id: 'fixture', paused: true }]);
+		const ungranted = await api(stack, 'PUT', '/api/admin/portal/games/puzzle', console_, { paused: true });
+		assert.equal(ungranted.status, 200);
+		assert.equal(((await api(stack, 'GET', '/api/g/puzzle/session', kid)).data as { error: string }).error, 'not_entitled', 'a paused game not granted stays not entitled');
+		assert.deepEqual((await api(stack, 'GET', '/api/admin/portal/games', console_)).data, [
+			{ id: 'fixture', paused: true },
+			{ id: 'puzzle', paused: true },
+		]);
+
+		assert.equal((await api(stack, 'PUT', '/api/admin/portal/games/fixture', console_, { paused: false })).status, 200);
+		assert.equal((await api(stack, 'PUT', '/api/admin/portal/games/puzzle', console_, { paused: false })).status, 200);
+		assert.equal((await api(stack, 'GET', '/api/g/fixture/session', kid)).status, 200);
+		assert.deepEqual(((await api(stack, 'GET', '/api/portal/me', kid)).data as { games: unknown }).games, [{ id: 'fixture', paused: false }]);
+	});
+
+	test('a games token cannot list or pause games on the admin app', async () => {
+		assert.equal((await api(stack, 'GET', '/api/admin/portal/games', kid)).status, 401);
+		assert.equal((await api(stack, 'PUT', '/api/admin/portal/games/fixture', kid, { paused: true })).status, 401);
+		assert.equal((await api(stack, 'GET', '/api/g/fixture/session', kid)).status, 200, 'nothing was paused');
 	});
 
 	test('a games token is no admin token, and an admin token is no games token', async () => {

@@ -11,6 +11,7 @@ export function onRefusal(code: Refusal): RefusalHandling {
 		case 'not_invited':
 		case 'no_profile':
 		case 'not_entitled':
+		case 'game_paused':
 			return 'screen';
 		default: {
 			const unhandled: never = code;
@@ -19,6 +20,6 @@ export function onRefusal(code: Refusal): RefusalHandling {
 	}
 }
 
-const REFUSALS: readonly Refusal[] = ['unauthenticated', 'invalid_token', 'not_invited', 'no_profile', 'not_entitled'];
+const REFUSALS: readonly Refusal[] = ['unauthenticated', 'invalid_token', 'not_invited', 'no_profile', 'not_entitled', 'game_paused'];
 
 export const asRefusal = (code: string): Refusal | null => REFUSALS.find((refusal) => refusal === code) ?? null;

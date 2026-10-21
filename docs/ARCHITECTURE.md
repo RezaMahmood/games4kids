@@ -67,7 +67,7 @@ games4kids/
 	packages/sdk/           @g4k/sdk: defineGame, definePlayApi, defineAdminApi, HttpError, types
 	packages/host/          @g4k/host: createPlayerApp, createPortalApp, createAdminApp, identity, storage, telemetry
 	apps/games/             shell/v1/ (/shell/v1/), pages/ (/, /welcome/, redirect.html), api/ (func-g4k-portal)
-	apps/admin/             shell/v1/ (/shell/v1/), pages/ (members, Entra), api/ (func-g4k-admin)
+	apps/admin/             shell/v1/ (/shell/v1/), pages/ (members, Entra, games), api/ (func-g4k-admin)
 	apps/shared/            api-client, msal loader, telemetry and the vendored MSAL, served at /shared/ on both sites
 	games/tsconfig.*.json   one project each for every game's data, play api, admin api and generated entries, so a part cannot import one it may not
 	games/drawpad/          manifest.ts, data/, play/ (api, web), admin/ (api, web), infra.bicep (Foundry)
@@ -86,7 +86,7 @@ games4kids/
 | Static Web App | `swa-g4k-games` | `swa-g4k-admin` |
 | Registration | games4kids: SPA client and API, scope `access_as_user` | games4kids-admin: SPA client and API, scopes `admin.console` and `admin.elevate` |
 | Assigned accounts | Each invited child | Admin accounts only |
-| Pages | `/`, `/welcome/`, `/g/<id>/` play pages | `/` (members, Entra), `/g/<id>/` game admin pages |
+| Pages | `/`, `/welcome/`, `/g/<id>/` play pages | `/` (members, Entra), `/games/` (pause a game), `/g/<id>/` game admin pages |
 | Backends | `func-g4k-portal`, `func-g4k-<id>` per game | `func-g4k-admin` |
 
 Both registrations have assignment required on, and neither pre-authorizes a client. On one shared origin and MSAL cache, any game page could silently get an admin token (review C1). Two origins have two caches, and the games shell's config has no admin scope or admin origin at all, which a negative proves.
@@ -97,7 +97,7 @@ The player side is one trust domain. Every player app accepts the same audience,
 
 1. A child opens `/`. With no cached account, the shell calls `loginRedirect`, and Entra signs in only accounts assigned to games4kids.
 2. The shell calls `GET /api/portal/me` on `func-g4k-portal`. The app verifies the token, reads the identities, members, and profiles rows, and the pure `decide` returns an admission. Not invited draws a screen, no profile goes to `/welcome/`, and an active player gets `me` with their games.
-3. Home reads `catalog.json` and draws a card for each game id in `me.games`.
+3. Home reads `catalog.json` and draws a card for each game in `me.games`, greyed out and not a link when it is paused.
 4. On `/g/drawpad/`, `enter({ game: 'drawpad' })` gets a token silently and calls `GET /api/g/drawpad/session` on `func-g4k-drawpad`. Only that app wakes, so a game page costs one cold start, not two (review W7).
 5. `api.post('drawings', ...)` runs `createPlayerApp`'s fixed order in [`host.ts`](sketch/host.ts): verify, find, decide with this game's id, parse, `run`, and map errors to one shape.
 
@@ -141,13 +141,15 @@ Each portal table has one writer, enforced by RBAC per app and per table ([`iden
 
 | Table | Holds | Writer | Readers |
 | --- | --- | --- | --- |
-| `members` | state, granted game ids or `*` for every game | admin app | portal app, player apps |
+| `members` | state, granted game ids or `*` for every game. Partition `game` holds a row per paused game | admin app | portal app, player apps |
 | `identities` | issuer and `oid` to `PortalUserId` | admin app, at invite | portal app, player apps, admin app |
 | `emails` | email to `PortalUserId` | admin app | admin app |
 | `profiles` | display name, time zone | portal app, on `/welcome/` | player apps, admin app |
 | `admins` | admin account `oid`, email | bootstrap | admin app |
 
 The admin app writes the identity row in the same step that learns the object id, so a first sign-in finds a complete row and nothing claims anything (review W9). `decide` admits a known identity with an active member, and a player app also needs `members.games` to grant its game. A grant is either a list of game ids or every game. There is no role anywhere in the games side. `Caller` is `{ userId, displayName, timeZone }`. A new game is hidden until you grant it, unless the member holds every game. GET me lists every registered game for that member, so the portal app is built with the registered ids and redeploys when a manifest changes. Display names stay unique by listing profiles before writing (review cut 6).
+
+The games page on the admin site pauses a game for everyone. A paused game is a `members` row in partition `game`, keyed by the game id with `state` `paused`, and making it available again deletes the row. It lives in `members` because every games-side app already holds Table Data Reader there, so pausing needs no new role and no 30-minute propagation. `decide` checks it last, so a child granted a paused game gets `game_paused` and still sees the card on home, greyed out, while a child not granted it gets `not_entitled` and sees nothing.
 
 ### Data ownership
 
