@@ -11,7 +11,7 @@ const profile = { displayName: 'Ada', timeZone: 'Europe/London' };
 const some = (...ids: GameId[]): GameGrant => ({ kind: 'some', ids });
 const all: GameGrant = { kind: 'all' };
 const member = (state: Member['state'], games: GameGrant): Member => ({ userId, state, games });
-const known = (m: Member | undefined, p: typeof profile | null = profile): Found => ({ kind: 'known', userId, member: m, profile: p ?? undefined });
+const known = (m: Member | undefined, p: typeof profile | null = profile): Found => ({ kind: 'known', userId, member: m, profile: p ?? undefined, renamedAt: undefined });
 const caller = { userId, ...profile };
 
 const cases: readonly { readonly name: string; readonly found: Found; readonly game: GameId | null; readonly paused?: readonly GameId[]; readonly expected: Admission }[] = [
@@ -50,19 +50,20 @@ test('meFor turns each portal admission into the state home routes on', () => {
 	const identity = { issuer: ENTRA, subject: 'oid', email: null };
 	const registered = [other, fixture];
 	const none = new Set<GameId>();
-	assert.deepEqual(meFor(identity, { kind: 'not-invited' }, registered, none), { state: 'not-invited', email: null });
-	assert.deepEqual(meFor(identity, { kind: 'no-profile', userId }, registered, none), { state: 'no-profile' });
-	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: some(fixture) }, registered, none), { state: 'active', userId, profile, games: [{ id: fixture, paused: false }] });
+	assert.deepEqual(meFor(identity, { kind: 'not-invited' }, registered, none, true), { state: 'not-invited', email: null });
+	assert.deepEqual(meFor(identity, { kind: 'no-profile', userId }, registered, none, true), { state: 'no-profile' });
+	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: some(fixture) }, registered, none, true), { state: 'active', userId, profile, canRenameToday: true, games: [{ id: fixture, paused: false }] });
 });
 
 test('meFor marks a granted game paused and never lists a paused game that is not granted', () => {
 	const identity = { issuer: ENTRA, subject: 'oid', email: null };
 	const paused = new Set([other, fixture]);
-	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: some(fixture) }, [other, fixture], paused), { state: 'active', userId, profile, games: [{ id: fixture, paused: true }] });
-	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: all }, [other, fixture], new Set([other])), {
+	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: some(fixture) }, [other, fixture], paused, true), { state: 'active', userId, profile, canRenameToday: true, games: [{ id: fixture, paused: true }] });
+	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: all }, [other, fixture], new Set([other]), true), {
 		state: 'active',
 		userId,
 		profile,
+		canRenameToday: true,
 		games: [
 			{ id: other, paused: true },
 			{ id: fixture, paused: false },
@@ -73,10 +74,17 @@ test('meFor marks a granted game paused and never lists a paused game that is no
 test('meFor lists every registered game for an all-games member', () => {
 	const identity = { issuer: ENTRA, subject: 'oid', email: null };
 	const latecomer = gameId('latecomer');
-	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: all }, [other, fixture, latecomer], new Set()), {
+	assert.deepEqual(meFor(identity, { kind: 'player', caller, games: all }, [other, fixture, latecomer], new Set(), true), {
 		state: 'active',
 		userId,
 		profile,
+		canRenameToday: true,
 		games: [other, fixture, latecomer].map((id) => ({ id, paused: false })),
 	});
+});
+
+test('meFor carries whether the child may still rename today', () => {
+	const identity = { issuer: ENTRA, subject: 'oid', email: null };
+	const me = meFor(identity, { kind: 'player', caller, games: some(fixture) }, [fixture], new Set(), false);
+	assert.equal(me.state === 'active' && me.canRenameToday, false);
 });

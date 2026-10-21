@@ -132,7 +132,7 @@ declare const playDeps: PlayerAppDeps<typeof fixture>;
 declare const portalStore: PortalStore;
 declare const seen: Member;
 // @ts-expect-error a player app reads portal tables and cannot write a profile; only the portal app can.
-void playDeps.portal.setProfile(seen.userId, { displayName: 'x', timeZone: 'UTC' });
+void playDeps.portal.setProfile(seen.userId, { displayName: 'x', timeZone: 'UTC' }, new Date());
 // @ts-expect-error the portal app cannot write members; grants and revokes change only in the admin app.
 void portalStore.putMember(seen);
 // @ts-expect-error a member row carries no email, so a games-side app learns no child's email.

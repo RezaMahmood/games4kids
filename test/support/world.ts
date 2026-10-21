@@ -54,7 +54,7 @@ export async function seedPlayer(
 	const userId = await w.admin.userIdFor(email);
 	await w.admin.recordIdentity(objectId, userId);
 	await w.admin.putMember({ userId, state, games: games === 'all' ? { kind: 'all' } : { kind: 'some', ids: games } });
-	if (profile) await w.portal.setProfile(userId, profile);
+	if (profile) await w.portal.setProfile(userId, profile, w.now());
 	return { userId, objectId, email, token: await idp.gamesToken(objectId) };
 }
 

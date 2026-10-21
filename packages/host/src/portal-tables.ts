@@ -1,6 +1,7 @@
 import { parseEmail, parseEntraObjectId, parseGameId, parsePortalUserId, type EntraObjectId, type GameId, type PortalUserId, type Profile, type ReadTable, type Row, type Table } from '@g4k/sdk';
 import type { AdminRow, AdminStore, MemberView } from './admin.ts';
 import { grants, type Found, type GameGrant, type Identity, type Member, type PortalReader, type PortalStore } from './identity.ts';
+import { planSave, type StoredProfile } from './rename.ts';
 import { ENTRA } from './token.ts';
 
 /**
@@ -9,7 +10,7 @@ import { ENTRA } from './token.ts';
  *   games       PK 'game'      RK GameId, state 'paused'     admin app; no row is available
  *   identities  PK 'identity'  RK `${IssuerKey}|${subject}`  admin app, when sync learns the object id
  *   emails      PK 'email'     RK Email                      admin app; no games-side app reads it
- *   profiles    PK 'profile'   RK PortalUserId               portal app, on /welcome/
+ *   profiles    PK 'profile'   RK PortalUserId               portal app, on /welcome/ and /profile/
  *   admins      PK 'admin'     RK EntraObjectId              tools/bootstrap.mjs on the Mac
  */
 export type PortalTableName = 'members' | 'games' | 'identities' | 'emails' | 'profiles' | 'admins';
@@ -54,6 +55,18 @@ function parseProfile(row: Row | undefined): Profile | undefined {
 	return typeof displayName === 'string' && typeof timeZone === 'string' ? { displayName, timeZone } : undefined;
 }
 
+/** A `renamedAt` that is not a date reads as no rename, never as a day to compare. */
+function parseRenamedAt(row: Row | undefined): string | undefined {
+	const renamedAt = row?.['renamedAt'];
+	return typeof renamedAt === 'string' && !Number.isNaN(Date.parse(renamedAt)) ? renamedAt : undefined;
+}
+
+function parseStoredProfile(row: Row | undefined): StoredProfile | undefined {
+	const profile = parseProfile(row);
+	const renamedAt = parseRenamedAt(row);
+	return profile && (renamedAt === undefined ? profile : { ...profile, renamedAt });
+}
+
 const userIdOf = (row: Row | undefined): PortalUserId | null => parsePortalUserId(row?.['userId']);
 
 const PAUSED = 'paused';
@@ -75,7 +88,7 @@ export function portalReader(tables: ReaderTables): PortalReader {
 			const userId = userIdOf(await tables.identities.get('identity', identityKey(identity.issuer, identity.subject)));
 			if (!userId) return { kind: 'unknown' };
 			const [member, profile] = await Promise.all([tables.members.get('member', userId), tables.profiles.get('profile', userId)]);
-			return { kind: 'known', userId, member: parseMember(member), profile: parseProfile(profile) };
+			return { kind: 'known', userId, member: parseMember(member), profile: parseProfile(profile), renamedAt: parseRenamedAt(profile) };
 		},
 		async paused() {
 			return parsePaused(await tables.games.inPartition('game'));
@@ -89,10 +102,12 @@ const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.tr
 export function portalStore(tables: ReaderTables & { readonly profiles: Table }): PortalStore {
 	return {
 		...portalReader(tables),
-		async setProfile(userId, profile) {
-			const others = await tables.profiles.inPartition('profile');
-			if (others.some((row) => row.rowKey !== userId && sameName(parseProfile(row)?.displayName ?? '', profile.displayName))) return 'name_taken';
-			await tables.profiles.put({ partitionKey: 'profile', rowKey: userId, ...profile });
+		async setProfile(userId, profile, now) {
+			const rows = await tables.profiles.inPartition('profile');
+			const save = planSave(parseStoredProfile(rows.find((row) => row.rowKey === userId)), profile, now);
+			if (save.kind === 'refused') return 'rename_tomorrow';
+			if (rows.some((row) => row.rowKey !== userId && sameName(parseProfile(row)?.displayName ?? '', profile.displayName))) return 'name_taken';
+			await tables.profiles.put({ partitionKey: 'profile', rowKey: userId, ...profile, ...(save.renamedAt === undefined ? {} : { renamedAt: save.renamedAt }) });
 			return 'ok';
 		},
 	};

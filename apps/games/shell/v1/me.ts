@@ -24,7 +24,7 @@ export function parseMe(raw: unknown): Me | null {
 			const userId = asPortalUserId(fields['userId']);
 			const profile = parseProfile(fields['profile']);
 			const games = Array.isArray(fields['games']) ? fields['games'].flatMap(parseGame) : [];
-			return userId && profile ? { state: 'active', userId, profile, games } : null;
+			return userId && profile ? { state: 'active', userId, profile, canRenameToday: fields['canRenameToday'] !== false, games } : null;
 		}
 		default:
 			return null;

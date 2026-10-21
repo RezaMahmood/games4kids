@@ -205,11 +205,13 @@ test('GET me and GET session are parsed at the boundary, and anything else is re
 		state: 'active',
 		userId: id,
 		profile: { displayName: 'Ada', timeZone: 'UTC' },
+		canRenameToday: true,
 		games: [
 			{ id: 'fixture', paused: false },
 			{ id: 'puzzle', paused: true },
 		],
 	});
+	assert.equal((parseMe({ state: 'active', userId: id, profile: { displayName: 'Ada', timeZone: 'UTC' }, canRenameToday: false, games }) as { canRenameToday: boolean }).canRenameToday, false);
 	assert.deepEqual(parseMe({ state: 'no-profile' }), { state: 'no-profile' });
 	assert.deepEqual(parseMe({ state: 'not-invited', email: 'kid@example.com' }), { state: 'not-invited', email: 'kid@example.com' });
 	assert.equal(parseMe({ state: 'active', userId: 'x', profile: {}, games: [] }), null);

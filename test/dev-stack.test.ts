@@ -52,7 +52,7 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 		kid = await gamesToken(stack, kidEmail);
 		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'no-profile' });
 		assert.equal((await api(stack, 'PUT', '/api/portal/profile', kid, { displayName: 'Ada', timeZone: 'Europe/London' })).status, 204);
-		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'active', userId, profile: { displayName: 'Ada', timeZone: 'Europe/London' }, games: [{ id: 'fixture', paused: false }] });
+		assert.deepEqual((await api(stack, 'GET', '/api/portal/me', kid)).data, { state: 'active', userId, profile: { displayName: 'Ada', timeZone: 'Europe/London' }, canRenameToday: true, games: [{ id: 'fixture', paused: false }] });
 		assert.equal((await api(stack, 'GET', '/api/g/fixture/session', kid)).status, 200);
 		const other = await api(stack, 'GET', '/api/g/puzzle/session', kid);
 		assert.equal(other.status, 403);

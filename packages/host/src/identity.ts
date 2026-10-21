@@ -54,7 +54,7 @@ export type Member = {
 };
 
 export type Found =
-	| { readonly kind: 'known'; readonly userId: PortalUserId; readonly member: Member | undefined; readonly profile: Profile | undefined }
+	| { readonly kind: 'known'; readonly userId: PortalUserId; readonly member: Member | undefined; readonly profile: Profile | undefined; readonly renamedAt: string | undefined }
 	| { readonly kind: 'unknown' };
 
 export type Admission =
@@ -93,12 +93,15 @@ export type PortalReader = {
 
 /** The portal app's view: the reader plus the one table it writes. No member, identity or email writer. */
 export type PortalStore = PortalReader & {
-	/** Refuses a display name another child holds. Two children racing for one name is accepted. */
-	setProfile(userId: PortalUserId, profile: Profile): Promise<'ok' | 'name_taken'>;
+	/**
+	 * Refuses a display name another child holds, and a second rename on one day. Two children racing for one name is
+	 * accepted. It keeps the row's `renamedAt` unless the save is a rename.
+	 */
+	setProfile(userId: PortalUserId, profile: Profile, now: Date): Promise<'ok' | 'name_taken' | 'rename_tomorrow'>;
 };
 
 /** `registered` is every game on the site. An all-games member gets each one, so the shell shows them. */
-export function meFor(identity: Identity, admission: PortalAdmission, registered: readonly GameId[], paused: ReadonlySet<GameId>): Me {
+export function meFor(identity: Identity, admission: PortalAdmission, registered: readonly GameId[], paused: ReadonlySet<GameId>, canRenameToday: boolean): Me {
 	switch (admission.kind) {
 		case 'not-invited':
 			return { state: 'not-invited', email: identity.email };
@@ -106,7 +109,7 @@ export function meFor(identity: Identity, admission: PortalAdmission, registered
 			return { state: 'no-profile' };
 		case 'player': {
 			const { userId, displayName, timeZone } = admission.caller;
-			return { state: 'active', userId, profile: { displayName, timeZone }, games: registered.filter((game) => grants(admission.games, game)).map((id) => ({ id, paused: paused.has(id) })) };
+			return { state: 'active', userId, profile: { displayName, timeZone }, canRenameToday, games: registered.filter((game) => grants(admission.games, game)).map((id) => ({ id, paused: paused.has(id) })) };
 		}
 	}
 }
