@@ -207,3 +207,42 @@ for (const { game, path, api, loaded } of GAMES_PAGES) {
 		await adminContext.close();
 	});
 }
+
+test('a tap on "Let\'s play" while the welcome page still waits for the Function app does nothing, so the name is not lost to a native submit', async ({ browser }) => {
+	test.setTimeout(120_000);
+	const adminContext = await browser.newContext();
+	const admin = await adminContext.newPage();
+	answerPopups(admin);
+	const kidEmail = `early-tap-${RUN}@example.com`;
+	await signedInAdmin(admin);
+	await addAndSync(admin, kidEmail, 'Letter Tracing');
+
+	const kidContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const kid = await kidContext.newPage();
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => (release = resolve));
+	await kid.route('**/api/portal/me', async (route) => {
+		if (route.request().frame().url().includes('/welcome/')) await held;
+		return route.continue();
+	});
+	await kid.goto(`${GAMES}/`);
+	await signInAtFakeEntra(kid, kidEmail);
+	await kid.waitForURL('**/welcome/**');
+	try {
+		await expect(kid.locator('body')).toHaveAttribute('aria-busy', 'true');
+		const button = await kid.getByRole('button', { name: "Let's play" }).boundingBox();
+		expect(button, 'the button is laid out under the overlay').not.toBeNull();
+		await kid.mouse.click(button!.x + button!.width / 2, button!.y + button!.height / 2);
+		await kid.waitForTimeout(500);
+		expect(new URL(kid.url()).search, 'the form did not submit itself to the address bar').not.toContain('name=');
+	} finally {
+		release();
+	}
+
+	await pageReady(kid);
+	await kid.getByLabel('Your name in games').fill(`T${RUN}`);
+	await kid.getByRole('button', { name: "Let's play" }).click();
+	await expect(kid.getByRole('list', { name: 'My games' }).getByRole('link', { name: /Letter Tracing/ })).toBeVisible();
+	await kidContext.close();
+	await adminContext.close();
+});
