@@ -4,7 +4,7 @@ import { catalogFile, cspFile, gameWebDir, pageDirs, sharedDirs, shellDir, swaCo
 
 export const ENTRA_ORIGIN = 'https://login.microsoftonline.com';
 
-const SHIPPED = new Set(['.html', '.js', '.css', '.json', '.svg', '.png', '.jpg', '.webp', '.ico', '.txt', '.webmanifest', '.woff2']);
+const SHIPPED = new Set(['.html', '.js', '.css', '.json', '.svg', '.png', '.jpg', '.webp', '.ico', '.txt', '.webmanifest', '.woff2', '.ttf']);
 
 const shipped = (source: string) => statSync(source).isDirectory() || (SHIPPED.has(extname(source)) && !source.endsWith('.d.ts'));
 
