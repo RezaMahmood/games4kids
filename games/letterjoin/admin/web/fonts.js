@@ -1,8 +1,7 @@
 /**
- * Which font draws each letter style. The owner supplies the font files later and they are never committed:
- * put them in web/fonts/ (gitignored) named after the style, for example web/fonts/joined.woff2.
- * A style with no owner file uses its open font when it has one (joined: Playwrite GB J, SIL OFL, committed in
- * web/open-fonts/), and otherwise falls back to a rounded print font the device already has.
+ * Which font draws each letter style. Every font is open (SIL OFL) and committed in web/open-fonts/, so it ships
+ * with the site. A style whose file fails to load falls back to a rounded print font the device already has.
+ * Pre-cursive reuses the joined font with contextual alternates off, so its letters stay unjoined.
  *
  * @typedef {import('./activity.js').LetterStyle} LetterStyle
  * @typedef {{ family: string, custom: boolean }} ResolvedFont `family` is a CSS font-family list ending in the fallback.
@@ -10,11 +9,11 @@
 
 export const FALLBACK_FAMILY = '"Arial Rounded MT Bold", "Avenir Next", "Helvetica Neue", Arial, sans-serif';
 
-/** @type {Record<LetterStyle, { label: string, family: string, file: string, open?: string }>} */
+/** @type {Record<LetterStyle, { label: string, family: string, file: string, features?: string }>} `file` is under open-fonts/. */
 export const FONT_REGISTRY = {
-  print: { label: 'Print', family: 'Letterjoin Print', file: 'print' },
-  precursive: { label: 'Pre-cursive', family: 'Letterjoin Precursive', file: 'precursive' },
-  joined: { label: 'Joined', family: 'Letterjoin Joined', file: 'joined', open: 'open-fonts/PlaywriteGBJ.ttf' },
+  print: { label: 'Print', family: 'Letterjoin Print', file: 'Andika-Regular.ttf' },
+  precursive: { label: 'Pre-cursive', family: 'Letterjoin Precursive', file: 'PlaywriteGBJ.ttf', features: '"calt" 0' },
+  joined: { label: 'Joined', family: 'Letterjoin Joined', file: 'PlaywriteGBJ.ttf' },
 };
 
 /**
@@ -29,39 +28,21 @@ export function startingStyle(activity, remembered) {
   return offered(remembered) ?? offered('joined') ?? activity.letterStyle;
 }
 
-const FORMATS = [['woff2', 'woff2'], ['woff', 'woff'], ['otf', 'opentype'], ['ttf', 'truetype']];
-
-/**
- * Every file a style may load, best first: the owner's files, then the style's open font. They are tried one
- * at a time because WebKit never settles `FontFace.load()` for a source list in which every file is missing,
- * so on an iPad one list left the sheet blank. A single missing file rejects promptly.
- * @param {LetterStyle} style
- * @returns {string[]} CSS `src` values
- */
-export function fontSources(style) {
-  const { file, open } = FONT_REGISTRY[style];
-  const owner = FORMATS.map(([ext, format]) => `url(fonts/${file}.${ext}) format("${format}")`);
-  return open ? [...owner, `url(${open}) format("truetype")`] : owner;
-}
-
 /**
  * @param {LetterStyle} style
  * @param {{ FontFace: typeof FontFace, fonts: FontFaceSet }} env
  * @returns {Promise<ResolvedFont>}
  */
 export async function resolveFont(style, { FontFace, fonts }) {
-  const { family } = FONT_REGISTRY[style];
-  for (const source of fontSources(style)) {
-    try {
-      const face = new FontFace(family, source);
-      await face.load();
-      fonts.add(face);
-      return { family: `"${family}", ${FALLBACK_FAMILY}`, custom: true };
-    } catch {
-      continue;
-    }
+  const { family, file, features } = FONT_REGISTRY[style];
+  try {
+    const face = new FontFace(family, `url(open-fonts/${file})`, features ? { featureSettings: features } : undefined);
+    await face.load();
+    fonts.add(face);
+    return { family: `"${family}", ${FALLBACK_FAMILY}`, custom: true };
+  } catch {
+    return { family: FALLBACK_FAMILY, custom: false };
   }
-  return { family: FALLBACK_FAMILY, custom: false };
 }
 
 /**
