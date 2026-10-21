@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PORT_BASE } from './ports.ts';
-import { adminReady } from './support.ts';
+import { adminReady, pageReady } from './support.ts';
 
 const GAMES = `http://localhost:${PORT_BASE}`;
 const ADMIN = `http://localhost:${PORT_BASE + 1}`;
@@ -86,6 +86,7 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 		await kid.goto(`${GAMES}/`);
 		await signInAtFakeEntra(kid, KID_EMAIL);
 		await expect(kid.getByRole('heading', { name: 'Choose your name' })).toBeVisible();
+		await pageReady(kid);
 		await kid.getByLabel('Your name in games').fill(KID_NAME);
 		await kid.getByRole('button', { name: "Let's play" }).click();
 		await expect(kid.getByRole('heading', { name: 'My games' })).toBeVisible();
@@ -179,6 +180,7 @@ test('a member granted every game sees and plays each one, and the per-game boxe
 	await test.step('the member sees every game on home and plays each one', async () => {
 		await player.goto(`${GAMES}/`);
 		await signInAtFakeEntra(player, everyEmail);
+		await pageReady(player);
 		await player.getByLabel('Your name in games').fill(everyName);
 		await player.getByRole('button', { name: "Let's play" }).click();
 		const cards = player.getByRole('list', { name: 'My games' }).getByRole('link');

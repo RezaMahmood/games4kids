@@ -11,10 +11,15 @@ export async function signInAtFakeEntra(page: Page, email: string): Promise<void
 	await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
-/** The admin page's first load is done: the shell bar is up and body[aria-busy] is gone. Until then the page is inert, and fill() types into nothing. */
+/** A page's first load is done and body[aria-busy] is gone. Until then the page is inert, and fill() types into nothing. */
+export async function pageReady(page: Page): Promise<void> {
+	await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
+}
+
+/** The admin page's first load is done: the shell bar is up and the page takes input. */
 export async function adminReady(page: Page): Promise<void> {
 	await expect(page.locator('admin-bar .g4k-bar')).toBeVisible();
-	await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
+	await pageReady(page);
 }
 
 /** The fake popup asks for credentials again, as prompt=login does. */

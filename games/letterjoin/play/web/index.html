@@ -14,9 +14,9 @@
   <link rel="stylesheet" href="/shared/shell.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body aria-busy="true">
   <portal-bar></portal-bar>
-  <div id="app">
+  <div id="app" inert>
     <header class="bar">
       <h1>Letter Tracing</h1>
       <span id="practice" class="practice-pill" role="timer" aria-live="off" hidden><span class="practice-cue" aria-hidden="true"></span><span id="practice-text"></span></span>

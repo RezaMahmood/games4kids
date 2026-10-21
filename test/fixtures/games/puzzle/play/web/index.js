@@ -1,5 +1,9 @@
-import { enter } from '/shell/v1/index.js';
+import { enter, ready } from '/shell/v1/index.js';
 
 const { api } = await enter({ game: 'puzzle' });
-const reply = await api.post('hello', {});
-document.getElementById('hello').textContent = `Puzzle says hello ${reply.hello}`;
+try {
+  const reply = await api.post('hello', {});
+  document.getElementById('hello').textContent = `Puzzle says hello ${reply.hello}`;
+} finally {
+  ready();
+}

@@ -1,4 +1,4 @@
-import { enter } from '/shell/v1/index.js';
+import { enter, ready } from '/shell/v1/index.js';
 
 const { api, me, storage } = await enter({ game: 'fixture' });
 
@@ -21,3 +21,4 @@ async function look() {
 
 document.getElementById('refresh').addEventListener('click', look);
 await look();
+ready();

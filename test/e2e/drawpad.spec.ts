@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, signInAtFakeEntra } from './support.ts';
+import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, pageReady, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const KID_EMAIL = `kid-${RUN}@example.com`;
@@ -25,6 +25,7 @@ test('a child draws and saves until time_up on the games site, after an admin ma
 	await test.step('the child signs in and chooses a name', async () => {
 		await kid.goto(`${GAMES}/`);
 		await signInAtFakeEntra(kid, KID_EMAIL);
+		await pageReady(kid);
 		await kid.getByLabel('Your name in games').fill(KID_NAME);
 		await kid.getByRole('button', { name: "Let's play" }).click();
 		await expect(kid.getByRole('list', { name: 'My games' }).getByRole('link', { name: /Draw Pad/ })).toBeVisible();

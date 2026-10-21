@@ -1,4 +1,4 @@
-import { ApiFailure, enterWelcome } from '../shell/v1/index.ts';
+import { ApiFailure, enterWelcome, ready, whileLoading } from '../shell/v1/index.ts';
 import { safeReturn } from './return-to.ts';
 
 function must<T extends HTMLElement>(id: string, kind: new () => T): T {
@@ -25,6 +25,7 @@ zoneSelect.replaceChildren(
 );
 
 const { api } = await enterWelcome();
+ready();
 nameInput.focus();
 
 function complain(message: string): void {
@@ -40,7 +41,7 @@ form.addEventListener('submit', async (event) => {
 	const displayName = nameInput.value.trim();
 	if (displayName === '') return complain('Type the name you want in games.');
 	try {
-		await api.put('profile', { displayName, timeZone: zoneSelect.value });
+		await whileLoading(api.put('profile', { displayName, timeZone: zoneSelect.value }));
 		location.assign(safeReturn(new URLSearchParams(location.search).get('return'), location.origin));
 	} catch (error) {
 		if (!(error instanceof ApiFailure)) return complain('We could not save your name. Try again.');

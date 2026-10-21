@@ -1,4 +1,4 @@
-import { enter } from '../shell/v1/index.ts';
+import { enter, ready } from '../shell/v1/index.ts';
 
 const status = document.getElementById('status');
 const cards = document.getElementById('cards');
@@ -34,3 +34,4 @@ if (games.length === 0) {
 		}),
 	);
 }
+ready();

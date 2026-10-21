@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { PointerEvent as PreactPointerEvent } from 'preact/compat';
 import type { Score } from '../../../../data/types';
-import { api, drawingImage, pictureFile } from '../api';
+import { api, drawingImage, pictureFile, whileLoading } from '../api';
 import type { CanvasScreenProps } from '../contracts';
 import { createAutosave } from '../canvas/autosave';
 import { FinishResult } from '../canvas/FinishResult';
@@ -69,7 +69,7 @@ export function Freestyle({ picture, drawing, onLeave, startFinish }: CanvasScre
     const pen = new PenLayer(canvasRef.current!, W, H, Math.min(2, Math.max(1, window.devicePixelRatio || 1)));
     penRef.current = pen;
     let live = true;
-    Promise.all([loadImage(drawingImage(drawing.id), true), loadImage(pictureFile(picture.id, 'outline.png'))]).then(([base, line]) => {
+    whileLoading(Promise.all([loadImage(drawingImage(drawing.id), true), loadImage(pictureFile(picture.id, 'outline.png'))])).then(([base, line]) => {
       if (!live) return;
       if (base) pen.loadBase(base);
       setOutline(line);
