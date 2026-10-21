@@ -1,9 +1,26 @@
-import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'obscenity';
+import { createSimpleTransformer, englishDataset, englishRecommendedBlacklistMatcherTransformers, englishRecommendedWhitelistMatcherTransformers, RegExpMatcher } from 'obscenity';
 
 /** Insults aimed at a person that the dataset leaves out. Whole words only, so "Fatima" stays fine. */
 const INSULTS: ReadonlySet<string> = new Set(['idiot', 'stupid', 'loser', 'dumb', 'ugly', 'fat', 'smelly', 'hate']);
 
-const profanity = new RegExpMatcher({ ...englishDataset.build(), ...englishRecommendedTransformers });
+/** Real given names and surnames that hold a word the dataset flags. Whole words only, so "Dickhead" stays refused. */
+const REAL_NAMES = ['dick', 'dicky', 'dickie', 'dickson', 'analise', 'annalee', 'fagan', 'fagin', 'fukui', 'cummings', 'peniston', 'pissarro'];
+
+const isWordCharacter = (code: number) => /[\p{L}\p{N}]/u.test(String.fromCodePoint(code));
+
+/**
+ * obscenity's whitelist is a substring search. Padding each term with a space, and reading every non-letter in the
+ * input as a space, makes it a whole-word search that still sees "Dick-Smith" and ignores "Dickhead".
+ */
+const dataset = englishDataset.build();
+const profanity = new RegExpMatcher({
+	blacklistedTerms: dataset.blacklistedTerms,
+	whitelistedTerms: [...(dataset.whitelistedTerms ?? []),...REAL_NAMES.map((name) => ` ${name} `)],
+	blacklistMatcherTransformers: englishRecommendedBlacklistMatcherTransformers,
+	whitelistMatcherTransformers: [createSimpleTransformer((code) => (isWordCharacter(code) ? code : 32)), ...englishRecommendedWhitelistMatcherTransformers],
+});
+
+const flagged = (text: string) => profanity.hasMatch(` ${text} `);
 
 const SINGLE_CHARACTER_GAP = /(?<=(?:^| )[\p{L}\p{N}]) (?=[\p{L}\p{N}](?: |$))/gu;
 
@@ -15,5 +32,5 @@ const SINGLE_CHARACTER_GAP = /(?<=(?:^| )[\p{L}\p{N}]) (?=[\p{L}\p{N}](?: |$))/g
 export function isKindName(name: string): boolean {
 	const words = name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word !== '');
 	if (words.some((word) => INSULTS.has(word))) return false;
-	return !profanity.hasMatch(name) && !profanity.hasMatch(words.join(' ').replace(SINGLE_CHARACTER_GAP, ''));
+	return !flagged(name) && !flagged(words.join(' ').replace(SINGLE_CHARACTER_GAP, ''));
 }

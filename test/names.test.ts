@@ -25,8 +25,15 @@ test('an insult is refused only as a whole word', () => {
 	assert.equal(isKindName('Ugly Duckling'), false);
 });
 
-test('the library refuses some real names that hold a flagged word, and we accept that', () => {
-	for (const name of ['Dick', 'Dickson', 'Analise', 'Annalee', 'Fagan', 'Cummings', 'Pissarro']) {
+test('real given names and surnames the dataset flags are let through, as whole words only', () => {
+	for (const name of ['Dick', 'Dicky', 'Dickie', 'Dickson', 'Analise', 'Annalee', 'Fagan', 'Fagin', 'Fukui', 'Cummings', 'Peniston', 'Pissarro', 'dick', 'ANNALEE', 'Mr Dickson', 'Dick-Smith']) {
+		assert.equal(isKindName(name), true, `${name} is allowed`);
+	}
+	for (const name of ['Dickhead', 'Dickwad', 'Dickless', 'Mrdick', 'd1ck', 'Dick fuck', 'Dick f u c k', 'Dickson shit']) {
 		assert.equal(isKindName(name), false, `${name} is refused`);
 	}
+});
+
+test('words that are only insults stay refused', () => {
+	for (const name of ['Ass', 'Sex', 'Hooker', 'ass', 'SEX']) assert.equal(isKindName(name), false, `${name} is refused`);
 });
