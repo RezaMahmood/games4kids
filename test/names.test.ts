@@ -26,10 +26,10 @@ test('an insult is refused only as a whole word', () => {
 });
 
 test('real given names and surnames the dataset flags are let through, as whole words only', () => {
-	for (const name of ['Dick', 'Dicky', 'Dickie', 'Dickson', 'Analise', 'Annalee', 'Fagan', 'Fagin', 'Fukui', 'Cummings', 'Peniston', 'Pissarro', 'dick', 'ANNALEE', 'Mr Dickson', 'Dick-Smith']) {
+	for (const name of ['Dickson', 'Analise', 'Annalee', 'Fagan', 'Fagin', 'Fukui', 'Cummings', 'Peniston', 'Pissarro', 'ANNALEE', 'Mr Dickson', 'Anna Fagan']) {
 		assert.equal(isKindName(name), true, `${name} is allowed`);
 	}
-	for (const name of ['Dickhead', 'Dickwad', 'Dickless', 'Mrdick', 'd1ck', 'Dick fuck', 'Dick f u c k', 'Dickson shit']) {
+	for (const name of ['Dick', 'Dicky', 'Big Dick', 'Dickhead', 'Dickwad', 'Dickless', 'Mrdick', 'd1ck', 'Dickson shit']) {
 		assert.equal(isKindName(name), false, `${name} is refused`);
 	}
 });

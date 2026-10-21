@@ -3,8 +3,11 @@ import { createSimpleTransformer, englishDataset, englishRecommendedBlacklistMat
 /** Insults aimed at a person that the dataset leaves out. Whole words only, so "Fatima" stays fine. */
 const INSULTS: ReadonlySet<string> = new Set(['idiot', 'stupid', 'loser', 'dumb', 'ugly', 'fat', 'smelly', 'hate']);
 
-/** Real given names and surnames that hold a word the dataset flags. Whole words only, so "Dickhead" stays refused. */
-const REAL_NAMES = ['dick', 'dicky', 'dickie', 'dickson', 'analise', 'annalee', 'fagan', 'fagin', 'fukui', 'cummings', 'peniston', 'pissarro'];
+/**
+ * Real given names and surnames that hold a word the dataset flags. Whole words only, so "Dickhead" stays refused.
+ * Dick itself is left off, because as a whole word it is also the slang, and "Big Dick" would pass.
+ */
+const REAL_NAMES = ['dickson','analise', 'annalee', 'fagan', 'fagin', 'fukui', 'cummings', 'peniston', 'pissarro'];
 
 const isWordCharacter = (code: number) => /[\p{L}\p{N}]/u.test(String.fromCodePoint(code));
 
