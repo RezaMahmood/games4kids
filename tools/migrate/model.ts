@@ -2,6 +2,12 @@ import type { Email, Row } from '@g4k/sdk';
 
 export type Game = 'drawpad' | 'letterjoin';
 
+/** The old apps' storage, which the migration tools only ever read. */
+export const OLD_ACCOUNTS = {
+	drawpad: { name: 'stdp2qnzjgj6a3qtq', resourceGroup: 'rg-drawpad' },
+	letterjoin: { name: 'stletterjoinul5nga', resourceGroup: 'rg-letterjoin' },
+} as const satisfies Readonly<Record<Game, { readonly name: string; readonly resourceGroup: string }>>;
+
 export type SourceBlob = { readonly bytes: Uint8Array; readonly contentType: string };
 
 export type OldTable = { list(): AsyncIterable<Row> };

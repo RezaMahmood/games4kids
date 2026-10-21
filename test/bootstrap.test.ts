@@ -387,6 +387,59 @@ describe('--apply --after-first-deploy', () => {
 		assert.equal(world.snapshot(), settled);
 	});
 
+	const OLD_DRAWPAD = '/subscriptions/sub-0000/resourceGroups/rg-drawpad/providers/Microsoft.Storage/storageAccounts/stdp2qnzjgj6a3qtq';
+	const OLD_LETTERJOIN = '/subscriptions/sub-0000/resourceGroups/rg-letterjoin/providers/Microsoft.Storage/storageAccounts/stletterjoinul5nga';
+	const yours = (world: World) =>
+		world.armRoles
+			.map((row) => row['properties'] as { scope: string; principalId: string; roleDefinitionId: string })
+			.filter((row) => row.principalId === world.ownerId)
+			.map((row) => `${row.scope.split('/').slice(-2).join('/')} ${row.roleDefinitionId.split('/').at(-1)}`)
+			.sort();
+
+	test('gives you the data roles the migration tools need, and only those', async () => {
+		const world = await deployed();
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
+		assert.deepEqual(yours(world), [
+			`storageAccounts/g4kdrawpadab12c ${AZURE_ROLES.blobDataContributor}`,
+			`storageAccounts/g4kdrawpadab12c ${AZURE_ROLES.tableDataContributor}`,
+			`storageAccounts/g4kletterjoinab12c ${AZURE_ROLES.blobDataContributor}`,
+			`storageAccounts/g4kletterjoinab12c ${AZURE_ROLES.tableDataContributor}`,
+			`storageAccounts/stdp2qnzjgj6a3qtq ${AZURE_ROLES.blobDataReader}`,
+			`storageAccounts/stdp2qnzjgj6a3qtq ${AZURE_ROLES.tableDataReader}`,
+			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.blobDataReader}`,
+			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.tableDataReader}`,
+			`tables/admins ${AZURE_ROLES.tableDataContributor}`,
+			`tables/emails ${AZURE_ROLES.tableDataReader}`,
+			`tables/identities ${AZURE_ROLES.tableDataReader}`,
+		].sort());
+	});
+
+	test('a stronger data role you already hold on an account counts, so nothing is added there', async () => {
+		const world = await deployed();
+		for (const [scope, role] of [[OLD_DRAWPAD, AZURE_ROLES.tableDataContributor], [OLD_DRAWPAD, AZURE_ROLES.blobDataOwner], [OLD_LETTERJOIN, AZURE_ROLES.tableDataContributor]] as const) {
+			world.armRoles.push({ id: `${scope}/providers/Microsoft.Authorization/roleAssignments/held-${role}`, properties: { scope, principalId: world.ownerId, roleDefinitionId: `/subscriptions/sub-0000/providers/Microsoft.Authorization/roleDefinitions/${role}` } });
+		}
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
+		const onOld = yours(world).filter((row) => row.includes('stdp2qnzjgj6a3qtq') || row.includes('stletterjoinul5nga'));
+		assert.deepEqual(onOld, [
+			`storageAccounts/stdp2qnzjgj6a3qtq ${AZURE_ROLES.blobDataOwner}`,
+			`storageAccounts/stdp2qnzjgj6a3qtq ${AZURE_ROLES.tableDataContributor}`,
+			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.blobDataReader}`,
+			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.tableDataContributor}`,
+		].sort());
+	});
+
+	test('once the old accounts are gone their roles are skipped, not attempted', async () => {
+		const world = await deployed();
+		world.oldAccountsExist = false;
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
+		assert.ok(yours(world).every((row) => !row.includes('stdp2qnzjgj6a3qtq') && !row.includes('stletterjoinul5nga')));
+		assert.match(io.lines.join('\n'), /stdp2qnzjgj6a3qtq does not exist, so there is nothing to migrate from it/);
+	});
+
 	test('before the Static Web Apps exist it says so instead of guessing', async () => {
 		const world = new World();
 		await run(parseFlags(APPLY), world.io());

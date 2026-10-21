@@ -26,6 +26,8 @@ import {
 	parseUser,
 	planAdminAccount,
 	planAfterFirstDeploy,
+	planMigrationRoles,
+	oldAccountId,
 	BORROWED_VISION,
 	borrowedVisionScope,
 	planAzureRoles,
@@ -298,12 +300,13 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 			case 'after-first-deploy': {
 				const hosts: Record<AppKey, string | null> = { games: null, admin: null };
 				let portal: { name: string; id: string } | null = null;
+				let tagged: Record<string, unknown>[] = [];
 				if (c.rg.exists) {
 					const sites = list(await json(azCommand('staticwebapp', 'list', '--resource-group', RESOURCE_GROUP))).map(rec);
 					for (const key of APP_KEYS) hosts[key] = text(sites.find((site) => site['name'] === staticWebAppName(key === 'games' ? 'games' : 'admin'))?.['defaultHostname']) || null;
-					const accounts = list(await json(azCommand('storage', 'account', 'list', '--resource-group', RESOURCE_GROUP, '--query', "[?tags.game=='portal'].{name:name,id:id}")));
-					const first = rec(accounts[0]);
-					portal = first['name'] ? { name: text(first['name']), id: text(first['id']) } : null;
+					tagged = list(await json(azCommand('storage', 'account', 'list', '--resource-group', RESOURCE_GROUP, '--query', '[?tags.game!=null].{name:name,id:id,game:tags.game}'))).map(rec);
+					const found = tagged.find((account) => account['game'] === 'portal');
+					portal = found ? { name: text(found['name']), id: text(found['id']) } : null;
 				}
 				const meRaw = rec(await json(azGet(`${GRAPH}/me?$select=id,mail,userPrincipalName`)));
 				const me = { id: text(meRaw['id']), mail: text(meRaw['mail']), userPrincipalName: text(meRaw['userPrincipalName']) };
@@ -326,7 +329,16 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 					const granted = await attempt(azGet(`${ARM}${borrowedVisionScope(c)}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01`));
 					vision.roles = granted.ok ? parseRoleAssignments(list(rec(granted.value)['value'])) : [];
 				}
-				return planAfterFirstDeploy(c, { hosts, portal, me, roles, row, vision }, { adminAccount: admin, seedSelf: flags.seedSelf });
+				const gameAccount = (game: string) => text(tagged.find((account) => account['game'] === game)?.['id']) || null;
+				const oldAccount = async (game: 'drawpad' | 'letterjoin') => ((await attempt(azCommand('storage', 'account', 'show', '--ids', oldAccountId(c, game)))).ok ? oldAccountId(c, game) : null);
+				const migration = { me: me.id ? { id: me.id } : null, old: { drawpad: await oldAccount('drawpad'), letterjoin: await oldAccount('letterjoin') }, games: { drawpad: gameAccount('drawpad'), letterjoin: gameAccount('letterjoin') }, portal: portal?.id ?? null };
+				const mine: ReturnType<typeof parseRoleAssignments> = [];
+				for (const scope of [...Object.values(migration.old), ...Object.values(migration.games), migration.portal]) {
+					if (!scope || !me.id) continue;
+					const got = await attempt(azGet(`${ARM}${scope}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01&$filter=assignedTo('${me.id}')`));
+					if (got.ok) mine.push(...parseRoleAssignments(list(rec(got.value)['value'])));
+				}
+				return [...planAfterFirstDeploy(c, { hosts, portal, me, roles, row, vision }, { adminAccount: admin, seedSelf: flags.seedSelf }), ...planMigrationRoles({ ...migration, roles: mine })];
 			}
 		}
 	}
