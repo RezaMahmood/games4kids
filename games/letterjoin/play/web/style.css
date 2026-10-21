@@ -210,7 +210,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; }
 @keyframes arrive { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
 /* The scoreboard. */
-#scoreboard-screen, #progress-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#scoreboard-screen, #progress-screen, #board-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sb-bar { display: flex; align-items: center; gap: 16px; padding: 14px 24px 8px; }
 .sb-bar h2 { margin: 0; font-family: var(--round); font-size: 28px; color: var(--accent-dark); }
 .sb-scroll { flex: 1; overflow-y: auto; padding: 8px 24px 32px; -webkit-user-select: text; user-select: text; }
@@ -260,6 +260,28 @@ button { font: inherit; color: inherit; touch-action: manipulation; }
 .pg-level[data-level="explorer"] { --tint-soft: var(--explorer-soft); }
 .pg-level[data-level="champion"] { --tint-soft: var(--champion-soft); }
 .pg-note { margin: 16px 0 0; }
+
+.hard-switch:disabled { opacity: 0.6; cursor: progress; }
+.bd-explain { margin: 16px 0 0; max-width: 34em; font-family: var(--round); font-size: 22px; }
+.bd-level { --tint: var(--accent); --tint-soft: var(--accent-soft); margin-top: 24px; }
+.bd-level[data-level="starter"] { --tint: var(--starter); --tint-soft: var(--starter-soft); }
+.bd-level[data-level="explorer"] { --tint: var(--explorer); --tint-soft: var(--explorer-soft); }
+.bd-level[data-level="champion"] { --tint: var(--champion); --tint-soft: var(--champion-soft); }
+.bd-level h3 { margin: 0; padding: 8px 20px; font-family: var(--round); font-size: 26px; color: #fff; background: var(--tint); border-radius: 18px 18px 0 0; }
+.bd-level .empty { margin: 0; padding: 14px 20px; font-size: 20px; background: var(--paper); border: 3px solid var(--tint-soft); border-top: 0; border-radius: 0 0 18px 18px; }
+.bd-wrap { overflow-x: auto; background: var(--paper); border: 3px solid var(--tint-soft); border-top: 0; border-radius: 0 0 18px 18px; }
+.bd-table { width: 100%; min-width: 560px; border-collapse: collapse; }
+.bd-table th, .bd-table td { padding: 12px 8px; text-align: center; }
+.bd-table thead th { background: var(--tint-soft); font-size: 15px; }
+.bd-table thead th.today { background: var(--tint); color: #fff; }
+.bd-table thead th:first-child, .bd-table tbody th { text-align: left; padding-left: 14px; font-weight: 600; font-size: 18px; overflow-wrap: anywhere; }
+.bd-table td { font-size: 20px; font-variant-numeric: tabular-nums; }
+.bd-table td.none { color: var(--muted); }
+.bd-table td.total { font-weight: 700; }
+.bd-table tbody tr + tr { border-top: 2px solid var(--line); }
+.bd-table tr.me { background: var(--accent-soft); }
+.bd-table tr.me td.none { color: var(--muted); }
+.bd-you { margin-left: 8px; padding: 2px 10px; border-radius: 999px; background: var(--accent-dark); color: #fff; font-size: 14px; font-weight: 700; }
 
 /* Fireworks and the cheer sit above everything and never take a touch. */
 #fireworks { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 50; pointer-events: none; background: rgba(10, 14, 46, 0); transition: background 0.35s ease; }

@@ -32,6 +32,7 @@
             <span class="hard-words"><span id="hard-all-label" class="hard-label">Hard mode</span><span id="hard-all-hint" class="hard-hint">Write it yourself, no outline</span></span>
           </button>
           <button id="progress-open" type="button" class="link-button">My progress</button>
+          <button id="board-open" type="button" class="link-button">Friends board</button>
         </div>
       </div>
       <ol id="activity-list" class="activity-list"></ol>
@@ -65,6 +66,23 @@
         <p id="pg-status" class="pg-status"></p>
         <ol id="pg-days" class="pg-days"></ol>
         <p id="pg-note" class="note pg-note" hidden>Score is your average for the day. Speed is how many letters you trace in a minute.</p>
+      </div>
+    </section>
+
+    <section id="board-screen" hidden aria-labelledby="bd-heading">
+      <div class="sb-bar">
+        <button id="bd-back" type="button" class="link-button">Back to activities</button>
+        <h2 id="bd-heading">Friends board</h2>
+      </div>
+      <div class="sb-scroll">
+        <button id="bd-switch" type="button" class="hard-switch" role="switch" aria-checked="false" aria-labelledby="bd-switch-label" hidden>
+          <span class="hard-track" aria-hidden="true"></span>
+          <span class="hard-words"><span id="bd-switch-label" class="hard-label">Show my scores on the board</span></span>
+        </button>
+        <p id="bd-status" class="pg-status"></p>
+        <p id="bd-explain" class="bd-explain" hidden>Turn this on to see how your friends are doing, and to show them your scores. Only children who turn it on can be seen, and you can turn it off whenever you like.</p>
+        <div id="bd-levels"></div>
+        <p id="bd-note" class="note pg-note" hidden>Points are the best score for each activity on each day, and hard mode earns extra. Your points count from the moment you turned this on.</p>
       </div>
     </section>
 

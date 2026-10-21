@@ -8,6 +8,8 @@ import { LEVELS, parseActivity } from './activity.js';
  * @typedef {{ words: { text: string, confidence: number, box: { x: number, y: number, w: number, h: number } }[] }} RecognitionResult
  * @typedef {{ minutes: number, usedSeconds: number }} PracticeToday the admin's daily minutes and the time used that local day
  * @typedef {{ dailyPracticeMinutes: number, hardModeDefault: boolean }} Settings
+ * @typedef {{ name: string, me: boolean, points: number[], total: number }} BoardLine one child's points on each of the board's days
+ * @typedef {{ optedIn: false } | { optedIn: true, days: string[], levels: { level: import('./activity.js').Level, children: BoardLine[] }[] }} Board
  */
 
 export class ApiError extends Error {
@@ -42,6 +44,16 @@ function parseAttempts(data) {
   return data.attempts.map(parseAttempt);
 }
 
+/** @returns {Board} */
+function parseBoard(raw) {
+  if (raw?.optedIn === false) return { optedIn: false };
+  const line = (c) => typeof c?.name === 'string' && typeof c.me === 'boolean' && Array.isArray(c.points) && c.points.every(Number.isFinite) && Number.isFinite(c.total);
+  const ok = raw?.optedIn === true && Array.isArray(raw.days) && Array.isArray(raw.levels)
+    && raw.levels.every((l) => LEVELS.includes(l?.level) && Array.isArray(l.children) && l.children.every(line));
+  if (!ok) throw new ApiError(502, 'The server sent a board this app does not understand.');
+  return { optedIn: true, days: raw.days, levels: raw.levels.map(({ level, children }) => ({ level, children: children.map(({ name, me, points, total }) => ({ name, me, points, total })) })) };
+}
+
 /** @returns {RecognitionResult} */
 function parseRecognition(raw) {
   const box = (b) => ['x', 'y', 'w', 'h'].every((k) => Number.isFinite(b?.[k]));
@@ -70,6 +82,10 @@ export function createApi(client) {
     saveResult: async (activityId, result) => parseResult(await client.put(`activities/${id(activityId)}/result`, result)),
     /** The caller's own attempts for the last 120 days, oldest first. @returns {Promise<Attempt[]>} */
     progress: async () => parseAttempts(await client.get('progress')),
+    /** The friends board for the seven days ending on the device's day, or that the child has not switched it on. @returns {Promise<Board>} */
+    board: async (day) => parseBoard(await client.get('board', { day })),
+    /** Switches the child on or off the board. Off removes them at once. @returns {Promise<{ optedIn: boolean }>} */
+    setBoard: (on) => client.put('board/me', { on }),
     /** @returns {Promise<Settings>} */
     settings: () => client.get('settings'),
     /** @returns {Promise<PracticeToday>} */
