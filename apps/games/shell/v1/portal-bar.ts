@@ -1,14 +1,16 @@
 import { el } from '../../../shared/dom.ts';
 
 export type BarState = {
+	readonly place: { readonly kind: 'home' } | { readonly kind: 'game'; readonly title: string };
 	readonly displayName: string;
 	switchPlayer(): void;
 	signOut(): void;
 };
 
 /**
- * The strip on every games-site page: home, who is playing, and the two ways out. Light DOM, so the shell's
- * stylesheet reaches it. A page may place `<portal-bar>` itself; otherwise the shell puts one first in the body.
+ * The strip on every games-site page: where the child is, who is playing, and the two ways out. On a game page the
+ * way back to all games is a button. Light DOM, so the shell's stylesheet reaches it. A page may place
+ * `<portal-bar>` itself; otherwise the shell puts one first in the body.
  */
 export class PortalBar extends HTMLElement {
 	show(state: BarState): void {
@@ -21,7 +23,9 @@ export class PortalBar extends HTMLElement {
 			el(
 				'header',
 				{ class: 'g4k-bar' },
-				el('a', { class: 'brand', href: '/' }, 'Games'),
+				...(state.place.kind === 'home'
+					? [el('span', { class: 'brand' }, 'My games')]
+					: [el('a', { class: 'g4k-button back', href: '/', 'aria-label': 'Back to all games' }, 'All games'), el('span', { class: 'brand' }, state.place.title)]),
 				el('nav', { 'aria-label': 'Player' }, el('span', { class: 'who' }, 'Playing as ', el('strong', {}, state.displayName)), button('Switch player', state.switchPlayer), button('Sign out', state.signOut)),
 			),
 		);
