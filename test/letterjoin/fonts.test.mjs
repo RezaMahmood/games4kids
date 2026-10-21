@@ -1,54 +1,77 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { LETTER_STYLES } from '../../games/letterjoin/play/web/activity.js';
-import { FALLBACK_FAMILY, FONT_REGISTRY, fontSources, resolveFont, startingStyle } from '../../games/letterjoin/play/web/fonts.js';
+import { FALLBACK_FAMILY, FONT_REGISTRY, resolveFont, startingStyle } from '../../games/letterjoin/play/web/fonts.js';
 
 function fakeFonts({ present }) {
-  const added = [];
+  const faces = [];
   class FakeFontFace {
-    constructor(family, source) {
+    constructor(family, source, descriptors) {
       this.family = family;
       this.source = source;
+      this.descriptors = descriptors;
+      faces.push(this);
     }
     async load() {
-      if (this.source.includes(',')) return new Promise(() => {});
       if (!present.some((file) => this.source.includes(file))) throw new Error('NetworkError');
       return this;
     }
   }
-  return { added, env: { FontFace: FakeFontFace, fonts: { add: (face) => added.push(face) } } };
+  const added = [];
+  return { added, faces, env: { FontFace: FakeFontFace, fonts: { add: (face) => added.push(face) } } };
 }
+
+const everyFile = Object.values(FONT_REGISTRY).map(({ file }) => file);
 
 test('every letter style has a font entry with a label', () => {
   assert.deepEqual(Object.keys(FONT_REGISTRY).sort(), [...LETTER_STYLES].sort());
   for (const style of LETTER_STYLES) assert.ok(FONT_REGISTRY[style].label && FONT_REGISTRY[style].family, style);
 });
 
-test('a style with no font file falls back to the rounded print font, and joined to the open font first', async () => {
+test('every registered font file is committed where the page loads it', () => {
+  for (const { file } of Object.values(FONT_REGISTRY)) {
+    assert.ok(existsSync(new URL(`../../games/letterjoin/play/web/open-fonts/${file}`, import.meta.url)), file);
+  }
+});
+
+test('print and joined are different fonts, and pre-cursive is its own family so it never collides with joined', () => {
+  assert.equal(FONT_REGISTRY.print.file, 'Andika-Regular.ttf');
+  assert.equal(FONT_REGISTRY.joined.file, 'PlaywriteGBJ.ttf');
+  assert.equal(new Set(Object.values(FONT_REGISTRY).map(({ family }) => family)).size, 3);
+});
+
+test('each style loads its own committed file under its own family', async () => {
+  const { added, env } = fakeFonts({ present: everyFile });
+  for (const style of LETTER_STYLES) {
+    const { family, file } = FONT_REGISTRY[style];
+    assert.deepEqual(await resolveFont(style, env), { family: `"${family}", ${FALLBACK_FAMILY}`, custom: true }, style);
+    assert.equal(added.at(-1).family, family);
+    assert.equal(added.at(-1).source, `url(open-fonts/${file})`);
+  }
+});
+
+test('pre-cursive turns contextual alternates off so its letters stay unjoined, and the other styles do not', async () => {
+  const { added, env } = fakeFonts({ present: everyFile });
+  for (const style of LETTER_STYLES) await resolveFont(style, env);
+  const byFamily = Object.fromEntries(added.map((face) => [face.family, face.descriptors]));
+  assert.deepEqual(byFamily['Letterjoin Precursive'], { featureSettings: '"calt" 0' });
+  assert.equal(byFamily['Letterjoin Print'], undefined);
+  assert.equal(byFamily['Letterjoin Joined'], undefined);
+});
+
+test('a font that fails to load falls back to the rounded print font and registers nothing', async () => {
   const { added, env } = fakeFonts({ present: [] });
-  for (const style of ['print', 'precursive']) {
+  for (const style of LETTER_STYLES) {
     assert.deepEqual(await resolveFont(style, env), { family: FALLBACK_FAMILY, custom: false }, style);
   }
-  assert.equal(added.length, 0, 'nothing is registered when no file loads');
+  assert.equal(added.length, 0);
 });
 
-test('joined uses the open Playwrite GB J font when the owner has supplied none', async () => {
-  const { added, env } = fakeFonts({ present: ['open-fonts/PlaywriteGBJ.ttf'] });
-  assert.deepEqual(await resolveFont('joined', env), { family: `"Letterjoin Joined", ${FALLBACK_FAMILY}`, custom: true });
-  assert.equal(added.length, 1);
-});
-
-test('a font file the owner dropped in web/fonts is loaded and used first, with the fallback behind it', async () => {
-  const { added, env } = fakeFonts({ present: ['fonts/joined.'] });
-  const joined = await resolveFont('joined', env);
-  assert.deepEqual(joined, { family: `"Letterjoin Joined", ${FALLBACK_FAMILY}`, custom: true });
-  assert.deepEqual(added.map((f) => f.family), ['Letterjoin Joined']);
-  assert.equal((await resolveFont('print', env)).custom, false, 'other styles still fall back');
-});
-
-test('each style looks for woff2, woff, otf and ttf files named after it, one source per load', () => {
-  assert.deepEqual(fontSources('print'), ['woff2', 'woff', 'otf', 'ttf'].map((ext) => `url(fonts/print.${ext}) format("${{ otf: 'opentype', ttf: 'truetype' }[ext] ?? ext}")`));
-  assert.equal(fontSources('joined').at(-1), 'url(open-fonts/PlaywriteGBJ.ttf) format("truetype")');
+test('a style whose own file is missing falls back without borrowing another style\'s font', async () => {
+  const { env } = fakeFonts({ present: ['PlaywriteGBJ.ttf'] });
+  assert.equal((await resolveFont('print', env)).custom, false);
+  assert.equal((await resolveFont('joined', env)).custom, true);
 });
 
 test('an attempt starts in the style this device last picked, if the activity offers it', () => {
