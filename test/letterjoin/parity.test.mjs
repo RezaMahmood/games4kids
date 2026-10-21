@@ -36,6 +36,15 @@ test('the admin pages hold byte for byte copies of the play modules they share, 
   }
 });
 
+test('the admin pages hold the same open fonts as the play pages, because the admin site is its own origin and loads them from admin/web', () => {
+  const root = new URL('../../games/letterjoin/', import.meta.url);
+  const play = readdirSync(new URL('play/web/open-fonts/', root)).sort();
+  assert.deepEqual(readdirSync(new URL('admin/web/open-fonts/', root)).sort(), play);
+  for (const name of play) {
+    assert.ok(readFileSync(new URL(`admin/web/open-fonts/${name}`, root)).equals(readFileSync(new URL(`play/web/open-fonts/${name}`, root))), `copy play/web/open-fonts/${name} to admin/web/open-fonts/${name}`);
+  }
+});
+
 test('the page never sends more practice seconds in one call than the server accepts', () => {
   assert.equal(PAGE_MAX, MAX_SEND_SECONDS);
 });

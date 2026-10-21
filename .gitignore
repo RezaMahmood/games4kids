@@ -20,6 +20,7 @@ local.settings.json
 
 # Owner-supplied letter fonts are private and never committed. The open font in open-fonts/ is.
 games/letterjoin/play/web/fonts/
+games/letterjoin/admin/web/fonts/
 .azurite/
 __azurite_db_*.json
 __blobstorage__/
