@@ -64,21 +64,20 @@ for (const { name, options } of SIZES) {
 			await expect(kid.getByRole('status')).toHaveText(`Saved. Your name in games is Cleo${tag}.`);
 			await expect(kid.getByRole('alert')).toHaveText('');
 			await expect(kid.getByRole('banner')).toContainText(`Playing as Cleo${tag}`);
-			await expect(kid.getByRole('button', { name: 'Save' })).toBeEnabled();
-			await expect(kid.getByText(RENAMED_TODAY)).toBeVisible();
 		});
 
-		await test.step('a second rename the same day is refused with a kind message and changes nothing', async () => {
-			await kid.getByLabel('Your name in games').fill(`Dora${tag}`);
-			await kid.getByRole('button', { name: 'Save' }).click();
-			await expect(kid.getByRole('alert')).toHaveText('You can change your name again tomorrow.');
-			await expect(kid.getByRole('banner')).toContainText(`Playing as Cleo${tag}`);
+		await test.step('the name and Save lock for the rest of the day, with one note that says why', async () => {
+			await expect(kid.getByLabel('Your name in games')).toBeDisabled();
+			await expect(kid.getByRole('button', { name: 'Save' })).toBeDisabled();
+			await expect(kid.getByText(RENAMED_TODAY)).toHaveCount(1);
+			await expect(kid.getByText('You can change your name again tomorrow.', { exact: true })).toHaveCount(0);
 		});
 
 		await test.step('the new name sticks on the next visit, and the old one is free', async () => {
 			await kid.reload();
 			await pageReady(kid);
 			await expect(kid.getByLabel('Your name in games')).toHaveValue(`Cleo${tag}`);
+			await expect(kid.getByLabel('Your name in games')).toBeDisabled();
 			await expect(kid.getByText(RENAMED_TODAY)).toBeVisible();
 			await kid.getByRole('link', { name: 'All games' }).click();
 			await expect(kid.getByRole('banner')).toContainText(`Playing as Cleo${tag}`);
