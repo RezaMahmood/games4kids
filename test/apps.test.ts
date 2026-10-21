@@ -233,6 +233,20 @@ test('the portal app refuses a display name another child holds and an invalid p
 	assert.equal(codeOf(stranger), 'not_invited');
 });
 
+test('the portal app refuses an unkind display name with name_not_allowed and writes no profile', async () => {
+	const w = world();
+	const { portal } = apps(w);
+	const kid = await seedPlayer(w, idp, { games: [id], profile: null });
+	for (const displayName of ['Shit', 'sh1t', 'Stupid']) {
+		const refused = await call(portal, 'PUT', '/api/portal/profile', { token: kid.token, json: { displayName, timeZone: 'UTC' } });
+		assert.equal(refused.status, 400, displayName);
+		assert.equal(codeOf(refused), 'name_not_allowed', displayName);
+	}
+	assert.deepEqual((await call(portal, 'GET', '/api/portal/me', { token: kid.token })).data, { state: 'no-profile' });
+	const kind = await call(portal, 'PUT', '/api/portal/profile', { token: kid.token, json: { displayName: 'Ada', timeZone: 'UTC' } });
+	assert.equal(kind.status, 204);
+});
+
 test('the fixture game: the admin writes a level, the player reads it and scores, and the admin sees the score by name', async () => {
 	const w = world();
 	const { player, admin } = apps(w);

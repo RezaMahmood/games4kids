@@ -4,6 +4,7 @@ export * from './entra.ts';
 export * from './graph.ts';
 export * from './http.ts';
 export * from './identity.ts';
+export * from './names.ts';
 export * from './platform.ts';
 export * from './player-app.ts';
 export * from './portal-tables.ts';

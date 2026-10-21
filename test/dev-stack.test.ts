@@ -141,7 +141,7 @@ describe('the dev stack tells the B2 story over HTTP', () => {
 		assert.match((await fetch(`${stack.adminOrigin}/g/fixture/`)).headers.get('content-security-policy') ?? '', /worker-src 'self' blob:/);
 		const members = await fetch(`${stack.adminOrigin}/`);
 		assert.ok((members.headers.get('content-security-policy') ?? '').includes(`connect-src 'self' ${stack.apiOrigin}`));
-		for (const path of ['/shell/v1/index.js', '/shared/api-client.js', '/shared/vendor/msal-browser.min.js', '/shared/tokens.css', '/home.js', '/welcome/', '/g/fixture/', '/g/puzzle/icon.svg']) {
+		for (const path of ['/shell/v1/index.js', '/shared/api-client.js', '/shared/vendor/msal-browser.min.js', '/shared/tokens.css', '/home.js', '/welcome/', '/profile/', '/profile.js', '/g/fixture/', '/g/puzzle/icon.svg']) {
 			assert.equal((await fetch(`${stack.gamesOrigin}${path}`)).status, 200, path);
 		}
 		for (const path of ['/shell/v1/index.js', '/members.js', '/games/', '/games.js', '/g/fixture/']) assert.equal((await fetch(`${stack.adminOrigin}${path}`)).status, 200, path);

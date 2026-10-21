@@ -243,3 +243,44 @@ for (const { game, path, api, loaded } of GAMES_PAGES) {
 		await adminContext.close();
 	});
 }
+
+for (const { name, options } of SIZES) {
+	test(`${name}, the profile page stays greyed out until GET me answers, and lifts when it fails`, async ({ browser }) => {
+		test.setTimeout(120_000);
+		const adminContext = await browser.newContext();
+		const admin = await adminContext.newPage();
+		answerPopups(admin);
+		await signedInAdmin(admin);
+		await addAndSync(admin, `profile-${RUN}${name.length}@example.com`, 'Draw Pad');
+
+		const kidContext = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
+		const kid = await kidContext.newPage();
+		await kid.goto(`${GAMES}/`);
+		await signInAtFakeEntra(kid, `profile-${RUN}${name.length}@example.com`);
+		await pageReady(kid);
+		await kid.getByLabel('Your name in games').fill(`P${RUN}${name.length}`);
+		await kid.getByRole('button', { name: "Let's play" }).click();
+		await expect(kid.getByRole('list', { name: 'My games' }).getByRole('link')).toHaveCount(1);
+
+		const releaseMe = await hold(kid, '**/api/portal/me');
+		try {
+			await kid.goto(`${GAMES}/profile/`);
+			await expect(kid.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(kid), 'the profile page is greyed with a spinning ring while GET me hangs').toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			releaseMe();
+		}
+		await pageReady(kid);
+		await expect(kid.getByLabel('Your name in games')).toHaveValue(`P${RUN}${name.length}`);
+		expect((await overlay(kid)).shown, 'the grey layer is gone').toBe(false);
+		await kid.unroute('**/api/portal/me');
+
+		await kid.route('**/api/portal/me', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The games are unavailable.' }) }));
+		await kid.goto(`${GAMES}/profile/`);
+		await expect(kid.getByRole('heading', { name: 'Something went wrong' })).toBeVisible();
+		await pageReady(kid);
+
+		await kidContext.close();
+		await adminContext.close();
+	});
+}
