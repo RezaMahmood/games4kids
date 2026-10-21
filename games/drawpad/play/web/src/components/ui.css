@@ -42,9 +42,9 @@ button.grow { flex: 1; }
 
 /* home */
 .home h1 { font-size: 44px; }
-.home-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding-bottom: 10px; }
-.journey { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; height: auto; min-height: 0; padding: 32px; border: 3px solid var(--ink); border-radius: var(--r-panel); background: var(--surface); box-shadow: 0 10px 0 var(--ink); text-align: left; transition: transform .08s, box-shadow .08s; }
-.journey svg { flex: 1; min-height: 0; width: 100%; max-height: 330px; }
+.home-grid { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding-bottom: 10px; }
+.journey { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; height: auto; min-height: auto; padding: 32px; border: 3px solid var(--ink); border-radius: var(--r-panel); background: var(--surface); box-shadow: 0 10px 0 var(--ink); text-align: left; transition: transform .08s, box-shadow .08s; }
+.journey svg { flex: 1 1 160px; min-height: 0; width: 100%; max-height: 330px; }
 .journey:not(:disabled):active { transform: translateY(6px); box-shadow: 0 4px 0 var(--ink); }
 .journey:disabled { opacity: .5; box-shadow: 0 10px 0 var(--line); border-color: var(--line); }
 .journey-text { display: flex; flex-direction: column; gap: 6px; }

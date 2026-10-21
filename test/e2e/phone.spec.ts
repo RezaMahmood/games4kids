@@ -100,6 +100,28 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		await expect(player.locator('portal-bar .g4k-bar').getByRole('link', { name: 'Back to all games' })).toHaveCount(0);
 	});
 
+	await test.step('the Draw Pad landing on a small phone keeps each card’s text inside its card, and the cards do not overlap', async () => {
+		await player.setViewportSize({ width: 375, height: 667 });
+		await player.goto(`${GAMES}/g/drawpad/`);
+		await pageReady(player);
+		await expect(player.getByRole('heading', { name: /What do you want to do/ })).toBeVisible();
+		await player.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+		const cards = player.locator('.home-grid > button');
+		await expect(cards).toHaveCount(2);
+		const boxes = await cards.evaluateAll((elements) =>
+			elements.map((card) => {
+				const { top, bottom } = card.getBoundingClientRect();
+				const text = card.querySelector('.journey-text')!.getBoundingClientRect();
+				return { top, bottom, textTop: text.top, textBottom: text.bottom };
+			}),
+		);
+		for (const box of boxes) {
+			expect(box.textTop, 'the card text starts inside its card').toBeGreaterThanOrEqual(box.top);
+			expect(box.textBottom, 'the card text ends inside its card').toBeLessThanOrEqual(box.bottom);
+		}
+		expect(boxes[0]!.bottom, 'the first card ends before the second begins').toBeLessThanOrEqual(boxes[1]!.top);
+	});
+
 	const strangerContext = await browser.newContext(PHONE);
 	const stranger = await strangerContext.newPage();
 
