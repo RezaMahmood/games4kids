@@ -1,4 +1,4 @@
-import type { Row } from '@g4k/sdk';
+import type { Email, Row } from '@g4k/sdk';
 
 export type Game = 'drawpad' | 'letterjoin';
 
@@ -38,7 +38,8 @@ export type Counts = { planned: number; present: number; rejected: number };
 
 export type Rejection = { readonly where: string; readonly reason: string; readonly count: number };
 
-export type Unmapped = { readonly game: Game; readonly oldKey: string; readonly rows: number; readonly files: number };
+/** `email` is what the old app recorded for the key, so the owner can add that member and run again. */
+export type Unmapped = { readonly game: Game; readonly oldKey: string; readonly email: Email | null; readonly rows: number; readonly files: number };
 
 export type Plan = {
 	readonly actions: readonly Action[];
@@ -143,9 +144,9 @@ export function planBuilder(target: TargetSnapshot) {
 			blobs.push({ kind: 'blob', game, container, from, to });
 		},
 		reject,
-		unmapped(game: Game, oldKey: string, kind: 'row' | 'file'): void {
+		unmapped(game: Game, oldKey: string, kind: 'row' | 'file', email: Email | null): void {
 			const key = `${game}\u0000${oldKey}`;
-			const before = unmapped.get(key) ?? { game, oldKey, rows: 0, files: 0 };
+			const before = unmapped.get(key) ?? { game, oldKey, email, rows: 0, files: 0 };
 			unmapped.set(key, kind === 'row' ? { ...before, rows: before.rows + 1 } : { ...before, files: before.files + 1 });
 		},
 		build(): Plan {
@@ -186,7 +187,8 @@ export async function execute(plan: Plan, from: OldAccounts, to: TargetWriter): 
 	return Object.fromEntries(outcomes);
 }
 
-export function formatReport(report: MigrationReport): string[] {
+/** Emails stay out of the report unless `showEmails`, so a pasted report names no child. */
+export function formatReport(report: MigrationReport, { showEmails = false }: { readonly showEmails?: boolean } = {}): string[] {
 	const { plan, outcomes } = report;
 	const lines: string[] = [`mode: ${report.mode}`];
 	for (const [name, n] of Object.entries(report.read)) lines.push(`old ${name}: ${n} read`);
@@ -203,7 +205,10 @@ export function formatReport(report: MigrationReport): string[] {
 		const keys = plan.unmapped.filter((u) => u.game === game);
 		if (keys.length === 0) continue;
 		lines.push(`${game}: ${keys.length} unmapped keys, ${keys.reduce((n, k) => n + k.rows, 0)} rows and ${keys.reduce((n, k) => n + k.files, 0)} files not migrated`);
-		for (const k of keys) lines.push(`  unmapped ${k.oldKey.slice(0, 8)}... (${k.rows} rows, ${k.files} files)`);
+		for (const k of keys) {
+			const who = showEmails ? (k.email ?? 'no email in the old app') : 'run with --show-emails to see who';
+			lines.push(`  unmapped ${k.oldKey.slice(0, 8)}... (${k.rows} rows, ${k.files} files): ${who}`);
+		}
 	}
 	return lines;
 }

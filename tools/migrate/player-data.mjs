@@ -2,6 +2,7 @@
 // Run on your Mac, signed in with `az login`. The old accounts are read only. Do not apply until the owner says so.
 //
 //   node tools/migrate/player-data.mjs --suffix <suffix>                                  report counts and unmapped keys (default)
+//   node tools/migrate/player-data.mjs --suffix <suffix> --show-emails                    also name who each unmapped key belongs to
 //   node tools/migrate/player-data.mjs --suffix <suffix> --apply --confirm-player-data    write; both flags are required
 
 import { fileURLToPath } from 'node:url';
