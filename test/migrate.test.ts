@@ -12,7 +12,7 @@ import { newAccounts, readPortal } from '../tools/migrate/accounts.ts';
 import { migrateContent, requiredFiles } from '../tools/migrate/content.ts';
 import { activityProblem } from '../tools/migrate/main.ts';
 import { formatReport, type MigrationReport, type OldAccounts } from '../tools/migrate/model.ts';
-import { APPLY_REFUSAL, ENTRA_ISSUER, NO_PORTAL_ROWS, buildMapping, letterjoinUserKey, migratePlayerData, type LetterjoinUserKey, parseCommand, parseConfirmation, type PlayerDataMapping } from '../tools/migrate/player-data.ts';
+import { APPLY_REFUSAL, ENTRA_ISSUER, NO_PORTAL_ROWS, buildMapping, letterjoinUserKey, migratePlayerData, parseCommand, parseConfirmation, type PlayerDataMapping } from '../tools/migrate/player-data.ts';
 import { runContent, runPlayerData, type Connection, type Io } from '../tools/migrate/shell.ts';
 import { JPEG_BYTES, PNG_BYTES, blob, oldAccounts, sha256, type OldData } from './support/old-accounts.ts';
 import { gameId } from './support/ids.ts';
@@ -146,7 +146,8 @@ const fixture = (): Fixture => ({ from: oldAccounts(drawpadOld(), letterjoinOld(
 
 const writes = (accounts: MemoryAccounts) => accounts.ops.filter((op) => op.write).length;
 
-async function invite(accounts: MemoryAccounts, people: readonly { email: string; objectId: string }[]): Promise<Map<string, PortalUserId>> {
+/** `objectId: null` is a member the admin added but never synced with Entra, so the portal has no identities row for them. */
+async function invite(accounts: MemoryAccounts, people: readonly { email: string; objectId: string | null }[]): Promise<Map<string, PortalUserId>> {
 	const portal = accounts.open('portal');
 	const admin = portalAdminStore(
 		{ members: portal.table('members'), identities: portal.table('identities'), emails: portal.table('emails'), profiles: portal.table('profiles'), admins: portal.table('admins') },
@@ -157,6 +158,8 @@ async function invite(accounts: MemoryAccounts, people: readonly { email: string
 		const parsed = parseEmail(email);
 		assert.ok(parsed);
 		const userId = await admin.userIdFor(parsed);
+		ids.set(parsed, userId);
+		if (objectId === null) continue;
 		const oid = parseEntraObjectId(objectId);
 		assert.ok(oid);
 		await admin.recordIdentity(oid, userId);
@@ -247,11 +250,12 @@ test('the mapping comes from the portal tables, as the admin app writes them', a
 	const accounts = memoryAccounts();
 	const { ada, ben, mapping } = await invitedBoth(accounts);
 
-	assert.equal(mapping.drawpad.get(OID_ADA as EntraObjectId), ada);
-	assert.equal(mapping.drawpad.get(OID_BEN as EntraObjectId), ben);
-	assert.equal(mapping.letterjoin.get(adaKey as LetterjoinUserKey), ada);
-	assert.equal(mapping.letterjoin.get(letterjoinUserKey(parseEmail(BEN_EMAIL)!)), ben);
-	assert.equal(mapping.drawpad.size, 2);
+	assert.equal(mapping.byObjectId.get(OID_ADA as EntraObjectId), ada);
+	assert.equal(mapping.byObjectId.get(OID_BEN as EntraObjectId), ben);
+	assert.equal(mapping.byEmail.get(parseEmail(ADA_EMAIL)!), ada);
+	assert.equal(mapping.byEmail.get(parseEmail(BEN_EMAIL)!), ben);
+	assert.equal(letterjoinUserKey(parseEmail(ADA_EMAIL)!), adaKey, 'the portal email hashes to the key old letterjoin stored');
+	assert.equal(mapping.byObjectId.size, 2);
 	assert.equal(ENTRA_ISSUER, ENTRA);
 });
 
@@ -426,5 +430,56 @@ test('a picture is copied when the files the player needs exist, even if its ori
 
 test('the mapping type is built only from portal rows', () => {
 	const empty: PlayerDataMapping = buildMapping(NO_PORTAL_ROWS);
-	assert.equal(empty.drawpad.size + empty.letterjoin.size, 0);
+	assert.equal(empty.byEmail.size + empty.byObjectId.size, 0);
 });
+
+test('a child is matched by email even when the portal has no Entra identity for them, or a different one', async () => {
+	const accounts = memoryAccounts();
+	const { from } = fixture();
+	const ids = await invite(accounts, [
+		{ email: ADA_EMAIL, objectId: '44444444-4444-4444-8444-444444444444' },
+		{ email: BEN_EMAIL, objectId: null },
+	]);
+	const ada = ids.get(parseEmail(ADA_EMAIL)!);
+	const ben = ids.get(parseEmail(BEN_EMAIL)!);
+	assert.ok(ada && ben);
+	const confirmation = parseConfirmation(['--apply', '--confirm-player-data']);
+	assert.ok(confirmation);
+	const report = await migratePlayerData({ mode: 'apply', mapping: buildMapping(await readPortal(accounts)), target: newAccounts(accounts), confirmation }, from);
+
+	assert.deepEqual(report.plan.unmapped, []);
+	const play = drawpadPlay(storageFor(drawpad, 'play', accounts.open(DRAWPAD)));
+	assert.deepEqual((await play.drawings(ada)).map((d) => d.id), ['d1']);
+	assert.deepEqual((await play.drawings(ben)).map((d) => d.id), ['d2']);
+	assert.equal((await play.usage({ userId: ben, timeZone: 'Europe/London' }, NOW)).usedSeconds, 30);
+	const ljPlay = letterjoinPlay(storageFor(letterjoin, 'play', accounts.open(LETTERJOIN)));
+	assert.equal((await ljPlay.results(ben)).get(ACTIVITY_A)?.score, 70);
+});
+
+test('a drawpad child whose old email is not a member falls back to their Entra identity', async () => {
+	const accounts = memoryAccounts();
+	const { from } = fixture();
+	const ids = await invite(accounts, [{ email: 'ada.new@example.com', objectId: OID_ADA }]);
+	const ada = ids.get(OID_ADA);
+	assert.ok(ada);
+	const report = await migratePlayerData({ mode: 'dry-run', mapping: buildMapping(await readPortal(accounts)), target: newAccounts(accounts) }, from);
+
+	assert.ok(report.plan.actions.some((action) => action.kind === 'row' && action.game === 'drawpad' && action.table === 'drawings' && action.row.partitionKey === ada));
+	assert.deepEqual(report.plan.unmapped.filter((u) => u.game === 'drawpad').map((u) => u.oldKey), [OID_BEN]);
+});
+
+test('--show-emails names each unmapped player by the email the old app recorded, and the plain report names nobody', async () => {
+	const accounts = memoryAccounts();
+	const { from } = fixture();
+	const report = await migratePlayerData({ mode: 'dry-run', mapping: buildMapping(NO_PORTAL_ROWS), target: newAccounts(accounts) }, from);
+
+	assert.deepEqual(
+		report.plan.unmapped.map((u) => [u.game, u.email]).sort(),
+		[['drawpad', 'ada.kid@example.com'], ['drawpad', BEN_EMAIL], ['letterjoin', 'ada.kid@example.com'], ['letterjoin', BEN_EMAIL]],
+	);
+	const shown = formatReport(report, { showEmails: true });
+	assert.ok(shown.some((line) => line.includes('ada.kid@example.com')));
+	assert.ok(shown.some((line) => line.includes(BEN_EMAIL)));
+	assert.ok(formatReport(report).every((line) => !line.includes('@')));
+});
+

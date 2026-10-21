@@ -21,14 +21,15 @@ export type Io = {
 
 const SUFFIX = /^[a-z0-9]{5}$/;
 const VALUE_FLAGS = ['--suffix', '--drawpad-account', '--letterjoin-account'];
-const SWITCHES = ['--apply', '--dry-run', '--confirm-player-data', '--help'];
+const SWITCHES = ['--apply', '--dry-run', '--confirm-player-data', '--show-emails', '--help'];
 
 export const USAGE = `Options:
   --dry-run                     Report what would change. This is the default.
   --apply                       Write. Rows and files that already exist are left alone.
   --suffix <5 characters>       The suffix of the new accounts (g4k<game><suffix>). Without it a dry run plans against empty new accounts.
   --drawpad-account <name>      Old drawpad account, read only. Default ${DEFAULT_ACCOUNTS.drawpad}.
-  --letterjoin-account <name>   Old letterjoin account, read only. Default ${DEFAULT_ACCOUNTS.letterjoin}.`;
+  --letterjoin-account <name>   Old letterjoin account, read only. Default ${DEFAULT_ACCOUNTS.letterjoin}.
+  --show-emails                 Name the email of each unmapped player, so you can add them as members and run again.`;
 
 export type Parsed = { readonly ok: true; readonly options: Options } | { readonly ok: false; readonly problem: string };
 
@@ -61,8 +62,8 @@ export function describeFailure(error: unknown): string {
 	return `Stopped: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`;
 }
 
-function print(io: Io, report: MigrationReport): void {
-	for (const line of formatReport(report)) io.print(line);
+function print(io: Io, report: MigrationReport, showEmails = false): void {
+	for (const line of formatReport(report, { showEmails })) io.print(line);
 }
 
 const SUFFIX_NOTE = 'No --suffix: planned against empty new accounts and an empty portal mapping.';
@@ -103,7 +104,7 @@ export async function runPlayerData(argv: readonly string[], io: Io): Promise<nu
 		command.kind === 'apply' && to
 			? await migratePlayerData({ mode: 'apply', mapping, target: to, confirmation: command.confirmation }, from)
 			: await migratePlayerData({ mode: 'dry-run', mapping, target: to ?? EMPTY_TARGET }, from);
-	print(io, report);
+	print(io, report, argv.includes('--show-emails'));
 	io.print('Not migrated: drawpad names and time zones. Each child chooses them again on /welcome/.');
 	io.print('Not migrated: who reviewed a letterjoin copy. Reviews keep reviewed, note and time.');
 	if (command.kind === 'dry-run' && command.refusal) {

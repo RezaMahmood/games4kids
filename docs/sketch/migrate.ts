@@ -9,7 +9,7 @@
  */
 
 import type { Row } from './host';
-import type { EntraObjectId, PortalUserId } from './identity';
+import type { Email, EntraObjectId, PortalUserId } from './identity';
 import type { Brand } from './manifest';
 
 /** An old account through read-only handles. */
@@ -38,7 +38,7 @@ export type MigrationReport = {
 	readonly written: Readonly<Record<string, number>>;
 	readonly skipped: Readonly<Record<string, number>>;
 	/** Old player keys with no PortalUserId yet, with their row counts. Nothing is written for them. */
-	readonly unmapped: readonly { readonly game: 'drawpad' | 'letterjoin'; readonly oldKey: string; readonly rows: number }[];
+	readonly unmapped: readonly { readonly game: 'drawpad' | 'letterjoin'; readonly oldKey: string; readonly email: Email | null; readonly rows: number }[];
 };
 
 /**
@@ -74,13 +74,14 @@ export const PLAYER_DATA = {
 export type LetterjoinUserKey = Brand<string, 'LetterjoinUserKey'>;
 
 /**
- * Derived from the portal tables, never typed by hand. drawpad's oid maps through the identities rows the admin app
- * wrote at invite (an object id is per tenant, so the existing guest keeps it). letterjoin's key is sha256 of the
- * emails row's address. A child gets an entry once invited and synced, before any sign-in.
+ * Derived from the portal tables, never typed by hand. A child is the same person when the email matches: drawpad's
+ * oid maps through the email its old profiles row recorded, and letterjoin's key is sha256 of the emails row's
+ * address. drawpad falls back to the identities rows (an object id is per tenant) only when that email is not a
+ * member. A child gets an entry once added as a member, before any sign-in or Entra sync.
  */
 export type PlayerDataMapping = {
-	readonly drawpad: ReadonlyMap<EntraObjectId, PortalUserId>;
-	readonly letterjoin: ReadonlyMap<LetterjoinUserKey, PortalUserId>;
+	readonly byEmail: ReadonlyMap<Email, PortalUserId>;
+	readonly byObjectId: ReadonlyMap<EntraObjectId, PortalUserId>;
 };
 
 /** Minted only by parseConfirmation, so no code path reaches apply without the flag on the command line. */
