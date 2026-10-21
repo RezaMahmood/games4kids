@@ -310,7 +310,8 @@ test('switching the board on twice keeps the first moment, and the board shows t
 	await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Europe/London' }, s.w.now());
 	assert.deepEqual(lineFor(await boardOf(s, s.asAda), 'explorer'), [['Ada B', true, 80]], 'her own board refreshes the name');
 	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada B', false, 80]]);
-	await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Pacific/Auckland' }, s.w.now());
+	const nextDay = new Date(s.w.now().getTime() + 24 * 60 * 60 * 1000);
+	assert.equal(await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Pacific/Auckland' }, nextDay), 'ok', 'a renamed child may change time zone on a later day');
 	await boardOf(s, s.asAda);
 	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [], 'in Auckland that score fell on the 20th, past the window');
 });
