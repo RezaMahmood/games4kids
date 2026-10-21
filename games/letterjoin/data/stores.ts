@@ -1,5 +1,6 @@
 import type { ReadBlobs, ReadTable, Row, StorageFor, Stored } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
+import type { BoardEntry } from './board.ts';
 import { compareActivities, parseActivity, type Activity } from './activity.ts';
 import { DEFAULT_SETTINGS, MAX_DAY_SECONDS, type Settings } from './practice.ts';
 import type { Attempt, Result } from './results.ts';
@@ -15,6 +16,7 @@ const ACTIVITY = 'activity';
 const SETTING = 'setting';
 const SETTINGS_ROW = 'app';
 const PRACTICE_PREFIX = 'practice-';
+const BOARD = 'board';
 const ALL_SUBMISSIONS = 'all';
 const REVIEW = 'review';
 const COMMON = ['id', 'type', 'title', 'description', 'status', 'order', 'updatedAt'];
@@ -25,6 +27,7 @@ type SettingsRow = { partitionKey: string; rowKey: string; dailyPracticeMinutes:
 type ResultRow = { partitionKey: string; rowKey: string; score: number; timeMs: number; hard?: boolean; completedAt: string };
 type AttemptRow = ResultRow & { activityId: string; level: string; chars: number };
 type PracticeRow = { partitionKey: string; rowKey: string; seconds: number };
+type BoardRow = { partitionKey: string; rowKey: string; name: string; timeZone: string; since: string };
 type SubmissionRow = { partitionKey: string; rowKey: string } & Submission;
 type PointerRow = { partitionKey: string; rowKey: string; id: string };
 type ReviewRow = { partitionKey: string; rowKey: string; reviewed: boolean; discarded: boolean; note: string; reviewedBy?: string; reviewedAt?: string };
@@ -54,6 +57,8 @@ function toSettings(row: SettingsRow | undefined): Settings {
 }
 
 const toSubmission = ({ id, userId, activityId, activityTitle, blobName, bytes, createdAt }: SubmissionRow): Submission => ({ id, userId, activityId, activityTitle, blobName, bytes, createdAt });
+
+const toBoardEntry = ({ rowKey, name, timeZone, since }: BoardRow): BoardEntry => ({ userId: rowKey, name, timeZone, since });
 
 const toResult = ({ score, timeMs, hard, completedAt }: ResultRow): Result => ({ score, timeMs, hard: hard === true, completedAt });
 
@@ -96,6 +101,12 @@ export type PlayStore = {
 	attempts(userId: string, sinceIso: string): Promise<Attempt[]>;
 	practiceSeconds(userId: string, day: string): Promise<number>;
 	addPractice(userId: string, day: string, seconds: number): Promise<number>;
+	boardEntries(): Promise<BoardEntry[]>;
+	/** Puts the child on the board from now on. A child already on it keeps their first `since`, so a repeat changes nothing. */
+	optIn(entry: BoardEntry): Promise<void>;
+	optOut(userId: string): Promise<void>;
+	/** The child's board entry with their current name and time zone, or undefined while they are not on the board. */
+	refreshBoardEntry(userId: string, name: string, timeZone: string): Promise<BoardEntry | undefined>;
 	addSubmission(submission: Submission, png: Uint8Array): Promise<void>;
 	submissionIdsFor(userId: string, activityId: string): Promise<string[]>;
 	removeSubmission(id: string): Promise<void>;
@@ -137,6 +148,21 @@ export function playStore(storage: StorageFor<Letterjoin, 'play'>): PlayStore {
 				if (entry ? await results.replaceIfMatch(row, entry.etag) : await results.insertIfAbsent(row)) return total;
 				if (attempt >= ADD_ATTEMPTS) throw new Error(`practice for ${day} kept changing while it was being saved`);
 			}
+		},
+		async boardEntries() {
+			return (await results.inPartition<BoardRow>(BOARD)).map(toBoardEntry);
+		},
+		async optIn({ userId, name, timeZone, since }) {
+			await results.insertIfAbsent({ partitionKey: BOARD, rowKey: userId, name, timeZone, since } satisfies BoardRow);
+		},
+		optOut: (userId) => results.remove(BOARD, userId),
+		async refreshBoardEntry(userId, name, timeZone) {
+			const row = await results.get<BoardRow>(BOARD, userId);
+			if (!row) return undefined;
+			if (row.name === name && row.timeZone === timeZone) return toBoardEntry(row);
+			const next: BoardRow = { ...plain(row), name, timeZone };
+			// A lost race means the child just opted out or changed again, so this call keeps what it read and the next one catches up.
+			return (await results.replaceIfMatch(next, row.etag)) ? toBoardEntry(next) : toBoardEntry(row);
 		},
 		async addSubmission(submission, png) {
 			await images.put(submission.blobName, png, 'image/png');

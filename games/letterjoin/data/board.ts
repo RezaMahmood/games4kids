@@ -4,7 +4,9 @@ import type { Attempt } from './results.ts';
 /** Hard mode is harder, so its results earn this many times the points. The web's scoreboard.js holds the same rule. */
 export const HARD_BONUS = 1.2;
 
-export type BoardChild = { userId: string; name: string; timeZone: string; since: string; attempts: readonly Attempt[] };
+/** A child who switched the board on. `since` is when, and only attempts from then on count. */
+export type BoardEntry = { userId: string; name: string; timeZone: string; since: string };
+export type BoardChild = BoardEntry & { attempts: readonly Attempt[] };
 export type BoardLine = { name: string; me: boolean; points: number[]; total: number };
 export type Board = { days: string[]; levels: { level: Level; children: BoardLine[] }[] };
 

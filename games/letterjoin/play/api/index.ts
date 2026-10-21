@@ -1,5 +1,5 @@
 import { definePlayApi, HttpError } from '@g4k/sdk';
-import { isGuid, isPng, KEEP_PER_ACTIVITY, MAX_IMAGE_BYTES, newSubmission, parsePracticeInput, parsePracticeQuery, parseResultInput, playStore, PROGRESS_DAYS, DAY_MS, toAttempt, type Activity } from '../../data/index.ts';
+import { buildBoard, daysEndingAt, isGuid, isPng, KEEP_PER_ACTIVITY, MAX_IMAGE_BYTES, newSubmission, parsePracticeInput, parsePracticeQuery, parseBoardInput, parseResultInput, playStore, PROGRESS_DAYS, DAY_MS, toAttempt, type Activity } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import { createVisionReader, ReaderUnavailable } from './reader.ts';
 
@@ -114,6 +114,36 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 					const input = parsePracticeInput(body, now);
 					if (!input.ok) throw invalid(input.problems);
 					return practiceReply(caller.userId, input.value.day, input.value.seconds);
+				},
+			},
+			{
+				name: 'board',
+				method: 'GET',
+				path: 'board',
+				body: 'none',
+				async run({ caller, query, now }) {
+					const day = parsePracticeQuery(query, now);
+					if (!day.ok) throw invalid(day.problems);
+					const me = await store.refreshBoardEntry(caller.userId, caller.displayName, caller.timeZone);
+					if (!me) return { status: 200, json: { optedIn: false } };
+					const days = daysEndingAt(day.value);
+					// Every zone is within a day of UTC, so attempts from the day before the first one cover each child's local days.
+					const floor = new Date(Date.parse(`${days[0]}T00:00:00Z`) - DAY_MS).toISOString();
+					const children = await Promise.all((await store.boardEntries()).map(async (entry) => ({ ...entry, attempts: await store.attempts(entry.userId, entry.since > floor ? entry.since : floor) })));
+					return { status: 200, json: { optedIn: true, ...buildBoard({ days, viewerId: caller.userId, children }) } };
+				},
+			},
+			{
+				name: 'setBoard',
+				method: 'PUT',
+				path: 'board/me',
+				body: 'json',
+				async run({ caller, body, now }) {
+					const on = parseBoardInput(body);
+					if (!on.ok) throw invalid(on.problems);
+					if (on.value) await store.optIn({ userId: caller.userId, name: caller.displayName, timeZone: caller.timeZone, since: now.toISOString() });
+					else await store.optOut(caller.userId);
+					return { status: 200, json: { optedIn: on.value } };
 				},
 			},
 			{
