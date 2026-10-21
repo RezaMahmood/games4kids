@@ -101,22 +101,26 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await expect(admin.locator('#status')).toContainText('Saved.');
 		await admin.getByRole('link', { name: /^Activities/ }).click();
 		await admin.locator('#new-activity').click();
+		await expect(admin.getByRole('dialog', { name: 'New activity' })).toBeVisible();
 		await admin.locator('#f-type').selectOption('sentence');
 		await admin.locator('#f-title').fill(TITLE);
 		await admin.locator('#f-status').selectOption('published');
 		await admin.locator('#f-mode').selectOption('traceThenCopy');
 		await admin.locator('#f-sentence').fill('Zebras jump.');
 		await admin.locator('#f-save').click();
-		await expect(admin.locator('#activities .card .title', { hasText: TITLE })).toBeVisible();
+		await expect(admin.getByRole('dialog')).toBeHidden();
+		await expect(admin.locator('#activities .card .title', { hasText: TITLE })).toBeInViewport({ ratio: 1 });
 	});
 
 	await test.step('the admin edits the title, and the card keeps its place', async () => {
 		const card = admin.locator('#activities .card', { hasText: TITLE });
-		await card.getByRole('button', { name: 'Edit' }).click();
+		await card.getByRole('button', { name: 'Edit', exact: true }).click();
+		await expect(admin.getByRole('dialog', { name: `Edit "${TITLE}"` })).toBeVisible();
 		await expect(admin.locator('#f-preview')).toBeVisible();
 		await admin.locator('#f-title').fill(RENAMED);
 		await admin.locator('#f-save').click();
-		await expect(admin.locator('#activities .card .title', { hasText: RENAMED })).toBeVisible();
+		await expect(admin.getByRole('dialog')).toBeHidden();
+		await expect(admin.locator('#activities .card .title', { hasText: RENAMED })).toBeInViewport({ ratio: 1 });
 		await expect(admin.locator('#activities .card .title', { hasText: TITLE, hasNotText: 'leap' })).toHaveCount(0);
 	});
 
@@ -180,3 +184,192 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 	await adminContext.close();
 	await kidContext.close();
 });
+
+const DIALOG_SIZES = {
+	desktop: { viewport: { width: 1280, height: 800 } },
+	phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+} as const;
+
+for (const [size, options] of Object.entries(DIALOG_SIZES)) {
+	test(`on ${size}, creating and editing an activity happens in a dialog over the list`, async ({ browser }) => {
+		test.setTimeout(120_000);
+		const context = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
+		const page = await context.newPage();
+		answerPopups(page);
+		const problems = collectProblems([page]);
+		const asked: string[] = [];
+		let discard = true;
+		page.on('dialog', (native) => {
+			asked.push(native.message());
+			void (discard ? native.accept() : native.dismiss());
+		});
+		const stamp = `${size}-${RUN}`;
+		const title = `Dialog ${stamp}`;
+		const dialog = page.getByRole('dialog', { name: 'New activity' });
+		const newButton = page.locator('#new-activity');
+		const card = (text: string) => page.locator('#activities .card', { hasText: text });
+		const scrollY = () => page.evaluate(() => window.scrollY);
+
+		await page.goto(`${ADMIN}/`);
+		await signInAtFakeEntra(page, ADMIN_EMAIL);
+		await adminReady(page);
+		await expect(page.getByRole('heading', { name: 'Members' })).toBeVisible();
+		await page.goto(`${ADMIN}/g/letterjoin/#activities`);
+		await adminReady(page);
+		await expect(page.locator('#activities .group').first()).toBeVisible();
+
+		const fill = async (name: string, sentence = 'The quick brown fox.') => {
+			await page.locator('#f-type').selectOption('sentence');
+			await page.locator('#f-level').selectOption('starter');
+			await page.locator('#f-title').fill(name);
+			await page.locator('#f-sentence').fill(sentence);
+		};
+
+		await test.step('the list is long enough to scroll', async () => {
+			for (let i = 0; i < 8; i++) {
+				await newButton.click();
+				await expect(dialog).toBeVisible();
+				await fill(`Filler ${i} ${stamp}`);
+				await page.locator('#f-save').click();
+				await expect(dialog).toBeHidden();
+				await expect(card(`Filler ${i} ${stamp}`)).toBeVisible();
+			}
+			await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+			expect(await scrollY()).toBeGreaterThan(0);
+		});
+
+		await test.step('New activity is reachable from the scrolled list and opens a labelled, focused modal', async () => {
+			await expect(newButton).toBeInViewport({ ratio: 1 });
+			await newButton.click();
+			await expect(dialog).toBeVisible();
+			await expect(dialog).toBeInViewport({ ratio: 1 });
+			if (size === 'phone') {
+				const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, inDialog: document.getElementById('activity-dialog')!.contains(document.activeElement) }));
+				expect(focus.tag).not.toMatch(/^(INPUT|TEXTAREA|SELECT)$/);
+				expect(focus.inDialog).toBe(true);
+			} else await expect(page.locator('#f-title')).toBeFocused();
+			const box = (await dialog.boundingBox())!;
+			if (size === 'phone') expect([box.width, box.height]).toEqual([390, 844]);
+			else {
+				expect(box.width).toBeLessThan(1280);
+				expect(Math.abs(box.x + box.width / 2 - 640)).toBeLessThan(2);
+			}
+			for (const control of [page.locator('#f-save'), page.locator('#f-cancel')]) {
+				const { height } = (await control.boundingBox())!;
+				expect(height).toBeGreaterThanOrEqual(44);
+				await expect(control).toBeInViewport({ ratio: 1 });
+			}
+			expect(await dialog.evaluate((el: HTMLDialogElement) => el.matches(':modal'))).toBe(true);
+		});
+
+		await test.step('Escape on an untouched form closes it without asking and returns focus', async () => {
+			await page.keyboard.press('Escape');
+			await expect(dialog).toBeHidden();
+			await expect(newButton).toBeFocused();
+			expect(asked).toEqual([]);
+		});
+
+		await test.step('cancelling a changed form asks first, and keeps the work when the answer is no', async () => {
+			await newButton.click();
+			await page.locator('#f-title').fill('Half written');
+			discard = false;
+			await page.locator('#f-cancel').click();
+			await expect.poll(() => asked.length).toBe(1);
+			await expect(dialog).toBeVisible();
+			await expect(page.locator('#f-title')).toHaveValue('Half written');
+			await page.keyboard.press('Escape');
+			await expect.poll(() => asked.length).toBe(2);
+			await expect(dialog).toBeVisible();
+			discard = true;
+			await page.locator('#f-cancel').click();
+			await expect(dialog).toBeHidden();
+			expect(asked).toHaveLength(3);
+			await expect(card('Half written')).toHaveCount(0);
+		});
+
+		await test.step('saving closes the dialog and brings the new card into view, flashed, at the end of its level', async () => {
+			await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+			await newButton.click();
+			await fill(title);
+			await page.locator('#f-save').click();
+			await expect(dialog).toBeHidden();
+			const created = card(title);
+			await expect(created).toHaveClass(/just-saved/);
+			await expect(created).toBeInViewport({ ratio: 1 });
+			await expect(page.locator('#status')).toHaveText(`Saved "${title}".`);
+			await expect(page.locator('#activities details[data-level="starter"] .card').last()).toContainText(title);
+			const header = (await page.locator('.sticky').boundingBox())!;
+			expect((await created.boundingBox())!.y).toBeGreaterThanOrEqual(header.y + header.height);
+			await expect(created).not.toHaveClass(/just-saved/);
+		});
+
+		await test.step('Edit opens the same dialog, saves in place and returns focus to that card', async () => {
+			await card(title).getByRole('button', { name: 'Edit', exact: true }).click();
+			const editor = page.getByRole('dialog', { name: `Edit "${title}"` });
+			await expect(editor).toBeVisible();
+			await expect(page.locator('#f-title')).toHaveValue(title);
+			await expect(page.locator('#f-sentence')).toHaveValue('The quick brown fox.');
+			await page.locator('#f-title').fill(`${title} edited`);
+			await page.locator('#f-save').click();
+			await expect(editor).toBeHidden();
+			const edited = card(`${title} edited`);
+			await expect(edited).toBeInViewport({ ratio: 1 });
+			await expect(page.locator('#activities details[data-level="starter"] .card').last()).toContainText(`${title} edited`);
+			await expect(edited.getByRole('button', { name: 'Edit', exact: true })).toBeFocused();
+		});
+
+		await test.step('a rule the form breaks is shown inside the dialog, which stays open', async () => {
+			await card(`${title} edited`).getByRole('button', { name: 'Edit', exact: true }).click();
+			await page.locator('#f-title').fill('');
+			await page.locator('#f-save').click();
+			await expect(page.locator('#f-error')).toContainText('title must not be empty');
+			await expect(page.locator('#f-error')).toBeInViewport({ ratio: 1 });
+			await page.keyboard.press('Escape');
+			await expect(page.getByRole('dialog')).toBeHidden();
+		});
+
+		expect(problems).toEqual([]);
+		await context.close();
+	});
+}
+
+for (const [size, options] of Object.entries(DIALOG_SIZES)) {
+	test(`on ${size}, a double click on Save creates one activity`, async ({ browser }) => {
+		const context = await browser.newContext({ ignoreHTTPSErrors: true, ...options });
+		const page = await context.newPage();
+		answerPopups(page);
+		const problems = collectProblems([page]);
+		const title = `Once ${size}-${RUN}`;
+		const posts: string[] = [];
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(/\/activities$/, async (route) => {
+			if (route.request().method() !== 'POST') return route.continue();
+			posts.push(route.request().url());
+			await held;
+			await route.continue();
+		});
+
+		await page.goto(`${ADMIN}/`);
+		await signInAtFakeEntra(page, ADMIN_EMAIL);
+		await adminReady(page);
+		await page.goto(`${ADMIN}/g/letterjoin/#activities`);
+		await adminReady(page);
+		await page.locator('#new-activity').click();
+		await page.locator('#f-type').selectOption('sentence');
+		await page.locator('#f-title').fill(title);
+		await page.locator('#f-sentence').fill('Only one of me.');
+		const save = page.locator('#f-save');
+		await save.dblclick();
+		await expect(save).toBeDisabled();
+		await page.locator('#activity-form').evaluate((form: HTMLFormElement) => form.requestSubmit());
+		expect(posts).toHaveLength(1);
+		release();
+		await expect(page.getByRole('dialog')).toBeHidden();
+		await expect(page.locator('#activities .card', { hasText: title })).toHaveCount(1);
+		expect(posts).toHaveLength(1);
+		await expect(save).toBeEnabled();
+		expect(problems).toEqual([]);
+		await context.close();
+	});
+}

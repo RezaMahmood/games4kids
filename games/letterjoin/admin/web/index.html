@@ -14,6 +14,7 @@
     <div class="sticky">
       <header class="top">
         <h1>Letter Tracing Admin</h1>
+        <button id="new-activity" type="button" class="primary">New activity</button>
       </header>
       <nav class="tabs" aria-label="Admin sections">
         <a href="#activities" data-tab="activities">Activities <span id="count-activities" class="count"></span></a>
@@ -26,98 +27,102 @@
 
     <main>
       <section id="tab-activities" data-tab="activities" aria-labelledby="activities-heading">
-        <div class="row">
-          <h2 id="activities-heading">Activities</h2>
-          <button id="new-activity" type="button" class="primary">New activity</button>
-        </div>
+        <h2 id="activities-heading">Activities</h2>
         <ol id="activities" class="groups"></ol>
 
-        <form id="activity-form" class="panel" hidden novalidate>
-          <h3 id="form-heading">New activity</h3>
-          <div class="grid">
-            <label>Type
-              <select id="f-type">
-                <option value="letters">Letters</option>
-                <option value="words">Words</option>
-                <option value="sentence">Sentence</option>
-                <option value="paragraph">Paragraph</option>
-              </select>
-            </label>
-            <label>Level
-              <select id="f-level">
-                <option value="starter">Starter (ages 8 to 9)</option>
-                <option value="explorer">Explorer (ages 9 to 10)</option>
-                <option value="champion">Champion (ages 10 to 11)</option>
-              </select>
-            </label>
-            <label>Status
-              <select id="f-status">
-                <option value="draft">Draft (only admins see it)</option>
-                <option value="published">Published</option>
-              </select>
-            </label>
-            <label class="wide">Title <input id="f-title" type="text" maxlength="80" required></label>
-            <label class="wide">Description (optional) <input id="f-description" type="text" maxlength="200"></label>
-            <label>Timer
-              <select id="f-timed">
-                <option value="no">No timer</option>
-                <option value="yes">Timed</option>
-              </select>
-            </label>
-            <label id="f-time-label">Time limit (m:ss or seconds) <input id="f-time" type="text" inputmode="numeric" value="1:00"></label>
-            <p id="f-timer-summary" class="note wide"></p>
-            <label class="wide">After tracing
-              <select id="f-mode">
-                <option value="trace">Nothing more (trace only)</option>
-                <option value="traceThenCopy">Copy it unaided on a blank sheet, saved for review (not scored)</option>
-              </select>
-            </label>
-            <label>Letter style the child starts with
-              <select id="f-style">
-                <option value="print">Print</option>
-                <option value="precursive">Pre-cursive</option>
-                <option value="joined">Joined</option>
-              </select>
-            </label>
-            <fieldset id="f-allowed">
-              <legend>Styles the child may pick</legend>
-              <label class="check"><input id="f-allowed-print" type="checkbox" value="print"> Print</label>
-              <label class="check"><input id="f-allowed-precursive" type="checkbox" value="precursive"> Pre-cursive</label>
-              <label class="check"><input id="f-allowed-joined" type="checkbox" value="joined"> Joined</label>
-            </fieldset>
-            <label>Paper
-              <select id="f-paper">
-                <option value="baseline">Baseline only</option>
-                <option value="threeLine">Three lines</option>
-                <option value="fourLine">Four lines</option>
-                <option value="highlighted">Highlighted x-height</option>
-              </select>
-            </label>
-            <label>Line size
-              <select id="f-linesize">
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large">Large</option>
-              </select>
-            </label>
+        <dialog id="activity-dialog" aria-labelledby="form-heading">
+          <form id="activity-form" novalidate>
+            <h3 id="form-heading" tabindex="-1">New activity</h3>
+            <div class="dialog-body">
+              <div class="grid">
+                <label>Type
+                  <select id="f-type">
+                    <option value="letters">Letters</option>
+                    <option value="words">Words</option>
+                    <option value="sentence">Sentence</option>
+                    <option value="paragraph">Paragraph</option>
+                  </select>
+                </label>
+                <label>Level
+                  <select id="f-level">
+                    <option value="starter">Starter (ages 8 to 9)</option>
+                    <option value="explorer">Explorer (ages 9 to 10)</option>
+                    <option value="champion">Champion (ages 10 to 11)</option>
+                  </select>
+                </label>
+                <label>Status
+                  <select id="f-status">
+                    <option value="draft">Draft (only admins see it)</option>
+                    <option value="published">Published</option>
+                  </select>
+                </label>
+                <label class="wide">Title <input id="f-title" type="text" maxlength="80" required></label>
+                <label class="wide">Description (optional) <input id="f-description" type="text" maxlength="200"></label>
+                <label>Timer
+                  <select id="f-timed">
+                    <option value="no">No timer</option>
+                    <option value="yes">Timed</option>
+                  </select>
+                </label>
+                <label id="f-time-label">Time limit (m:ss or seconds) <input id="f-time" type="text" inputmode="numeric" value="1:00"></label>
+                <p id="f-timer-summary" class="note wide"></p>
+                <label class="wide">After tracing
+                  <select id="f-mode">
+                    <option value="trace">Nothing more (trace only)</option>
+                    <option value="traceThenCopy">Copy it unaided on a blank sheet, saved for review (not scored)</option>
+                  </select>
+                </label>
+                <label>Letter style the child starts with
+                  <select id="f-style">
+                    <option value="print">Print</option>
+                    <option value="precursive">Pre-cursive</option>
+                    <option value="joined">Joined</option>
+                  </select>
+                </label>
+                <fieldset id="f-allowed">
+                  <legend>Styles the child may pick</legend>
+                  <label class="check"><input id="f-allowed-print" type="checkbox" value="print"> Print</label>
+                  <label class="check"><input id="f-allowed-precursive" type="checkbox" value="precursive"> Pre-cursive</label>
+                  <label class="check"><input id="f-allowed-joined" type="checkbox" value="joined"> Joined</label>
+                </fieldset>
+                <label>Paper
+                  <select id="f-paper">
+                    <option value="baseline">Baseline only</option>
+                    <option value="threeLine">Three lines</option>
+                    <option value="fourLine">Four lines</option>
+                    <option value="highlighted">Highlighted x-height</option>
+                  </select>
+                </label>
+                <label>Line size
+                  <select id="f-linesize">
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
 
-            <label class="type-letters">Letters, separated by spaces <input id="f-sequence" type="text" placeholder="a b c"></label>
-            <label class="type-letters">Repeat the whole sequence <input id="f-repeat" type="number" min="1" max="20" value="1"></label>
-            <label class="type-words">Category <input id="f-category" type="text" maxlength="40" placeholder="Animals"></label>
-            <label class="type-words wide">Words, separated by spaces or new lines <textarea id="f-words" rows="3"></textarea></label>
-            <label class="type-sentence wide">Sentence <input id="f-sentence" type="text" maxlength="200"></label>
-            <label class="type-paragraph wide">Paragraph <textarea id="f-paragraph" rows="5" maxlength="2000"></textarea></label>
-          </div>
-          <div class="preview">
-            <strong>The child will trace (as laid out on an 11 inch iPad in landscape)</strong>
-            <div class="sheet-preview"><svg id="f-preview" role="img" aria-label="Preview of the sheet"></svg></div>
-            <ul id="f-problems" class="problems"></ul>
-          </div>
-          <div class="row">
-            <button id="f-save" type="submit" class="primary">Save</button>
-            <button id="f-cancel" type="button">Cancel</button>
-          </div>
-        </form>
+                <label class="type-letters">Letters, separated by spaces <input id="f-sequence" type="text" placeholder="a b c"></label>
+                <label class="type-letters">Repeat the whole sequence <input id="f-repeat" type="number" min="1" max="20" value="1"></label>
+                <label class="type-words">Category <input id="f-category" type="text" maxlength="40" placeholder="Animals"></label>
+                <label class="type-words wide">Words, separated by spaces or new lines <textarea id="f-words" rows="3"></textarea></label>
+                <label class="type-sentence wide">Sentence <input id="f-sentence" type="text" maxlength="200"></label>
+                <label class="type-paragraph wide">Paragraph <textarea id="f-paragraph" rows="5" maxlength="2000"></textarea></label>
+              </div>
+              <div class="preview">
+                <strong>The child will trace (as laid out on an 11 inch iPad in landscape)</strong>
+                <div class="sheet-preview"><svg id="f-preview" role="img" aria-label="Preview of the sheet"></svg></div>
+                <ul id="f-problems" class="problems"></ul>
+              </div>
+            </div>
+            <div class="dialog-foot">
+              <p id="f-error" class="problems" role="alert" hidden></p>
+              <div class="row">
+                <button id="f-save" type="submit" class="primary">Save</button>
+                <button id="f-cancel" type="button">Cancel</button>
+              </div>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       <section id="tab-review" data-tab="review" aria-labelledby="review-heading" hidden>
