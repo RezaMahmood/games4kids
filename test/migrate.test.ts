@@ -150,7 +150,7 @@ const writes = (accounts: MemoryAccounts) => accounts.ops.filter((op) => op.writ
 async function invite(accounts: MemoryAccounts, people: readonly { email: string; objectId: string | null }[]): Promise<Map<string, PortalUserId>> {
 	const portal = accounts.open('portal');
 	const admin = portalAdminStore(
-		{ members: portal.table('members'), identities: portal.table('identities'), emails: portal.table('emails'), profiles: portal.table('profiles'), admins: portal.table('admins') },
+		{ members: portal.table('members'), games: portal.table('games'), identities: portal.table('identities'), emails: portal.table('emails'), profiles: portal.table('profiles'), admins: portal.table('admins') },
 		() => crypto.randomUUID(),
 	);
 	const ids = new Map<string, PortalUserId>();

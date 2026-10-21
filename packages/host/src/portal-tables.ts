@@ -6,14 +6,13 @@ import { ENTRA } from './token.ts';
 /**
  * The portal account's tables, one writer each:
  *   members     PK 'member'    RK PortalUserId               admin app
- *               PK 'game'      RK GameId, state 'paused'     admin app; no row is available. In members because every
- *                                                            games-side app already reads it, so pausing needs no new role
+ *   games       PK 'game'      RK GameId, state 'paused'     admin app; no row is available
  *   identities  PK 'identity'  RK `${IssuerKey}|${subject}`  admin app, when sync learns the object id
  *   emails      PK 'email'     RK Email                      admin app; no games-side app reads it
  *   profiles    PK 'profile'   RK PortalUserId               portal app, on /welcome/
  *   admins      PK 'admin'     RK EntraObjectId              tools/bootstrap.mjs on the Mac
  */
-export type PortalTableName = 'members' | 'identities' | 'emails' | 'profiles' | 'admins';
+export type PortalTableName = 'members' | 'games' | 'identities' | 'emails' | 'profiles' | 'admins';
 
 const identityKey = (issuer: string, subject: string) => `${issuer}|${subject}`;
 
@@ -67,9 +66,9 @@ function parsePaused(rows: readonly Row[]): ReadonlySet<GameId> {
 	}));
 }
 
-export type ReaderTables = { readonly identities: ReadTable; readonly members: ReadTable; readonly profiles: ReadTable };
+export type ReaderTables = { readonly identities: ReadTable; readonly members: ReadTable; readonly games: ReadTable; readonly profiles: ReadTable };
 
-/** Every games-side app: Table Data Reader on identities, members and profiles. */
+/** Every games-side app: Table Data Reader on identities, members, games and profiles. */
 export function portalReader(tables: ReaderTables): PortalReader {
 	return {
 		async find(identity: Identity): Promise<Found> {
@@ -79,7 +78,7 @@ export function portalReader(tables: ReaderTables): PortalReader {
 			return { kind: 'known', userId, member: parseMember(member), profile: parseProfile(profile) };
 		},
 		async paused() {
-			return parsePaused(await tables.members.inPartition('game'));
+			return parsePaused(await tables.games.inPartition('game'));
 		},
 	};
 }
@@ -101,13 +100,14 @@ export function portalStore(tables: ReaderTables & { readonly profiles: Table })
 
 export type AdminTables = {
 	readonly members: Table;
+	readonly games: Table;
 	readonly identities: Table;
 	readonly emails: Table;
 	readonly profiles: ReadTable;
 	readonly admins: ReadTable;
 };
 
-/** The admin app: writes members, emails and identities; reads profiles and admins. */
+/** The admin app: writes members, games, emails and identities; reads profiles and admins. */
 export function adminStore(tables: AdminTables, newId: () => string): AdminStore {
 	return {
 		async admin(objectId: EntraObjectId): Promise<AdminRow | undefined> {
@@ -162,11 +162,11 @@ export function adminStore(tables: AdminTables, newId: () => string): AdminStore
 			});
 		},
 		async paused() {
-			return parsePaused(await tables.members.inPartition('game'));
+			return parsePaused(await tables.games.inPartition('game'));
 		},
 		async setPaused(game, paused) {
-			if (paused) await tables.members.put({ partitionKey: 'game', rowKey: game, state: PAUSED });
-			else await tables.members.remove('game', game);
+			if (paused) await tables.games.put({ partitionKey: 'game', rowKey: game, state: PAUSED });
+			else await tables.games.remove('game', game);
 		},
 	};
 }

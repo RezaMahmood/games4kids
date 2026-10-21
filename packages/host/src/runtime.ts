@@ -58,7 +58,7 @@ export function playerAppFromEnv<M extends GameManifest>(manifest: M, create: Cr
 		now: () => new Date(),
 		manifest,
 		create,
-		portal: portalReader({ identities: table('identities'), members: table('members'), profiles: table('profiles') }),
+		portal: portalReader({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') }),
 		accounts,
 		tokens: tokenSourceFor(credential),
 		env,
@@ -74,7 +74,7 @@ export function portalAppFromEnv(games: readonly GameId[], env: Env, credential:
 		issuers: [entraIssuer(TENANT_ID, GAMES_CLIENT_ID)],
 		telemetry: telemetryFor(env, 'portal'),
 		now: () => new Date(),
-		portal: portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') }),
+		portal: portalStore({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') }),
 		games,
 	});
 }
@@ -95,7 +95,7 @@ export function adminAppFromEnv(games: readonly GameId[], modules: readonly Admi
 		issuer: entraIssuer(settings.TENANT_ID, settings.ADMIN_CLIENT_ID),
 		telemetry,
 		now: () => new Date(),
-		store: adminStore({ members: table('members'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') }, randomUUID),
+		store: adminStore({ members: table('members'), games: table('games'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') }, randomUUID),
 		graph: (elevation) => graphAs(elevation, clientAssertion, graphConfig),
 		games,
 		modules,

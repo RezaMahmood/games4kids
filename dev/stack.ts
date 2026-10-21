@@ -17,6 +17,7 @@ import {
 	portalStore,
 	type Accounts,
 	type App,
+	type PortalTableName,
 	type RegistryEntry,
 	type Telemetry,
 	type TrustedIssuer,
@@ -162,7 +163,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		},
 	};
 	const issuer = (audience: string): TrustedIssuer => ({ key: ENTRA, issuer: idp.issuer, audience, keys: idp.jwks, tenantId: TENANT_ID });
-	const table = (name: 'members' | 'identities' | 'emails' | 'profiles' | 'admins') => portalAccount.table(name);
+	const table = (name: PortalTableName) => portalAccount.table(name);
 	const common = { telemetry, now: () => new Date() };
 	const tokens = async (service: string) => `dev-${service}-token`;
 	const playEnv = { VISION_ENDPOINT: vision.origin };
@@ -175,19 +176,19 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 				issuers: [issuer(GAMES_CLIENT_ID)],
 				manifest,
 				create: play,
-				portal: portalReader({ identities: table('identities'), members: table('members'), profiles: table('profiles') }),
+				portal: portalReader({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') }),
 				accounts,
 				tokens,
 				env: playEnv,
 			}),
 		),
 	);
-	const portalApp = createPortalApp({ ...common, issuers: [issuer(GAMES_CLIENT_ID)], portal: portalStore({ identities: table('identities'), members: table('members'), profiles: table('profiles') }), games: registry.map((entry): GameId => entry.id) });
+	const portalApp = createPortalApp({ ...common, issuers: [issuer(GAMES_CLIENT_ID)], portal: portalStore({ identities: table('identities'), members: table('members'), games: table('games'), profiles: table('profiles') }), games: registry.map((entry): GameId => entry.id) });
 	const modules = registry.flatMap((entry) => entry.use(({ manifest, admin }) => (admin ? [adminModule(manifest, admin)] : [])));
 	const adminApp = createAdminApp({
 		...common,
 		issuer: issuer(ADMIN_CLIENT_ID),
-		store: adminStore({ members: table('members'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') }, randomUUID),
+		store: adminStore({ members: table('members'), games: table('games'), identities: table('identities'), emails: table('emails'), profiles: table('profiles'), admins: table('admins') }, randomUUID),
 		graph: (elevation) =>
 			graphAs(elevation, async () => 'dev-federated-credential', {
 				tenantId: TENANT_ID,

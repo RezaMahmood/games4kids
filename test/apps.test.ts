@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defineGame, definePlayApi, parseEmail } from '@g4k/sdk';
-import { createPlayerApp, createPortalApp, EntraRefused, type GraphFor } from '@g4k/host';
+import { createPlayerApp, createPortalApp, EntraRefused, type GraphFor, type PortalTableName } from '@g4k/host';
 import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
 import { call, codeOf, PNG } from './support/http.ts';
@@ -137,14 +137,20 @@ test('pausing a game converges however often it is sent, and a bad game or body 
 	const kid = await seedPlayer(w, idp, { games: [id] });
 	const put = (path: string, json: unknown) => call(admin, 'PUT', `/api/admin/portal/games/${path}`, { token: me.console, json });
 	const listed = async () => (await call(admin, 'GET', '/api/admin/portal/games', { token: me.console })).data;
+	const portal = w.accounts.open('portal');
+	const rows = async (name: PortalTableName) => (await portal.table(name).list()).map((row) => [row.partitionKey, row.rowKey, row['state']]);
+	const memberRows = await rows('members');
 
 	for (let i = 0; i < 2; i++) assert.deepEqual((await put('fixture', { paused: true })).data, { id: 'fixture', paused: true });
 	assert.deepEqual(await listed(), [{ id: 'fixture', paused: true }]);
 	assert.equal(codeOf(await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })), 'game_paused');
+	assert.deepEqual(await rows('games'), [['game', 'fixture', 'paused']]);
+	assert.deepEqual(await rows('members'), memberRows, 'pausing writes nothing to members');
 
 	for (let i = 0; i < 2; i++) assert.deepEqual((await put('fixture', { paused: false })).data, { id: 'fixture', paused: false });
 	assert.deepEqual(await listed(), [{ id: 'fixture', paused: false }]);
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
+	assert.deepEqual(await rows('games'), [], 'making a game available deletes its row');
 
 	assert.equal((await put('nogame', { paused: true })).status, 404);
 	assert.equal((await put('No%20Good', { paused: true })).status, 404);
@@ -157,10 +163,10 @@ test('a game row with a key that is no game id, or a state that is not paused, p
 	const { admin, player } = apps(w);
 	const me = await owner(w);
 	const kid = await seedPlayer(w, idp, { games: [id] });
-	const members = w.accounts.open('portal').table('members');
-	await members.put({ partitionKey: 'game', rowKey: 'fixture', state: 'stopped' });
-	await members.put({ partitionKey: 'game', rowKey: 'No Good', state: 'paused' });
-	await members.put({ partitionKey: 'game', rowKey: 'latecomer', state: 'paused' });
+	const games = w.accounts.open('portal').table('games');
+	await games.put({ partitionKey: 'game', rowKey: 'fixture', state: 'stopped' });
+	await games.put({ partitionKey: 'game', rowKey: 'No Good', state: 'paused' });
+	await games.put({ partitionKey: 'game', rowKey: 'latecomer', state: 'paused' });
 	assert.deepEqual([...(await w.reader.paused())], ['latecomer']);
 	assert.equal((await call(player, 'GET', '/api/g/fixture/session', { token: kid.token })).status, 200);
 	assert.deepEqual((await call(admin, 'GET', '/api/admin/portal/games', { token: me.console })).data, [{ id: 'fixture', paused: false }], 'only registered games are listed');
