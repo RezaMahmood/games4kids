@@ -16,6 +16,9 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       any: ${{ steps.plan.outputs.any }}
       infraShared: ${{ steps.plan.outputs.infraShared }}
@@ -30,15 +33,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # Diff from the last successful deploy, not the push's before, so a run the deploy group cancelled while
+      # pending, or one that failed partway, still has its changes deployed by the next run.
       - id: plan
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.sha }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           all=()
           if [ "$MANUAL" = "true" ]; then all=(--all); fi
-          node tools/changes.mjs "${all[@]}" --base "$BEFORE" --head "$HEAD_SHA" --github-output
+          base=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --branch main --status success --limit 1 --json headSha --jq '.[0].headSha // ""')
+          echo "base: ${base:-none, deploying everything}"
+          node tools/changes.mjs "${all[@]}" --base "$base" --head "$HEAD_SHA" --github-output
 
   build:
     needs: changes
