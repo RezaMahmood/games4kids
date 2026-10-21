@@ -105,6 +105,8 @@ export type PlayStore = {
 	/** Puts the child on the board from now on. A child already on it keeps their first `since`, so a repeat changes nothing. */
 	optIn(entry: BoardEntry): Promise<void>;
 	optOut(userId: string): Promise<void>;
+	/** Whether the child switched the board on. It reads the one board row and computes nothing. */
+	optedIn(userId: string): Promise<boolean>;
 	/** The child's board entry with their current name and time zone, or undefined while they are not on the board. */
 	refreshBoardEntry(userId: string, name: string, timeZone: string): Promise<BoardEntry | undefined>;
 	addSubmission(submission: Submission, png: Uint8Array): Promise<void>;
@@ -156,6 +158,9 @@ export function playStore(storage: StorageFor<Letterjoin, 'play'>): PlayStore {
 			await results.insertIfAbsent({ partitionKey: BOARD, rowKey: userId, name, timeZone, since } satisfies BoardRow);
 		},
 		optOut: (userId) => results.remove(BOARD, userId),
+		async optedIn(userId) {
+			return (await results.get<BoardRow>(BOARD, userId)) !== undefined;
+		},
 		async refreshBoardEntry(userId, name, timeZone) {
 			const row = await results.get<BoardRow>(BOARD, userId);
 			if (!row) return undefined;

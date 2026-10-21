@@ -294,6 +294,18 @@ test('switching the board off removes the child at once, and switching it on aga
 	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada', false, 30]]);
 });
 
+test('GET board/me says whether the child is on the board, and nobody else\'s switch', async () => {
+	const s = await setup();
+	const bea = await s.child('Bea');
+	const mine = async (ask = s.asAda) => (await ask('GET', 'board/me')).data;
+	assert.deepEqual(await mine(), { optedIn: false });
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	assert.deepEqual(await mine(), { optedIn: true });
+	assert.deepEqual(await mine(s.as(bea.token)), { optedIn: false }, 'Bea did not switch it on');
+	await s.asAda('PUT', 'board/me', { json: { on: false } });
+	assert.deepEqual(await mine(), { optedIn: false });
+});
+
 test('switching the board on twice keeps the first moment, and the board shows the name and time zone the child has now', async () => {
 	const s = await setup();
 	const { id } = await publish(s, 'Trace me');

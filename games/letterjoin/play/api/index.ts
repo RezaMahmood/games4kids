@@ -134,6 +134,15 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				},
 			},
 			{
+				name: 'boardMe',
+				method: 'GET',
+				path: 'board/me',
+				body: 'none',
+				async run({ caller }) {
+					return { status: 200, json: { optedIn: await store.optedIn(caller.userId) } };
+				},
+			},
+			{
 				name: 'setBoard',
 				method: 'PUT',
 				path: 'board/me',
