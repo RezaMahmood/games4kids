@@ -59,7 +59,9 @@ export class World {
 	variables = new Map<string, string>();
 	environments = new Map<string, { custom: boolean; policies: Row[]; variables: Map<string, string> }>();
 	staticWebApps: Row[] = [];
-	portalAccount: Row | null = null;
+	storageAccounts: Row[] = [];
+	/** The old drawpad and letterjoin accounts the migration reads. */
+	oldAccountsExist = true;
 	entities = new Map<string, Row>();
 	oidc: Row = structuredClone(fixture.githubOidc);
 	lag = new Map<string, number>();
@@ -87,7 +89,7 @@ export class World {
 			{ name: 'swa-g4k-admin', defaultHostname: 'admin-two.4.azurestaticapps.net' },
 		];
 		this.letterjoinPrincipalId = 'aaaaaaaa-0000-4000-8000-00000000c0de';
-		this.portalAccount = { name: 'g4kportalab12c', id: `${text(this.rg?.['id'])}/providers/Microsoft.Storage/storageAccounts/g4kportalab12c`, tags: { game: 'portal' } };
+		this.storageAccounts = ['portal', 'drawpad', 'letterjoin'].map((game) => ({ name: `g4k${game}ab12c`, id: `${text(this.rg?.['id'])}/providers/Microsoft.Storage/storageAccounts/g4k${game}ab12c`, game }));
 	}
 
 	io(options: { prompt?: string } = {}): Io & { lines: string[] } {
@@ -146,7 +148,11 @@ export class World {
 			if (at('--name') !== 'func-g4k-letterjoin' || !this.letterjoinPrincipalId) throw new Error('ResourceNotFound');
 			return { principalId: this.letterjoinPrincipalId, type: 'SystemAssigned' };
 		}
-		if (args[0] === 'storage' && args[1] === 'account') return this.portalAccount ? [this.portalAccount] : [];
+		if (args[0] === 'storage' && args[1] === 'account' && args[2] === 'show') {
+			if (!this.oldAccountsExist || !/\/resourceGroups\/rg-(drawpad|letterjoin)\//.test(at('--ids'))) throw new Error('ResourceNotFound');
+			return { id: at('--ids') };
+		}
+		if (args[0] === 'storage' && args[1] === 'account') return this.storageAccounts;
 		if (args[0] === 'storage' && args[1] === 'entity') {
 			if (args[2] === 'show') {
 				const row = this.entities.get(at('--row-key'));

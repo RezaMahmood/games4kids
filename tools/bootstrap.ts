@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
 import { guestHomeEmail } from '@g4k/host';
 import { parseEmail, type Email } from '@g4k/sdk';
+import { OLD_ACCOUNTS, type Game } from './migrate/model.ts';
 import { functionAppName } from './package-app.ts';
 
 export const LOCATION = 'westeurope';
@@ -796,6 +797,66 @@ export function planAfterFirstDeploy(core: Core, extras: SpaExtras, goal: SpaGoa
 	else if (extras.row.state === 'present') rows.push(changing(step, 'admins-row', `the row has email ${extras.row.email}, goal ${source.email}`, insert(true)));
 	else rows.push(changing(step, 'admins-row', extras.row.state === 'absent' ? 'missing' : 'not readable yet, write it', insert(false)));
 	return rows;
+}
+
+/** A role you hold also covers the weaker roles listed here, at its own scope and every scope beneath it. */
+const COVERED_BY: Readonly<Record<string, readonly string[]>> = {
+	[AZURE_ROLES.tableDataReader]: [AZURE_ROLES.tableDataReader, AZURE_ROLES.tableDataContributor],
+	[AZURE_ROLES.tableDataContributor]: [AZURE_ROLES.tableDataContributor],
+	[AZURE_ROLES.blobDataReader]: [AZURE_ROLES.blobDataReader, AZURE_ROLES.blobDataContributor, AZURE_ROLES.blobDataOwner],
+	[AZURE_ROLES.blobDataContributor]: [AZURE_ROLES.blobDataContributor, AZURE_ROLES.blobDataOwner],
+};
+
+const ROLE_NAMES: Readonly<Record<string, string>> = {
+	[AZURE_ROLES.tableDataReader]: 'Storage Table Data Reader',
+	[AZURE_ROLES.tableDataContributor]: TABLE_DATA_CONTRIBUTOR_NAME,
+	[AZURE_ROLES.blobDataReader]: 'Storage Blob Data Reader',
+	[AZURE_ROLES.blobDataContributor]: 'Storage Blob Data Contributor',
+};
+
+export type MigrationExtras = {
+	readonly me: { readonly id: string } | null;
+	/** Account resource ids. null is an account that does not exist. */
+	readonly old: Readonly<Record<Game, string | null>>;
+	readonly games: Readonly<Record<Game, string | null>>;
+	readonly portal: string | null;
+	/** Your role assignments at, above and beneath those accounts. */
+	readonly roles: readonly RoleAssignment[];
+};
+
+export const oldAccountId = (core: Core, game: Game) => `/subscriptions/${core.subscription.id}/resourceGroups/${OLD_ACCOUNTS[game].resourceGroup}/providers/Microsoft.Storage/storageAccounts/${OLD_ACCOUNTS[game].name}`;
+
+/**
+ * The data roles tools/migrate needs as you, from your Mac: read the old accounts, write the new game accounts, and
+ * read who is who from the portal's emails and identities tables. A role you already hold at or above a scope counts.
+ */
+export function planMigrationRoles(extras: MigrationExtras): Finding[] {
+	const step: StepName = 'after-first-deploy';
+	const me = extras.me?.id.toLowerCase();
+	const games = ['drawpad', 'letterjoin'] as const satisfies readonly Game[];
+	const wanted = [
+		...games.flatMap((game) => [
+			{ id: `migration:old ${game}`, scope: extras.old[game], gone: `${OLD_ACCOUNTS[game].name} does not exist, so there is nothing to migrate from it`, roles: [AZURE_ROLES.tableDataReader, AZURE_ROLES.blobDataReader] },
+			{ id: `migration:new ${game}`, scope: extras.games[game], gone: `the ${game} storage account does not exist yet. Run the infra deploy first`, roles: [AZURE_ROLES.tableDataContributor, AZURE_ROLES.blobDataContributor] },
+		]),
+		...(['emails', 'identities'] as const).map((table) => ({
+			id: `migration:portal ${table}`,
+			scope: extras.portal && `${extras.portal}/tableServices/default/tables/${table}`,
+			gone: 'the portal storage account does not exist yet. Run the infra deploy first',
+			roles: [AZURE_ROLES.tableDataReader],
+		})),
+	];
+	const holds = (scope: string, role: string) =>
+		extras.roles.some((row) => row.principalId === me && COVERED_BY[role]?.includes(row.roleDefinitionId) && `${scope.toLowerCase()}/`.startsWith(`${row.scope.toLowerCase().replace(/\/$/, '')}/`));
+	return wanted.flatMap(({ id, scope, gone, roles }) =>
+		roles.map((role) => {
+			const name = ROLE_NAMES[role] ?? role;
+			const check = `${id}:${name}`;
+			if (!scope) return (id.startsWith('migration:old') ? skipped : blocked)(step, check, gone);
+			if (me && holds(scope, role)) return fine(step, check, `covered by a role you hold at or above ${scope}`);
+			return changing(step, check, `you lack ${name} on ${scope}`, action(`give you ${name} for the migration`, `assign ${name} on ${scope} to you, so tools/migrate can run from your Mac`, azCommand('role', 'assignment', 'create', '--assignee-object-id', extras.me?.id ?? '<your object id>', '--assignee-principal-type', 'User', '--role', role, '--scope', scope), { retry: 'quick' }));
+		}),
+	);
 }
 
 export const symbol: Readonly<Record<Status, string>> = { ok: 'ok     ', change: 'CHANGE ', blocked: 'BLOCKED', skipped: 'skip   ', todo: 'todo   ' };

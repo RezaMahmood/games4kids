@@ -3,10 +3,10 @@ import { TableClient } from '@azure/data-tables';
 import { BlobServiceClient } from '@azure/storage-blob';
 import type { Accounts } from '@g4k/host';
 import { parseGameId, type Row } from '@g4k/sdk';
-import { plainRow, rowId, type Game, type OldAccount, type OldContainer, type OldTable, type SourceBlob, type TargetWriter } from './model.ts';
+import { OLD_ACCOUNTS, plainRow, rowId, type Game, type OldAccount, type OldContainer, type OldTable, type SourceBlob, type TargetWriter } from './model.ts';
 import type { PortalRows } from './player-data.ts';
 
-export const DEFAULT_ACCOUNTS = { drawpad: 'stdp2qnzjgj6a3qtq', letterjoin: 'stletterjoinul5nga' } as const;
+export const DEFAULT_ACCOUNTS = { drawpad: OLD_ACCOUNTS.drawpad.name, letterjoin: OLD_ACCOUNTS.letterjoin.name } as const;
 
 function toRow(entity: Record<string, unknown>): Row {
 	const { partitionKey, rowKey } = entity;
