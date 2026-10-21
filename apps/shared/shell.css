@@ -198,3 +198,28 @@ body[aria-busy="true"]::after {
 		animation: none;
 	}
 }
+
+/* On a phone the brand takes its own row and the links wrap below it, so every game stays in view; the email goes. */
+@media (max-width: 600px) {
+	.g4k-bar.admin {
+		padding-block: var(--space-xs);
+	}
+
+	.g4k-bar.admin .brand {
+		flex: 1 0 100%;
+		font-size: var(--size-body);
+	}
+
+	.g4k-bar.admin nav {
+		column-gap: var(--space-md);
+		row-gap: var(--space-xs);
+	}
+
+	.g4k-bar.admin .g4k-button {
+		margin-left: auto;
+	}
+
+	.g4k-bar.admin .who {
+		display: none;
+	}
+}

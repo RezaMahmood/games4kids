@@ -71,6 +71,15 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		await expectTouchSized(admin.getByRole('searchbox'));
 	});
 
+	await test.step('the admin bar shows every link and Sign out in full', async () => {
+		await admin.evaluate(() => window.scrollTo(0, 0));
+		const bar = admin.locator('admin-bar .g4k-bar');
+		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
+		await expect(bar.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
+		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(160);
+		await expectNoSideways(admin);
+	});
+
 	const playerContext = await browser.newContext(PHONE);
 	const player = await playerContext.newPage();
 
