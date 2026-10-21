@@ -23,7 +23,7 @@ const cases: readonly { readonly name: string; readonly path: string; readonly c
 	{ name: 'a game imports @azure/functions', path: 'games/demo/admin/api/index.ts', code: "import '@azure/functions';", banned: true },
 	{ name: 'a game imports the host', path: 'games/demo/play/api/index.ts', code: "import '@g4k/host';", banned: true },
 	{ name: 'a game verifies tokens itself', path: 'games/demo/play/api/index.ts', code: "import 'jose';", banned: true },
-	{ name: 'a game writes telemetry', path: 'games/demo/data/index.ts', code: "import '@opentelemetry/api';", banned: true },
+	{ name: 'a game may write telemetry', path: 'games/demo/data/index.ts', code: "import '@opentelemetry/api';", banned: false },
 	{ name: 'a game reads the environment', path: 'games/demo/play/api/index.ts', code: 'export const url = process.env.URL;', banned: true },
 	{ name: 'the fixture game obeys the same bans', path: 'test/fixtures/games/fixture/play/api/extra.ts', code: "import '../../admin/api/index.ts';", banned: true },
 	{ name: 'the host imports @azure/functions outside the adapter', path: 'packages/host/src/player-app.ts', code: "import '@azure/functions';", banned: true },

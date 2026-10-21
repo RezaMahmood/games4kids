@@ -6,12 +6,11 @@ import tseslint from 'typescript-eslint';
 const GAME_ROOTS = ['games/*', 'test/fixtures/games/*'];
 const inGames = (path) => GAME_ROOTS.map((root) => `${root}/${path}`);
 
-/** What no part of any game may import. A game gets storage handles, settings and tokens from its platform, and writes no auth or telemetry code. */
+/** What no part of any game may import. A game gets storage handles, settings and tokens from its platform, and writes no auth code. */
 const GAME_BANS = [
 	{ group: ['@azure/*'], message: 'A game gets handles and tokens from its platform, never an Azure SDK, client or credential.' },
 	{ group: ['@g4k/host', '@g4k/host/*'], message: 'A game builds on @g4k/sdk only.' },
 	{ group: ['jose'], message: 'A game writes no auth code; the host verifies every token.' },
-	{ group: ['@opentelemetry/*', 'applicationinsights'], message: 'A game writes no telemetry code; the host owns it.' },
 	{ group: ['process', 'node:process'], message: 'A game reads settings from its platform, never the environment.' },
 ];
 
