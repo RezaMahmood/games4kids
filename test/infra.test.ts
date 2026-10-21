@@ -22,7 +22,7 @@ type Template = {
 	parameters: Record<string, { type: string; defaultValue?: unknown }>;
 	outputs: Record<string, { value?: Record<string, unknown> }>;
 	variables?: Record<string, unknown>;
-	resources: { type: string; name: string; properties?: Record<string, unknown> }[];
+	resources: { type: string; name: string; scope?: string; properties?: Record<string, unknown> }[];
 };
 
 function compile(file: string): Template {
@@ -42,6 +42,34 @@ test('infra/game.bicep takes exactly the parameters gen writes and the pipeline 
 
 test('infra/main.bicep takes the ids the repository variables hold', { skip }, () => {
 	assert.deepEqual(required(compile('infra/main.bicep')), ['adminClientId', 'adminPrincipalId', 'alertEmail', 'gamesClientId', 'gamesPrincipalId']);
+});
+
+/** Each role assignment on a portal table as `table holder role`, read from the compiled ARM expressions. */
+function portalTableGrants(template: Template): string[] {
+	return template.resources.filter((resource) => resource.type === 'Microsoft.Authorization/roleAssignments').flatMap((resource) => {
+		const table = /tableServices\/tables', format\('g4kportal\{0\}', variables\('suffix'\)\), 'default', '(\w+)'\)\]$/.exec(resource.scope ?? '')?.[1];
+		if (!table) return [];
+		const principal = String(resource.properties?.['principalId']);
+		const holder = principal.includes("parameters('adminIdentityName')") ? 'admin' : principal.includes("'func-g4k-portal'") ? 'portal' : principal;
+		const role = String(resource.properties?.['roleDefinitionId']).includes("variables('tableDataContributor')") ? 'writer' : 'reader';
+		return [`${table} ${holder} ${role}`];
+	}).sort();
+}
+
+test('each portal table has one writer, and the portal app and every player app read what admission needs', { skip }, () => {
+	assert.deepEqual(portalTableGrants(compile('infra/main.bicep')), [
+		'admins admin reader',
+		'emails admin writer',
+		'games admin writer',
+		'games portal reader',
+		'identities admin writer',
+		'identities portal reader',
+		'members admin writer',
+		'members portal reader',
+		'profiles admin reader',
+		'profiles portal writer',
+	]);
+	assert.deepEqual(compile('infra/game.bicep').variables?.['portalTablesPlayersRead'], ['members', 'games', 'identities', 'profiles']);
 });
 
 test('a game infra.bicep receives what the pipeline passes it and hands back app settings', { skip }, () => {
