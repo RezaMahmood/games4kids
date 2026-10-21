@@ -91,3 +91,47 @@ for (const { name, options } of SIZES) {
 		await context.close();
 	});
 }
+
+const DRAWPAD_API = '**/api/admin/g/drawpad/**';
+
+for (const { name, options } of SIZES) {
+	test(`${name}, the Draw Pad admin stays greyed out until its first request settles, then lifts`, async ({ browser }) => {
+		const context = await browser.newContext(options);
+		const page = await context.newPage();
+		await signedInAdmin(page);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(DRAWPAD_API, async (route) => {
+			await held;
+			return route.continue();
+		});
+
+		try {
+			await page.goto(`${ADMIN}/g/drawpad/`);
+			await expect(page.getByRole('status').filter({ hasText: 'Loading recent uploads' })).toBeAttached();
+			await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect((await overlay(page)).shown, 'the grey layer covers the page while the request hangs').toBe(true);
+		} finally {
+			release();
+		}
+
+		await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
+		expect((await overlay(page)).shown, 'the grey layer is gone').toBe(false);
+		await context.close();
+	});
+
+	test(`${name}, a failed first Draw Pad request still lifts the overlay`, async ({ browser }) => {
+		const context = await browser.newContext(options);
+		const page = await context.newPage();
+		await signedInAdmin(page);
+		await page.route(DRAWPAD_API, (route) =>
+			route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'Recent uploads are unavailable.' }) }),
+		);
+
+		await page.goto(`${ADMIN}/g/drawpad/`);
+
+		await expect(page.locator('body')).not.toHaveAttribute('aria-busy', 'true');
+		await expect(page.getByRole('alert').filter({ hasText: /recent uploads/i })).toBeVisible();
+		await context.close();
+	});
+}
