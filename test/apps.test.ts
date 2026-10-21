@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { defineGame, definePlayApi, parseEmail } from '@g4k/sdk';
+import { defineGame, definePlayApi, HttpError, parseEmail } from '@g4k/sdk';
 import { createPlayerApp, createPortalApp, EntraRefused, type GraphFor, type PortalTableName } from '@g4k/host';
 import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
@@ -92,11 +92,13 @@ test('Entra refusals become a claims challenge or entra_forbidden', async () => 
 	assert.equal(challenged.headers['www-authenticate'], `Bearer error="insufficient_claims", claims="${Buffer.from('{"access_token":{}}').toString('base64')}"`);
 	assert.deepEqual(challenged.data, { error: 'insufficient_claims', message: 'Sign in again to continue.', claims: '{"access_token":{}}' }, 'a page on another origin cannot read the header, so the body carries the claims');
 
-	const forbidden = await call(apps(w, refusing(new EntraRefused({ kind: 'entra_forbidden', call: 'list-assignments' }))).admin, 'GET', '/api/admin/portal/entra', {
+	const refusal = new EntraRefused({ kind: 'entra_forbidden', call: 'list-assignments' });
+	const forbidden = await call(apps(w, refusing(refusal)).admin, 'GET', '/api/admin/portal/entra', {
 		token: await me.elevated(NOW),
 	});
 	assert.equal(forbidden.status, 403);
 	assert.equal(codeOf(forbidden), 'entra_forbidden');
+	assert.deepEqual(w.telemetry.exceptions, [refusal], 'a refusal is a fault to look into, a claims challenge is the normal step-up');
 });
 
 test('the members routes parse at the boundary: an unknown game is a 400, an unknown member a 404', async () => {
@@ -294,6 +296,40 @@ test('an unexpected error is a 500 that names nothing internal, and telemetry re
 	assert.equal(reply.status, 500);
 	assert.deepEqual(reply.data, { error: 'internal', message: 'Something went wrong.' });
 	assert.equal(w.telemetry.exceptions.length, 1);
+});
+
+test('a 5xx HttpError keeps its reply and telemetry records it, but a 4xx is an answer and is not recorded', async () => {
+	const w = world();
+	const flaky = defineGame({
+		id: 'flaky',
+		title: 'Flaky',
+		summary: '',
+		icon: 'icon.svg',
+		storage: { tables: {}, containers: {}, queues: {} },
+		play: { web: { kind: 'static' }, settings: {}, services: [] },
+	});
+	const app = createPlayerApp({
+		issuers: [idp.games],
+		telemetry: w.telemetry,
+		now: w.now,
+		manifest: flaky,
+		create: definePlayApi(flaky, () => ({
+			routes: [
+				{ name: 'down', method: 'GET', path: 'down', body: 'none', run: async () => Promise.reject(new HttpError(502, 'upstream_down', 'The picture service did not answer.')) },
+				{ name: 'bad', method: 'GET', path: 'bad', body: 'none', run: async () => Promise.reject(new HttpError(400, 'bad_level', 'There is no such level.')) },
+			],
+		})),
+		portal: w.reader,
+		accounts: w.accounts,
+		tokens,
+		env: {},
+	});
+	const kid = await seedPlayer(w, idp, { games: [gameId('flaky')] });
+	const down = await call(app, 'GET', '/api/g/flaky/down', { token: kid.token });
+	const bad = await call(app, 'GET', '/api/g/flaky/bad', { token: kid.token });
+	assert.deepEqual([down.status, down.data], [502, { error: 'upstream_down', message: 'The picture service did not answer.' }]);
+	assert.equal(bad.status, 400);
+	assert.deepEqual(w.telemetry.exceptions.map((error) => (error as Error).message), ['The picture service did not answer.']);
 });
 
 test('a player app refuses to start when a required setting is missing', () => {

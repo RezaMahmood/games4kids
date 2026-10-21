@@ -234,6 +234,20 @@ test('assign gives up with a 502 after the last retry', async () => {
 	assert.deepEqual(world.sleeps, ASSIGN_RETRY_MS);
 });
 
+test('an unexpected Graph answer is a 502 that carries Graph\'s error code and message', async () => {
+	const world = entra({
+		graphReply: (url) => (url.pathname.endsWith('/appRoleAssignedTo') ? Response.json({ error: { code: 'Request_BadRequest', message: 'Not a valid reference update.' } }, { status: 400 }) : undefined),
+	});
+	const { elevation: e } = await elevation();
+	const { config, assertion } = world.config();
+	const person = world.graph.directory.add({ mail: 'a@example.com', guest: true });
+	await assert.rejects(graphAs(e, assertion, config).assign(person.id), {
+		status: 502,
+		code: 'entra_unavailable',
+		message: 'Entra answered 400 to assign: Request_BadRequest Not a valid reference update.',
+	});
+});
+
 test('adminAppGrants lists what the admin app holds', async () => {
 	const world = entra();
 	const { elevation: e } = await elevation();

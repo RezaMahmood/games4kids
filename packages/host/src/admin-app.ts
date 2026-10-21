@@ -259,7 +259,10 @@ export function createAdminApp(deps: AdminAppDeps): App {
 			if (session === 'forbidden') return apiError(403, { error: 'forbidden', message: 'This account is not an administrator.' });
 			return await dispatch(matched.target, { session, params: matched.params, request });
 		} catch (error) {
-			if (error instanceof EntraRefused) return entraRefusal(error);
+			if (error instanceof EntraRefused) {
+				if (error.refusal.kind === 'entra_forbidden') deps.telemetry.exception(error);
+				return entraRefusal(error);
+			}
 			return failure(error, deps.telemetry);
 		}
 	}

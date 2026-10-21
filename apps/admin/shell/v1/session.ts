@@ -2,7 +2,7 @@ import type { AdminCatalogEntry } from '@g4k/sdk';
 import { ApiFailure, createApiClient, type ApiClient } from '../../../shared/api-client.ts';
 import { showScreen, stylesheet } from '../../../shared/dom.ts';
 import { asGameId, fieldsOf } from '../../../shared/ids.ts';
-import { createTelemetry } from '../../../shared/telemetry.ts';
+import { createTelemetry, listen, report, reportTo } from '../../../shared/telemetry.ts';
 import { mountAdminBar } from './admin-bar.ts';
 import { startAdminAuth, type AdminSignedIn, type Elevation } from './auth.ts';
 import { loadAdminCatalog, loadAdminConfig, type AdminSiteConfig } from './config.ts';
@@ -61,10 +61,12 @@ function elevatedFor(signedIn: AdminSignedIn, config: AdminSiteConfig): AdminPor
 export function enterAdmin(options: { readonly game: null }): Promise<AdminPortalSession>;
 export function enterAdmin(options: { readonly game: string }): Promise<AdminGameSession>;
 export async function enterAdmin(options: { readonly game: string | null }): Promise<AdminGameSession | AdminPortalSession> {
+	listen(window);
 	try {
 		return await admit(options);
 	} catch (error) {
 		console.error(error);
+		report(error);
 		showUnreachable();
 		return never();
 	}
@@ -75,6 +77,8 @@ const showUnreachable = (): void =>
 
 async function admit(options: { readonly game: string | null }): Promise<AdminGameSession | AdminPortalSession> {
 	const config = await loadAdminConfig();
+	const telemetry = createTelemetry(config.telemetryConnectionString);
+	reportTo(telemetry, { site: 'admin', game: options.game === null ? 'portal' : asGameId(options.game), user: null });
 	stylesheet('/shared/tokens.css');
 	stylesheet('/shared/shell.css');
 	const auth = await startAdminAuth(config);
@@ -88,6 +92,7 @@ async function admit(options: { readonly game: string | null }): Promise<AdminGa
 		if (typeof me !== 'string') throw new Error('GET me answered no email');
 		email = me;
 	} catch (error) {
+		report(error);
 		const forbidden = error instanceof ApiFailure && error.code === 'forbidden';
 		if (forbidden) showScreen('This account is not an administrator', 'Sign in with the administrator account.', [{ label: 'Sign out', run: signedIn.signOut }]);
 		else showUnreachable();
@@ -101,7 +106,7 @@ async function admit(options: { readonly game: string | null }): Promise<AdminGa
 		showScreen('That game has no admin pages', 'Pick one from the bar above.');
 		return never();
 	}
-	createTelemetry(config.telemetryConnectionString).track({ name: 'page_view', site: 'admin', game: id, user: null });
+	telemetry.track({ name: 'page_view', site: 'admin', game: id, user: null });
 
 	const admin = { email };
 	if (id === 'portal') return { admin, api: portal, games: catalog, signOut: signedIn.signOut, elevated: elevatedFor(signedIn, config) };

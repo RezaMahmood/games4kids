@@ -1,4 +1,5 @@
 import type { ApiError, Refusal } from '@g4k/sdk';
+import { report as reportFault } from './telemetry.ts';
 
 /** Thrown for any non-2xx reply, parsed from the one error shape every app sends. */
 export class ApiFailure extends Error {
@@ -9,6 +10,7 @@ export class ApiFailure extends Error {
 
 	constructor(status: number, code: string, message: string, problems: readonly string[] = [], claims?: string) {
 		super(message);
+		this.name = 'ApiFailure';
 		this.status = status;
 		this.code = code;
 		this.problems = problems;
@@ -42,7 +44,8 @@ export type TokenSource = {
 	reauthenticate(): Promise<void>;
 };
 
-type Options = { readonly baseUrl: string; readonly tokens: TokenSource; readonly fetchImpl?: typeof fetch };
+/** `report` hears every failure, and the page's reporter decides which are faults. */
+type Options = { readonly baseUrl: string; readonly tokens: TokenSource; readonly fetchImpl?: typeof fetch; readonly report?: (error: unknown) => void };
 
 const TOKEN_REFUSALS = ['unauthenticated', 'invalid_token'] as const satisfies readonly Refusal[];
 
@@ -60,7 +63,7 @@ async function readError(response: Response): Promise<ApiFailure> {
 
 type CachedImage = { readonly etag: string | null; readonly url: string };
 
-export function createApiClient({ baseUrl, tokens, fetchImpl }: Options): ApiClient {
+export function createApiClient({ baseUrl, tokens, fetchImpl, report = reportFault }: Options): ApiClient {
 	const doFetch: typeof fetch = fetchImpl ?? ((input, init) => fetch(input, init));
 	const images = new Map<string, CachedImage>();
 	const urlFor = (path: string, query?: Readonly<Record<string, string>>) => {
@@ -78,7 +81,17 @@ export function createApiClient({ baseUrl, tokens, fetchImpl }: Options): ApiCli
 
 	const refusedToken = async (response: Response) => response.status === 401 && isTokenRefusal(((await response.clone().json().catch(() => null)) as Partial<ApiError> | null)?.error);
 
-	async function send(url: string, init: RequestInit = {}): Promise<Response> {
+	const reported = <T>(work: Promise<T>): Promise<T> =>
+		work.catch((error: unknown) => {
+			report(error);
+			throw error;
+		});
+
+	function send(url: string, init: RequestInit = {}): Promise<Response> {
+		return reported(sendOnce(url, init));
+	}
+
+	async function sendOnce(url: string, init: RequestInit): Promise<Response> {
 		const signedOut = () => new ApiFailure(401, 'unauthenticated', 'Sign in to continue.');
 		const first = await attempt(url, init, false);
 		if (first === null) throw signedOut();
@@ -89,8 +102,14 @@ export function createApiClient({ baseUrl, tokens, fetchImpl }: Options): ApiCli
 		return retried;
 	}
 
+	async function failed(response: Response): Promise<ApiFailure> {
+		const failure = await readError(response);
+		report(failure);
+		return failure;
+	}
+
 	async function parsed<T>(response: Response): Promise<T> {
-		if (!response.ok) throw await readError(response);
+		if (!response.ok) throw await failed(response);
 		return (response.status === 204 ? undefined : await response.json()) as T;
 	}
 
@@ -130,7 +149,7 @@ export function createApiClient({ baseUrl, tokens, fetchImpl }: Options): ApiCli
 			const cached = images.get(path);
 			const response = await send(urlFor(path), cached?.etag ? { headers: { 'if-none-match': cached.etag } } : {});
 			if (response.status === 304 && cached) return cached.url;
-			if (!response.ok) throw await readError(response);
+			if (!response.ok) throw await failed(response);
 			if (cached) URL.revokeObjectURL(cached.url);
 			const url = URL.createObjectURL(await response.blob());
 			images.set(path, { etag: response.headers.get('etag'), url });

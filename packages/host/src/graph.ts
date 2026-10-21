@@ -68,8 +68,9 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 		}
 		if (response.status >= 400 && response.status < 500) {
 			const codes = asList(reply['error_codes']).map((code) => `AADSTS${String(code)}`).join(',');
-			config.log('warn', `entra token endpoint refused the OBO exchange for ${call}: status ${response.status} error ${String(reply['error'] ?? 'unknown')} codes ${codes || 'none'}`);
-			throw new EntraRefused({ kind: 'entra_forbidden', call });
+			const line = `entra token endpoint refused the OBO exchange for ${call}: status ${response.status} error ${String(reply['error'] ?? 'unknown')} codes ${codes || 'none'}`;
+			config.log('warn', line);
+			throw new EntraRefused({ kind: 'entra_forbidden', call }, line);
 		}
 		throw new HttpError(502, 'entra_unavailable', 'Entra did not answer.');
 	}
@@ -84,19 +85,26 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 		const data = await jsonOf(response);
 		if (response.status === 401 || response.status === 403) {
 			const refusal = asRecord(data['error']);
-			config.log('warn', `graph refused ${call}: status ${response.status} code ${String(refusal['code'] ?? 'unknown')} message ${String(refusal['message'] ?? 'none')}`);
-			throw new EntraRefused({ kind: 'entra_forbidden', call });
+			const line = `graph refused ${call}: status ${response.status} code ${String(refusal['code'] ?? 'unknown')} message ${String(refusal['message'] ?? 'none')}`;
+			config.log('warn', line);
+			throw new EntraRefused({ kind: 'entra_forbidden', call }, line);
 		}
 		return { status: response.status, data };
 	}
 
-	const unexpected = (call: EntraCall, status: number) => new HttpError(502, 'entra_unavailable', `Entra answered ${status} to ${call}.`);
+	/** Graph's own error code and message ride along, so the admin page and App Insights both say what Graph objected to. */
+	function unexpected(call: EntraCall, { status, data }: { readonly status: number; readonly data: Json }): HttpError {
+		const refusal = asRecord(data['error']);
+		const detail = [refusal['code'], refusal['message']].filter((part) => typeof part === 'string' && part !== '').join(' ').slice(0, 300);
+		return new HttpError(502, 'entra_unavailable', detail ? `Entra answered ${status} to ${call}: ${detail}` : `Entra answered ${status} to ${call}.`);
+	}
 
 	async function pages(call: EntraCall, firstPath: string): Promise<readonly Json[]> {
 		const rows: Json[] = [];
 		for (let next: string | undefined = firstPath; next; ) {
-			const { status, data } = await send(call, 'GET', next);
-			if (status !== 200) throw unexpected(call, status);
+			const reply = await send(call, 'GET', next);
+			if (reply.status !== 200) throw unexpected(call, reply);
+			const { data } = reply;
 			rows.push(...asList(data['value']).map(asRecord));
 			next = typeof data['@odata.nextLink'] === 'string' ? data['@odata.nextLink'] : undefined;
 		}
@@ -107,8 +115,9 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 		async findUser(email: Email) {
 			const quoted = odataString(email);
 			const filter = `mail eq ${quoted} or userPrincipalName eq ${quoted} or startswith(userPrincipalName,${odataString(guestUpnPrefix(email))})`;
-			const { status, data } = await send('find-user', 'GET', `/v1.0/users?$filter=${encodeURIComponent(filter)}&$select=id,mail,userPrincipalName&$count=true`, undefined, { consistencylevel: 'eventual' });
-			if (status !== 200) throw unexpected('find-user', status);
+			const reply = await send('find-user', 'GET', `/v1.0/users?$filter=${encodeURIComponent(filter)}&$select=id,mail,userPrincipalName&$count=true`, undefined, { consistencylevel: 'eventual' });
+			if (reply.status !== 200) throw unexpected('find-user', reply);
+			const { data } = reply;
 			const users = asList(data['value']).flatMap((raw): EntraUser[] => {
 				const user = asRecord(raw);
 				const id = parseEntraObjectId(user['id']);
@@ -118,9 +127,9 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 			return resolveUser(email, users);
 		},
 		async inviteGuest(email, redirectUrl) {
-			const { status, data } = await send('invite', 'POST', '/v1.0/invitations', { invitedUserEmailAddress: email, inviteRedirectUrl: redirectUrl, sendInvitationMessage: true });
-			const objectId = parseEntraObjectId(asRecord(data['invitedUser'])['id']);
-			if (status >= 300 || !objectId) throw unexpected('invite', status);
+			const reply = await send('invite', 'POST', '/v1.0/invitations', { invitedUserEmailAddress: email, inviteRedirectUrl: redirectUrl, sendInvitationMessage: true });
+			const objectId = parseEntraObjectId(asRecord(reply.data['invitedUser'])['id']);
+			if (reply.status >= 300 || !objectId) throw unexpected('invite', reply);
 			return objectId;
 		},
 		async assignments() {
@@ -134,20 +143,20 @@ export function graphAs(elevation: Elevation, clientAssertion: ClientAssertion, 
 		async assign(objectId: EntraObjectId) {
 			const body = { principalId: objectId, resourceId: config.gamesPrincipalId, appRoleId: DEFAULT_ACCESS_ROLE };
 			for (let attempt = 0; ; attempt++) {
-				const { status, data } = await send('assign', 'POST', `${games}/appRoleAssignedTo`, body);
-				if (status === 201) return;
-				if (status === 400 && /already exists/i.test(String(asRecord(data['error'])['message']))) return;
+				const reply = await send('assign', 'POST', `${games}/appRoleAssignedTo`, body);
+				if (reply.status === 201) return;
+				if (reply.status === 400 && /already exists/i.test(String(asRecord(reply.data['error'])['message']))) return;
 				const wait = ASSIGN_RETRY_MS[attempt];
-				if (status === 404 && wait !== undefined) {
+				if (reply.status === 404 && wait !== undefined) {
 					await sleep(wait);
 					continue;
 				}
-				throw unexpected('assign', status);
+				throw unexpected('assign', reply);
 			}
 		},
 		async unassign(assignment) {
-			const { status } = await send('unassign', 'DELETE', `${games}/appRoleAssignedTo/${assignment.assignmentId}`);
-			if (status !== 204 && status !== 404) throw unexpected('unassign', status);
+			const reply = await send('unassign', 'DELETE', `${games}/appRoleAssignedTo/${assignment.assignmentId}`);
+			if (reply.status !== 204 && reply.status !== 404) throw unexpected('unassign', reply);
 		},
 		async adminAppGrants() {
 			const rows = await pages('list-admin-grants', `/v1.0/servicePrincipals/${config.adminPrincipalId}/appRoleAssignments?$top=100`);

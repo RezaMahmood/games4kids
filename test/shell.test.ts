@@ -10,7 +10,7 @@ import { createGameStorage } from '../apps/games/shell/v1/storage.ts';
 import { safeReturn } from '../apps/games/pages/return-to.ts';
 import { ApiFailure, createApiClient, type TokenSource } from '../apps/shared/api-client.ts';
 import { asGameId, asPortalUserId, GAME_ID as BROWSER_GAME_ID } from '../apps/shared/ids.ts';
-import { BEAT_MS, createTelemetry, envelopeFor, parseConnectionString, startGameSession, type ShellEvent } from '../apps/shared/telemetry.ts';
+import { BEAT_MS, createReporter, createTelemetry, envelopeFor, parseConnectionString, startGameSession, type ShellEvent } from '../apps/shared/telemetry.ts';
 import { gameId, portalUserId } from './support/ids.ts';
 
 type Call = { readonly url: string; readonly init: RequestInit };
@@ -256,6 +256,64 @@ test('telemetry stamps game and user on every event, never an email, and sends n
 	silent.track({ name: 'page_view', site: 'admin', game: 'portal', user: null });
 	assert.equal(sent.length, 1);
 	assert.equal(envelopeFor({ name: 'page_view', site: 'admin', game: 'portal', user: null }, target ?? assert.fail(), '/', new Date()).tags['ai.cloud.role'], 'g4k-admin-site');
+});
+
+test('a browser fault becomes an App Insights exception with its type, stack, status and code, on its site\'s role', () => {
+	const target = parseConnectionString('InstrumentationKey=k;IngestionEndpoint=https://west.in.example/') ?? assert.fail();
+	const envelope = envelopeFor(
+		{ name: 'exception', site: 'admin', game: 'portal', user: null, error: { type: 'ApiFailure', message: 'Entra answered 400 to assign.', stack: 'ApiFailure: Entra answered 400\n    at sync', status: 502, code: 'entra_unavailable' } },
+		target,
+		'https://admin.example/members/',
+		new Date('2026-10-21T10:56:55Z'),
+	);
+	assert.equal(envelope.name, 'Microsoft.ApplicationInsights.k.Exception');
+	assert.equal(envelope.tags['ai.cloud.role'], 'g4k-admin-site');
+	assert.equal(envelope.data.baseType, 'ExceptionData');
+	assert.deepEqual(envelope.data.baseData['exceptions'], [{ typeName: 'ApiFailure', message: 'Entra answered 400 to assign.', hasFullStack: true, stack: 'ApiFailure: Entra answered 400\n    at sync' }]);
+	assert.deepEqual(envelope.data.baseData['properties'], { site: 'admin', game: 'portal', status: '502', code: 'entra_unavailable', page: 'https://admin.example/members/' });
+});
+
+test('the reporter sends each fault once, holds early ones until it knows the site, and leaves 4xx answers out', () => {
+	const events: ShellEvent[] = [];
+	const reporter = createReporter();
+	const early = new TypeError('Failed to fetch');
+	reporter.report(early);
+	reporter.report(new ApiFailure(403, 'forbidden', 'Not an administrator.'));
+	reporter.reportTo({ track: (event) => void events.push(event) }, { site: 'admin', game: 'portal', user: null });
+	const down = new ApiFailure(502, 'entra_unavailable', 'Entra answered 400 to assign.');
+	reporter.report(down);
+	reporter.report(down);
+	reporter.report('a thrown string');
+	assert.deepEqual(
+		events.map((event) => (event.name === 'exception' ? [event.error.type, event.error.message, event.error.status ?? null] : event.name)),
+		[
+			['TypeError', 'Failed to fetch', null],
+			['ApiFailure', 'Entra answered 400 to assign.', 502],
+			['Error', 'a thrown string', null],
+		],
+	);
+});
+
+test('the reporter hears uncaught errors and unhandled rejections', () => {
+	const events: ShellEvent[] = [];
+	const reporter = createReporter();
+	const page = new EventTarget();
+	reporter.listen(page);
+	reporter.reportTo({ track: (event) => void events.push(event) }, { site: 'games', game: gameId('drawpad'), user: null });
+	page.dispatchEvent(Object.assign(new Event('error'), { error: new RangeError('bad brush'), message: 'Uncaught RangeError: bad brush' }));
+	page.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('lost save') }));
+	assert.deepEqual(events.map((event) => (event.name === 'exception' ? `${event.error.type}: ${event.error.message}` : event.name)), ['RangeError: bad brush', 'Error: lost save']);
+});
+
+test('the API client reports a 5xx and a network failure, and not a 4xx answer', async () => {
+	const reported: unknown[] = [];
+	const replies = [new Response(JSON.stringify({ error: 'entra_unavailable', message: 'Entra did not answer.' }), { status: 502 }), new Response(JSON.stringify({ error: 'bad', message: 'No.' }), { status: 400 })];
+	const fetchImpl: typeof fetch = async () => replies.shift() ?? Promise.reject(new TypeError('Failed to fetch'));
+	const api = createApiClient({ baseUrl: BASE, tokens: tokens().source, fetchImpl, report: (error) => void reported.push(error) });
+	await assert.rejects(api.post('entra/sync', {}), { status: 502 });
+	await assert.rejects(api.get('x'), { status: 400 });
+	await assert.rejects(api.get('y'), TypeError);
+	assert.deepEqual(reported.map((error) => (error instanceof ApiFailure ? error.status : (error as Error).name)), [502, 400, 'TypeError'], 'the client hands every failure on; the reporter decides what is a fault');
 });
 
 test('a game_session beat goes out each minute only while the page is visible, and stops when asked', () => {

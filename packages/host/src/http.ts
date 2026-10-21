@@ -63,9 +63,10 @@ export function refuse(refusal: Refusal): HostReply {
 
 export const notFound = (): HostReply => apiError(404, { error: 'not_found', message: 'There is nothing here.' });
 
-/** HttpError keeps its status and code. Anything else is a 500 that names nothing internal. */
+/** HttpError keeps its status and code, and telemetry records it when it is a 5xx. Anything else is a 500 that names nothing internal. */
 export function failure(error: unknown, telemetry: Telemetry): HostReply {
 	if (error instanceof HttpError) {
+		if (error.status >= 500) telemetry.exception(error);
 		return apiError(error.status, { error: error.code, message: error.message, ...(error.problems ? { problems: error.problems } : {}) });
 	}
 	telemetry.exception(error);

@@ -1,4 +1,4 @@
-import { ApiFailure, enterAdmin, ready } from '../shell/v1/index.ts';
+import { ApiFailure, enterAdmin, ready, report } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
 import { fieldsOf } from '../../shared/ids.ts';
 
@@ -48,6 +48,7 @@ function row(id: string, title: string, initial: boolean): HTMLLIElement {
 			paused = saved;
 			say(paused ? `Paused ${title}. Players see it greyed out.` : `${title} is available again. Players can open it.`);
 		} catch (error) {
+			report(error);
 			say(explain(error), true);
 		} finally {
 			toggle.disabled = false;
@@ -68,6 +69,7 @@ try {
 	list.replaceChildren(...(rows.length > 0 ? rows : [el('li', { class: 'empty' }, 'No games are registered yet.')]));
 	say('');
 } catch (error) {
+	report(error);
 	say(explain(error), true);
 }
 ready();

@@ -312,7 +312,7 @@ test('handwriting is read by the vision service with the platform token, and eve
 	vision.failNext(1, 401);
 	const refused = await s.asAda('POST', 'read', { png: image });
 	assert.equal(refused.status, 500, 'a request the service refuses as wrong is not an outage');
-	assert.equal(s.exceptions.length, 1);
+	assert.equal(s.exceptions.length, 2, 'the outage and the refusal are both faults to look into');
 
 	const off = await setup({});
 	const none = await off.asAda('POST', 'read', { png: image });

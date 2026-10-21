@@ -1,4 +1,4 @@
-import { ApiFailure, enterAdmin, ready } from '../shell/v1/index.ts';
+import { ApiFailure, enterAdmin, ready, report as reportFault } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
 import { checkedReport, FILTERS, gamesSummary, membersView, needsSync, parseMembers, STANDING_LABEL, standingOf, syncBody, type Attention, type DriftReport, type Filter, type GameGrant, type Listed, type MemberRow, type Standing } from './members-model.ts';
 
@@ -53,6 +53,7 @@ async function attempt(scope: HTMLElement, tell: Say, work: () => Promise<void>)
 	try {
 		await work();
 	} catch (error) {
+		reportFault(error);
 		tell(explain(error), true);
 	} finally {
 		scope.ariaBusy = null;
