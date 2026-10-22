@@ -1,6 +1,6 @@
 import { ApiFailure, enter, ready, report } from '../shell/v1/index.ts';
 import { nameMessage } from './name-message.ts';
-import { mountBoardSwitches } from './profile-boards.ts';
+import { mountBoardSwitches, refreshBoards } from './profile-boards.ts';
 
 function must<T extends HTMLElement>(id: string, kind: new () => T): T {
 	const found = document.getElementById(id);
@@ -55,6 +55,7 @@ form.addEventListener('submit', async (event) => {
 		locked = newName !== currentName;
 		currentName = newName;
 		renamed(newName);
+		if (locked) refreshBoards(games, gameApi);
 		savedText.textContent = `Saved. Your name in games is ${newName}.`;
 	} catch (error) {
 		locked = isRenameTomorrow(error);

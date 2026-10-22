@@ -94,8 +94,8 @@ export type PortalReader = {
 /** The portal app's view: the reader plus the one table it writes. No member, identity or email writer. */
 export type PortalStore = PortalReader & {
 	/**
-	 * Refuses a display name another child holds, and a second rename on one day. Two children racing for one name is
-	 * accepted. It keeps the row's `renamedAt` unless the save is a rename.
+	 * Refuses a display name another child holds, a second rename on one day, and a rename that changes the time zone in
+	 * the same save. Two children racing for one name is accepted. It keeps the row's `renamedAt` unless the save is a rename.
 	 */
 	setProfile(userId: PortalUserId, profile: Profile, now: Date): Promise<'ok' | 'name_taken' | 'rename_tomorrow'>;
 };

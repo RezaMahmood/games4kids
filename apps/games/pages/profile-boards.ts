@@ -24,12 +24,22 @@ function render(row: { readonly input: HTMLInputElement; readonly note: HTMLElem
 	row.note.textContent = state.kind === 'loading' ? 'Loading…' : state.kind === 'saving' ? 'Saving…' : state.kind === 'unavailable' || state.kind === 'ready' ? state.message : '';
 }
 
+const withBoard = (games: readonly CatalogEntry[]) => games.filter((game) => game.scoreboard);
+
+/**
+ * Reading `board/me` makes a game bring its copy of the child's name up to date, so this is how a rename reaches every
+ * board at once. It does not wait for the games, and one that fails is reported without touching the rest.
+ */
+export function refreshBoards(games: readonly CatalogEntry[], gameApi: (game: CatalogEntry) => ApiClient): void {
+	for (const game of withBoard(games)) gameApi(game).get('board/me').catch(report);
+}
+
 /**
  * One switch for each game whose board the child may join, each against that game's own player API. A game that
  * answers slowly or not at all holds up only its own switch.
  */
 export function mountBoardSwitches(list: HTMLElement, games: readonly CatalogEntry[], gameApi: (game: CatalogEntry) => ApiClient): void {
-	const rows = games.filter((game) => game.scoreboard).map((game) => {
+	const rows = withBoard(games).map((game) => {
 		const api = gameApi(game);
 		const item = document.createElement('li');
 		const label = document.createElement('label');
@@ -47,13 +57,10 @@ export function mountBoardSwitches(list: HTMLElement, games: readonly CatalogEnt
 		const row = { input, note };
 		render(row, { kind: 'loading' });
 
-		api.get('board/me').then(
-			(reply) => render(row, { kind: 'ready', on: optedIn(reply), message: '' }),
-			(error: unknown) => {
-				report(error);
-				render(row, { kind: 'unavailable', message: failure(error, 'load') });
-			},
-		);
+		api.get('board/me').then((reply) => render(row, { kind: 'ready', on: optedIn(reply), message: '' })).catch((error: unknown) => {
+			report(error);
+			render(row, { kind: 'unavailable', message: failure(error, 'load') });
+		});
 		input.addEventListener('change', async () => {
 			const wanted = input.checked;
 			render(row, { kind: 'saving', on: wanted });

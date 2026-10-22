@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, namedChild, pageReady, signInAtFakeEntra } from './support.ts';
+import { addAndSync, ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, namedChild, pageReady, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const RENAMED_TODAY = 'You already changed your name today. You can change it again tomorrow.';
@@ -80,3 +80,30 @@ for (const { name, options } of SIZES) {
 		await friend.context().close();
 	});
 }
+
+test('a child choosing a first name on the welcome page is told to choose a kinder one, and keeps the page', async ({ browser }) => {
+	test.setTimeout(180_000);
+	const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const admin = await adminContext.newPage();
+	answerPopups(admin);
+	await admin.goto(`${ADMIN}/`);
+	await signInAtFakeEntra(admin, ADMIN_EMAIL);
+	await adminReady(admin);
+	await addAndSync(admin, `welcome-${RUN}@example.com`, 'Draw Pad');
+
+	const kidContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const kid = await kidContext.newPage();
+	const problems = collectProblems([kid]);
+	await kid.goto(`${GAMES}/`);
+	await signInAtFakeEntra(kid, `welcome-${RUN}@example.com`);
+	await pageReady(kid);
+	await kid.getByLabel('Your name in games').fill('Loser');
+	await kid.getByRole('button', { name: "Let's play" }).click();
+	await expect(kid.getByRole('alert')).toHaveText('Please choose a kinder name. Try another.');
+	await expect(kid.getByLabel('Your name in games')).toHaveAttribute('aria-invalid', 'true');
+	await expect(kid).toHaveURL(/\/welcome\//);
+
+	expect(problems).toEqual([]);
+	await adminContext.close();
+	await kidContext.close();
+});
