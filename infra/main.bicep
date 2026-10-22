@@ -26,6 +26,8 @@ var adminTags = { app: 'games4kids', game: 'admin' }
 var tableDataContributor = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 var tableDataReader = '76199698-9eea-4c19-bc75-cec21354c6b6'
 var contributor = 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+@description('The custom domain of each site. tools/deploy.ts reads the same file.')
+var domains = loadJsonContent('domains.json')
 
 resource adminIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: adminIdentityName
@@ -174,8 +176,23 @@ resource adminSite 'Microsoft.Web/staticSites@2023-12-01' = {
   properties: {}
 }
 
-var gamesOrigin = 'https://${gamesSite.properties.defaultHostname}'
-var adminOrigin = 'https://${adminSite.properties.defaultHostname}'
+// The CNAME at the DNS host must resolve before this deploys. CNAME validation also gives the site a managed certificate.
+resource gamesDomain 'Microsoft.Web/staticSites/customDomains@2023-12-01' = {
+  parent: gamesSite
+  name: domains.games
+  properties: { validationMethod: 'cname-delegation' }
+}
+
+resource adminDomain 'Microsoft.Web/staticSites/customDomains@2023-12-01' = {
+  parent: adminSite
+  name: domains.admin
+  properties: { validationMethod: 'cname-delegation' }
+}
+
+// The default hostnames keep working for invitations already sent and for bookmarks.
+var gamesOrigin = 'https://${gamesDomain.name}'
+var gamesOrigins = [gamesOrigin, 'https://${gamesSite.properties.defaultHostname}']
+var adminOrigins = ['https://${adminDomain.name}', 'https://${adminSite.properties.defaultHostname}']
 var telemetry = { APPLICATIONINSIGHTS_CONNECTION_STRING: insights.properties.ConnectionString }
 
 module portalApp 'modules/function-app.bicep' = {
@@ -186,7 +203,7 @@ module portalApp 'modules/function-app.bicep' = {
     tags: portalTags
     memoryMb: 512
     maxInstances: 10
-    allowedOrigin: gamesOrigin
+    allowedOrigins: gamesOrigins
     hostStorageName: hostStorage.name
     deployPrincipalId: deployIdentity.properties.principalId
     deployIdentityId: deployIdentity.id
@@ -206,7 +223,7 @@ module adminApp 'modules/function-app.bicep' = {
     tags: adminTags
     memoryMb: 2048
     maxInstances: 1
-    allowedOrigin: adminOrigin
+    allowedOrigins: adminOrigins
     hostStorageName: hostStorage.name
     userAssignedIdentityId: adminIdentity.id
     userAssignedClientId: adminIdentity.properties.clientId
