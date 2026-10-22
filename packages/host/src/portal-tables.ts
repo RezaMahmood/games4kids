@@ -99,7 +99,7 @@ export function portalReader(tables: ReaderTables): PortalReader {
 /** A save that loses its write to another save reads the row again, so a few lost races in a row mean something is wrong. */
 const SAVE_ATTEMPTS = 3;
 
-const sameName =(a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 
 /** The portal app: the reader, plus profiles, the one table it writes. */
 export function portalStore(tables: ReaderTables & { readonly profiles: Table }): PortalStore {
