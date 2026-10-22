@@ -406,7 +406,7 @@ describe('--apply --after-first-deploy', () => {
 			.map((row) => `${row.scope.split('/').slice(-2).join('/')} ${row.roleDefinitionId.split('/').at(-1)}`)
 			.sort();
 
-	test('gives you the data roles the migration tools need, and only those', async () => {
+	test('gives you the data roles the migration and a diagnosis of player data need, and only those', async () => {
 		const world = await deployed();
 		const io = world.io();
 		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
@@ -419,10 +419,18 @@ describe('--apply --after-first-deploy', () => {
 			`storageAccounts/stdp2qnzjgj6a3qtq ${AZURE_ROLES.tableDataReader}`,
 			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.blobDataReader}`,
 			`storageAccounts/stletterjoinul5nga ${AZURE_ROLES.tableDataReader}`,
+			`storageAccounts/g4kportalab12c ${AZURE_ROLES.tableDataReader}`,
 			`tables/admins ${AZURE_ROLES.tableDataContributor}`,
-			`tables/emails ${AZURE_ROLES.tableDataReader}`,
-			`tables/identities ${AZURE_ROLES.tableDataReader}`,
 		].sort());
+	});
+
+	test('a game added later is readable too, and the shared host account is not', async () => {
+		const world = await deployed();
+		for (const game of ['spelling', 'shared']) world.storageAccounts.push({ name: `g4k${game}ab12c`, id: `${String(world.rg?.['id'])}/providers/Microsoft.Storage/storageAccounts/g4k${game}ab12c`, game });
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
+		const added = yours(world).filter((row) => row.includes('spelling') || row.includes('shared'));
+		assert.deepEqual(added, [`storageAccounts/g4kspellingab12c ${AZURE_ROLES.tableDataReader}`]);
 	});
 
 	test('a stronger data role you already hold on an account counts, so nothing is added there', async () => {
