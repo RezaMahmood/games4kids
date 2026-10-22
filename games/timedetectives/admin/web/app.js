@@ -385,9 +385,14 @@ async function publish() {
   if (round) await change(() => api.publish(round.id, round.etag), 'Published. Children can play it now.');
 }
 
+/** Takes the round down before saving any edits, so words nobody published never reach a child, even for a moment. */
 async function unpublish() {
-  const round = await saveEdits();
-  if (round) await change(() => api.unpublish(round.id), 'Unpublished.');
+  const unsaved = edited() && readForm();
+  const round = await change(() => api.unpublish(editing.round.id), 'Unpublished.');
+  if (!round || !unsaved) return;
+  fillForm(unsaved);
+  renderPreview();
+  await change(() => api.edit(round.id, unsaved, round.etag), 'Unpublished, and your changes are saved.');
 }
 
 async function retry() {

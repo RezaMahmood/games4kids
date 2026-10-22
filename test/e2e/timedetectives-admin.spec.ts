@@ -176,6 +176,7 @@ for (const { name, width, options } of SIZES) {
 		await expect(page.getByRole('status')).toHaveText('Picture saved.');
 		await page.locator('#q-who-hint').fill('Who sailed from the north?');
 		await page.getByRole('button', { name: 'Unpublish' }).click();
+		await expect(page.getByRole('status')).toHaveText('Unpublished, and your changes are saved.');
 		await expect(page.locator('#round-badge')).toHaveText('Draft');
 
 		await page.reload();
@@ -184,6 +185,38 @@ for (const { name, width, options } of SIZES) {
 		await expect(page.locator('#r-brief')).toHaveValue('Sails on the horizon.');
 		await expect(page.locator('#q-who-hint')).toHaveValue('Who sailed from the north?');
 		await shot(page, `admin-unsaved-kept-${width}`);
+		await page.context().close();
+	});
+}
+
+const UNPUBLISH_API = /\/api\/admin\/g\/timedetectives\/rounds\/[0-9a-f-]{36}\/unpublish$/;
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, Unpublish takes the round down before saving edits, so an Unpublish that fails puts no unchecked words live`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await draftedRound(page, await newTopic(page));
+		const original = await page.locator('#r-brief').inputValue();
+		await page.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.locator('#round-badge')).toHaveText('Published');
+
+		await page.route(UNPUBLISH_API, (route) => route.fulfill({ status: 503, json: { error: 'storage_down', message: 'Storage is resting.' } }));
+		await page.locator('#r-brief').fill('Words nobody has checked.');
+		await page.getByRole('button', { name: 'Unpublish' }).click();
+		await expect(page.getByRole('status')).toHaveText('Storage is resting.');
+		await expect(page.locator('#r-brief')).toHaveValue('Words nobody has checked.');
+		await shot(page, `admin-unpublish-failed-${width}`);
+		const other = await page.context().newPage();
+		await other.goto(page.url());
+		await adminReady(other);
+		await expect(other.locator('#round-badge')).toHaveText('Published');
+		await expect(other.locator('#r-brief')).toHaveValue(original);
+		await other.close();
+
+		await page.unroute(UNPUBLISH_API);
+		await page.getByRole('button', { name: 'Unpublish' }).click();
+		await expect(page.getByRole('status')).toHaveText('Unpublished, and your changes are saved.');
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		await expect(page.locator('#r-brief')).toHaveValue('Words nobody has checked.');
 		await page.context().close();
 	});
 }
