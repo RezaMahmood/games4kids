@@ -32,8 +32,8 @@ const paragraphs = (node, text) => node.replaceChildren(...text.split(/\n\s*\n/)
 const pad = (n) => String(n).padStart(2, '0');
 const localDay = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-/** @type {import('./api.js').Topic[]} */
-let topics = [];
+/** @type {{ kind: 'loading' } | { kind: 'ready', list: import('./api.js').Topic[] } | { kind: 'failed', message: string }} */
+let topics = { kind: 'loading' };
 /** @type {import('./api.js').Topic | null} */
 let topic = null;
 /**
@@ -43,11 +43,36 @@ let topic = null;
 let play = null;
 
 function renderTopics() {
-  $('topics').replaceChildren(...topics.map((t, i) => h('li', {},
+  const list = topics.kind === 'ready' ? topics.list : [];
+  $('topics').replaceChildren(...list.map((t, i) => h('li', {},
     h('button', { type: 'button', className: `topic tone-${i % 4}`, onclick: () => chooseTopic(t) },
       h('span', { className: 'topic-title', textContent: t.title }),
       h('span', { className: 'topic-go', textContent: 'Investigate' })))));
-  say('topics-status', topics.length === 0 ? 'There are no mysteries yet. Ask your grown-up to add some.' : '');
+  const status = {
+    loading: 'Finding the mysteries…',
+    ready: list.length === 0 ? 'There are no mysteries yet. Ask your grown-up to add some.' : '',
+    failed: `${topics.message} Press Try again.`,
+  };
+  say('topics-status', status[topics.kind]);
+  $('topics-retry').hidden = topics.kind !== 'failed';
+}
+
+/** A failed refresh keeps a list the child already has, since its topics can still be played. */
+async function loadTopics() {
+  try {
+    topics = { kind: 'ready', list: await api.topics() };
+  } catch (err) {
+    if (topics.kind !== 'ready') topics = { kind: 'failed', message: err.message };
+  }
+  renderTopics();
+}
+
+async function retryTopics() {
+  topics = { kind: 'loading' };
+  renderTopics();
+  await loadTopics();
+  if (topics.kind === 'failed') $('topics-retry').focus();
+  else $('topics-heading').focus();
 }
 
 function showTopics() {
@@ -275,19 +300,13 @@ $('finish').addEventListener('click', finish);
 $('board-switch').addEventListener('click', toggleBoard);
 function playAnother() {
   showTopics();
-  api.topics().then((latest) => {
-    topics = latest;
-    renderTopics();
-  }, () => {});
+  loadTopics();
 }
 
 $('again').addEventListener('click', playAnother);
 $('quiz-again').addEventListener('click', playAnother);
 
-try {
-  topics = await api.topics();
-  renderTopics();
-} catch (err) {
-  say('topics-status', err.message);
-}
+$('topics-retry').addEventListener('click', retryTopics);
+
+await loadTopics();
 ready();

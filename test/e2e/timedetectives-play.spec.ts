@@ -4,6 +4,7 @@ import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, n
 const SHOTS = process.env['G4K_SHOTS'];
 const RUN = Date.now().toString(36);
 const TOPIC = `Saxons ${RUN}`;
+const TOPICS_API = /\/api\/g\/timedetectives\/topics$/;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -116,3 +117,19 @@ test('focus follows the child through every screen, onto the next open choice af
 	await expect(kid.locator('#result-heading')).toBeFocused();
 	await shot('play-focus-result', 390);
 });
+
+for (const width of [390, 820]) {
+	test(`at ${width}px, topics that fail to load say so in the topics panel and load again on Try again`, async () => {
+		let failures = 1;
+		await kid.route(TOPICS_API, (route) => (failures-- > 0 ? route.fulfill({ status: 503, json: { error: 'storage_down', message: 'The mysteries are locked away for a moment.' } }) : route.fallback()));
+		await home(width);
+		await kid.getByRole('button', { name: 'Open the door to the past' }).click();
+		await expect(kid.locator('#topics-status')).toHaveText('The mysteries are locked away for a moment. Press Try again.');
+		await expect(kid.getByText('There are no mysteries yet')).toHaveCount(0);
+		await shot('play-topics-failed', width);
+		await kid.getByRole('button', { name: 'Try again' }).click();
+		await expect(kid.getByRole('button', { name: new RegExp(TOPIC) })).toBeVisible();
+		await expect(kid.locator('#topics-status')).toBeHidden();
+		await kid.unroute(TOPICS_API);
+	});
+}
