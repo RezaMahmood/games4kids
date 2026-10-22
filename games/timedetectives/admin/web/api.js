@@ -37,7 +37,8 @@ export function createApi(client) {
     write: async (topicId, content) => parseRound(await client.post(`topics/${id(topicId)}/rounds`, { content })),
     round: async (roundId) => parseRound(await client.get(`rounds/${id(roundId)}`)),
     edit: async (roundId, content, etag) => parseRound(await client.put(`rounds/${id(roundId)}`, { content, etag })),
-    publish: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/publish`, {})),
+    /** Publishes the round only while it is still as the page loaded it, at `etag`. */
+    publish: async (roundId, etag) => parseRound(await client.post(`rounds/${id(roundId)}/publish`, { etag })),
     unpublish: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/unpublish`, {})),
     redraw: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/redraw`, {})),
     retry: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/retry`, {})),

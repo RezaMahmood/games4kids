@@ -382,7 +382,7 @@ async function redraw() {
 
 async function publish() {
   const round = await saveEdits();
-  if (round) await change(() => api.publish(round.id), 'Published. Children can play it now.');
+  if (round) await change(() => api.publish(round.id, round.etag), 'Published. Children can play it now.');
 }
 
 async function unpublish() {

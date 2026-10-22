@@ -109,7 +109,9 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	}
 
 	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
+	/** Publishes the round as the admin page would, with the etag of the round as it last loaded it. */
+	const publish = async (id: string, etag?: string) => asAdmin('POST', `rounds/${id}/publish`, { json: { etag: etag ?? (await adminRound(id)).etag } });
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -329,7 +331,7 @@ test('an admin drafts a round with AI through the worker, with the platform toke
 
 	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
-	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/publish`)).status, 200);
+	assert.equal((await s.publish(round.id)).status, 200);
 	assert.deepEqual(((await s.asAda('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings']);
 	assert.equal(((await s.asAda('GET', `topics/${topic}/next?confidence=easy`)).data as View).id, round.id);
 	assert.deepEqual(s.exceptions, []);
@@ -343,7 +345,7 @@ test('a refused picture keeps the words, leaves a draft that says why and takes 
 	const round = await drafted(s, topic);
 	assert.deepEqual([round.state, round.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai', notice: PICTURE_REFUSED }, false]);
 	assert.deepEqual(callsSince(before), [CHAT, IMAGE], 'a refusal is not retried');
-	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${round.id}/publish`)), 'not_ready');
+	assert.equal(codeOf(await s.publish(round.id)), 'not_ready');
 	const edited = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: { ...VIKING_ROUND, title: 'Raid' }, etag: round.etag } });
 	assert.deepEqual((edited.data as AdminRound).state, { kind: 'draft', content: { ...ROUND, title: 'Raid' }, source: 'human' }, 'the notice goes once the admin acts');
 
@@ -430,7 +432,7 @@ test('a round written by hand needs a picture to publish, stays published throug
 	assert.equal(made.status, 201);
 	const round = made.data as AdminRound;
 	assert.deepEqual([round.state.kind, round.hasPicture], ['draft', false]);
-	const unready = await s.asAdmin('POST', `rounds/${round.id}/publish`);
+	const unready = await s.publish(round.id);
 	assert.equal(unready.status, 409);
 	assert.equal(codeOf(unready), 'not_ready');
 
@@ -438,7 +440,7 @@ test('a round written by hand needs a picture to publish, stays published throug
 	assert.equal((uploaded.data as AdminRound).hasPicture, true);
 	assert.equal((await s.asAdmin('GET', `rounds/${round.id}/picture`)).headers['content-type'], 'image/jpeg');
 	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { jpeg: JPEG })).status, 415);
-	const live = (await s.asAdmin('POST', `rounds/${round.id}/publish`)).data as AdminRound;
+	const live = (await s.publish(round.id)).data as AdminRound;
 	assert.equal(live.state.kind, 'published');
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).headers['content-type'], 'image/jpeg');
 
@@ -458,6 +460,24 @@ test('a round written by hand needs a picture to publish, stays published throug
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
 });
 
+test('Publish publishes only the round as the admin last loaded it', async () => {
+	const s = await setup();
+	const round = await drafted(s, await adminTopic(s));
+	const theirs = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: { ...VIKING_ROUND, brief: 'Not checked yet.' }, etag: round.etag } });
+	assert.equal(theirs.status, 200);
+
+	const stale = await s.publish(round.id, round.etag);
+	assert.deepEqual([stale.status, codeOf(stale)], [412, 'changed']);
+	assert.equal((await s.adminRound(round.id)).state.kind, 'draft');
+	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] }, 'children never see the change nobody checked');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/publish`, { json: {} })).status, 400);
+
+	const live = await s.publish(round.id, (theirs.data as AdminRound).etag);
+	assert.equal((live.data as AdminRound).state.kind, 'published');
+	assert.equal(codeOf(await s.publish(round.id, round.etag)), 'changed', 'publishing a published round still needs what the admin saw');
+	assert.equal((await s.publish(round.id, (live.data as AdminRound).etag)).status, 200);
+});
+
 test('a redraw keeps the words and the old picture until a new one is drawn, a refused one changes nothing else, and a published round is not redrawn', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
@@ -465,7 +485,7 @@ test('a redraw keeps the words and the old picture until a new one is drawn, a r
 	await s.asAdmin('POST', `rounds/${round.id}/picture/jpeg`, { jpeg: JPEG });
 	const picture = async () => (await s.asAdmin('GET', `rounds/${round.id}/picture`)).headers['content-type'];
 
-	const live = (await s.asAdmin('POST', `rounds/${round.id}/publish`)).data as AdminRound;
+	const live = (await s.publish(round.id)).data as AdminRound;
 	const refused = await s.asAdmin('POST', `rounds/${round.id}/redraw`);
 	assert.equal(codeOf(refused), 'published');
 	assert.equal(((await s.adminRound(round.id)).state.kind), 'published');
@@ -533,7 +553,7 @@ test('a redraw that finishes after its round was settled as stale and published 
 	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
 	await hold.arrived;
 	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
-	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/publish`)).status, 200);
+	assert.equal((await s.publish(round.id)).status, 200);
 	const shown = await s.asAda('GET', `rounds/${round.id}/picture`);
 	assert.equal(shown.status, 200);
 
@@ -710,7 +730,7 @@ test('a stored round that no longer parses is skipped and logged for children, a
 	const one = await s.asAdmin('GET', `rounds/${badState}`);
 	assert.equal(one.status, 200);
 	assert.deepEqual(one.data, { id: badState, topicId: greeks, broken: [`state "archived" is not one a round can be in`] });
-	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${badContent}/publish`)), 'broken');
+	assert.equal(codeOf(await s.publish(badContent)), 'broken');
 	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number }[] }).topics.map(({ title, rounds }) => [title, rounds]), [['Vikings', 1], ['Ancient Greeks', 3]]);
 
 	for (const id of [good, badContent, badState]) assert.equal((await s.asAdmin('DELETE', `rounds/${id}`)).status, 204);

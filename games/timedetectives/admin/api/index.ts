@@ -272,14 +272,19 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				name: 'publishRound',
 				method: 'POST',
 				path: 'rounds/{id}/publish',
-				body: 'none',
-				async run({ params, now }) {
+				body: 'json',
+				/** Publishes the round as the admin last saw it, so it never puts out a change they have not seen. */
+				async run({ params, body, now }) {
 					const found = await existingRound(params['id'], now);
 					const state = settled(found);
+					const etag = etagOf(body, 'round');
 					if (!found.round.picture) throw new HttpError(409, 'not_ready', 'Add a picture before publishing.');
-					if (state.kind === 'published') return { status: 200, json: roundView(found) };
+					if (state.kind === 'published') {
+						if (found.etag !== etag) throw changed();
+						return { status: 200, json: roundView(found) };
+					}
 					const next: RoundState = { kind: 'published', content: state.content, source: state.source, publishedAt: now.toISOString() };
-					return { status: 200, json: roundView(await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag)) };
+					return { status: 200, json: roundView(await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, etag)) };
 				},
 			},
 			{

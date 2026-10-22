@@ -189,6 +189,26 @@ for (const { name, width, options } of SIZES) {
 }
 
 for (const { name, width, options } of SIZES) {
+	test(`${name}, Publish refuses a round another admin changed since the page loaded it, and shows their change`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await draftedRound(page, await newTopic(page));
+		const other = await page.context().newPage();
+		await other.goto(page.url());
+		await adminReady(other);
+		await other.locator('#r-brief').fill('A change nobody has checked.');
+		await other.getByRole('button', { name: 'Save', exact: true }).click();
+		await expect(other.getByRole('status')).toHaveText('Saved.');
+
+		await page.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.getByRole('status')).toHaveText('Someone else changed this since you loaded it. Reload to see the latest version, then make your change again. The page has been reloaded.');
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		await expect(page.locator('#r-brief')).toHaveValue('A change nobody has checked.');
+		await shot(page, `admin-publish-changed-${width}`);
+		await page.context().close();
+	});
+}
+
+for (const { name, width, options } of SIZES) {
 	test(`${name}, focus moves to what replaced a control that went away, and to the heading of each new view`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
 		await page.getByRole('button', { name: 'New topic' }).click();
