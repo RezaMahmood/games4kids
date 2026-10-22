@@ -815,12 +815,13 @@ const ROLE_NAMES: Readonly<Record<string, string>> = {
 	[AZURE_ROLES.blobDataContributor]: 'Storage Blob Data Contributor',
 };
 
-export type MigrationExtras = {
+export type DataExtras = {
 	readonly me: { readonly id: string } | null;
 	/** Account resource ids. null is an account that does not exist. */
 	readonly old: Readonly<Record<Game, string | null>>;
 	readonly games: Readonly<Record<Game, string | null>>;
-	readonly portal: string | null;
+	/** Every account in the resource group with a `game` tag: the portal's, each game's, and `shared`, which holds only Functions host state. */
+	readonly tagged: readonly { readonly game: string; readonly id: string }[];
 	/** Your role assignments at, above and beneath those accounts. */
 	readonly roles: readonly RoleAssignment[];
 };
@@ -828,24 +829,23 @@ export type MigrationExtras = {
 export const oldAccountId = (core: Core, game: Game) => `/subscriptions/${core.subscription.id}/resourceGroups/${OLD_ACCOUNTS[game].resourceGroup}/providers/Microsoft.Storage/storageAccounts/${OLD_ACCOUNTS[game].name}`;
 
 /**
- * The data roles tools/migrate needs as you, from your Mac: read the old accounts, write the new game accounts, and
- * read who is who from the portal's emails and identities tables. A role you already hold at or above a scope counts.
+ * The data roles you need from your Mac. tools/migrate reads the old accounts and writes the new game accounts. Diagnosing
+ * a child's data reads every table of the portal and of each game, so you get Table Data Reader on every tagged account,
+ * which also covers the portal's emails and identities tables that tools/migrate reads. A role you already hold at or above
+ * a scope counts, so a game account the migration makes you a contributor on needs no reader as well.
  */
-export function planMigrationRoles(extras: MigrationExtras): Finding[] {
+export function planDataRoles(extras: DataExtras): Finding[] {
 	const step: StepName = 'after-first-deploy';
 	const me = extras.me?.id.toLowerCase();
 	const games = ['drawpad', 'letterjoin'] as const satisfies readonly Game[];
+	const migrated = new Set(games.map((game) => extras.games[game]?.toLowerCase()));
 	const wanted = [
 		...games.flatMap((game) => [
 			{ id: `migration:old ${game}`, scope: extras.old[game], gone: `${OLD_ACCOUNTS[game].name} does not exist, so there is nothing to migrate from it`, roles: [AZURE_ROLES.tableDataReader, AZURE_ROLES.blobDataReader] },
 			{ id: `migration:new ${game}`, scope: extras.games[game], gone: `the ${game} storage account does not exist yet. Run the infra deploy first`, roles: [AZURE_ROLES.tableDataContributor, AZURE_ROLES.blobDataContributor] },
 		]),
-		...(['emails', 'identities'] as const).map((table) => ({
-			id: `migration:portal ${table}`,
-			scope: extras.portal && `${extras.portal}/tableServices/default/tables/${table}`,
-			gone: 'the portal storage account does not exist yet. Run the infra deploy first',
-			roles: [AZURE_ROLES.tableDataReader],
-		})),
+		...(extras.tagged.some((account) => account.game === 'portal') ? [] : [{ id: 'diagnosis:portal', scope: null, gone: 'the portal storage account does not exist yet. Run the infra deploy first', roles: [AZURE_ROLES.tableDataReader] }]),
+		...extras.tagged.filter((account) => account.game !== 'shared' && !migrated.has(account.id.toLowerCase())).map((account) => ({ id: `diagnosis:${account.game}`, scope: account.id, gone: '', roles: [AZURE_ROLES.tableDataReader] })),
 	];
 	const holds = (scope: string, role: string) =>
 		extras.roles.some((row) => row.principalId === me && COVERED_BY[role]?.includes(row.roleDefinitionId) && `${scope.toLowerCase()}/`.startsWith(`${row.scope.toLowerCase().replace(/\/$/, '')}/`));
@@ -855,7 +855,8 @@ export function planMigrationRoles(extras: MigrationExtras): Finding[] {
 			const check = `${id}:${name}`;
 			if (!scope) return (id.startsWith('migration:old') ? skipped : blocked)(step, check, gone);
 			if (me && holds(scope, role)) return fine(step, check, `covered by a role you hold at or above ${scope}`);
-			return changing(step, check, `you lack ${name} on ${scope}`, action(`give you ${name} for the migration`, `assign ${name} on ${scope} to you, so tools/migrate can run from your Mac`, azCommand('role', 'assignment', 'create', '--assignee-object-id', extras.me?.id ?? '<your object id>', '--assignee-principal-type', 'User', '--role', role, '--scope', scope), { retry: 'quick' }));
+			const why = id.startsWith('diagnosis:') ? { purpose: 'to read player data', reason: 'so you can read every table when you diagnose a child\'s data' } : { purpose: 'for the migration', reason: 'so tools/migrate can run from your Mac' };
+			return changing(step, check, `you lack ${name} on ${scope}`, action(`give you ${name} ${why.purpose}`, `assign ${name} on ${scope} to you, ${why.reason}`, azCommand('role', 'assignment', 'create', '--assignee-object-id', extras.me?.id ?? '<your object id>', '--assignee-principal-type', 'User', '--role', role, '--scope', scope), { retry: 'quick' }));
 		}),
 	);
 }

@@ -26,7 +26,7 @@ import {
 	parseUser,
 	planAdminAccount,
 	planAfterFirstDeploy,
-	planMigrationRoles,
+	planDataRoles,
 	oldAccountId,
 	BORROWED_VISION,
 	borrowedVisionScope,
@@ -331,14 +331,15 @@ export async function run(flags: Flags, io: Io): Promise<number> {
 				}
 				const gameAccount = (game: string) => text(tagged.find((account) => account['game'] === game)?.['id']) || null;
 				const oldAccount = async (game: 'drawpad' | 'letterjoin') => ((await attempt(azCommand('storage', 'account', 'show', '--ids', oldAccountId(c, game)))).ok ? oldAccountId(c, game) : null);
-				const migration = { me: me.id ? { id: me.id } : null, old: { drawpad: await oldAccount('drawpad'), letterjoin: await oldAccount('letterjoin') }, games: { drawpad: gameAccount('drawpad'), letterjoin: gameAccount('letterjoin') }, portal: portal?.id ?? null };
+				const accounts = tagged.map((account) => ({ game: text(account['game']), id: text(account['id']) }));
+				const data = { me: me.id ? { id: me.id } : null, old: { drawpad: await oldAccount('drawpad'), letterjoin: await oldAccount('letterjoin') }, games: { drawpad: gameAccount('drawpad'), letterjoin: gameAccount('letterjoin') }, tagged: accounts };
 				const mine: ReturnType<typeof parseRoleAssignments> = [];
-				for (const scope of [...Object.values(migration.old), ...Object.values(migration.games), migration.portal]) {
+				for (const scope of new Set([...Object.values(data.old), ...Object.values(data.games), ...accounts.map((account) => account.id)])) {
 					if (!scope || !me.id) continue;
 					const got = await attempt(azGet(`${ARM}${scope}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01&$filter=assignedTo('${me.id}')`));
 					if (got.ok) mine.push(...parseRoleAssignments(list(rec(got.value)['value'])));
 				}
-				return [...planAfterFirstDeploy(c, { hosts, portal, me, roles, row, vision }, { adminAccount: admin, seedSelf: flags.seedSelf }), ...planMigrationRoles({ ...migration, roles: mine })];
+				return [...planAfterFirstDeploy(c, { hosts, portal, me, roles, row, vision }, { adminAccount: admin, seedSelf: flags.seedSelf }), ...planDataRoles({ ...data, roles: mine })];
 			}
 		}
 	}
