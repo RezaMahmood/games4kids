@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, namedChild, pageReady, signInAtFakeEntra } from './support.ts';
 
@@ -76,6 +77,80 @@ for (const { name, options } of SIZES) {
 		await drawer.context().close();
 	});
 }
+
+async function publishedSentence(admin: Page, title: string): Promise<void> {
+	await admin.goto(`${ADMIN}/g/letterjoin/#settings`);
+	await adminReady(admin);
+	await admin.getByRole('link', { name: /^Activities/ }).click();
+	await admin.locator('#new-activity').click();
+	await admin.locator('#f-type').selectOption('sentence');
+	await admin.locator('#f-title').fill(title);
+	await admin.locator('#f-status').selectOption('published');
+	await admin.locator('#f-sentence').fill('Zebras jump.');
+	await admin.locator('#f-save').click();
+	await expect(admin.getByRole('dialog')).toBeHidden();
+}
+
+/** Scores `title` for the child without drawing it, with the token the game page itself just used. */
+async function scoreWithoutDrawing(kid: Page, title: string): Promise<void> {
+	const [listing] = await Promise.all([
+		kid.waitForResponse((response) => response.url().endsWith('/api/g/letterjoin/activities') && response.request().method() === 'GET'),
+		kid.goto(`${GAMES}/g/letterjoin/`),
+	]);
+	const { activities } = (await listing.json()) as { activities: { id: string; title: string }[] };
+	const activity = activities.find((candidate) => candidate.title === title);
+	const authorization = (await listing.request().allHeaders())['authorization'];
+	if (!activity || !authorization) throw new Error('the game page did not list the activity with a token');
+	const saved = await kid.request.put(`${listing.url()}/${activity.id}/result`, { headers: { authorization }, data: { attemptId: randomUUID(), score: 80, timeMs: 5000 } });
+	expect(saved.status()).toBe(200);
+}
+
+test('a rename on the profile page shows on another child\'s Friends board without the child opening their own', async ({ browser }) => {
+	test.setTimeout(240_000);
+	const tag = `${RUN}r`;
+	const desktop = { viewport: { width: 1280, height: 800 } };
+	const title = `Zebras ${tag}`;
+	const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
+	const admin = await adminContext.newPage();
+	await signedInAdmin(admin);
+	const ada = await namedChild(browser, admin, `ren-${tag}@example.com`, `Ada${tag}`, 'Letter Tracing', desktop);
+	const bea = await namedChild(browser, admin, `fri-${tag}@example.com`, `Bea${tag}`, 'Letter Tracing', desktop);
+	const problems = collectProblems([ada, bea]);
+	await publishedSentence(admin, title);
+
+	for (const kid of [ada, bea]) {
+		await kid.goto(`${GAMES}/profile/`);
+		await pageReady(kid);
+		await kid.getByRole('switch', { name: SWITCH }).click();
+		await expect(kid.getByRole('switch', { name: SWITCH })).toBeChecked();
+		await expect(kid.getByRole('switch', { name: SWITCH })).toBeEnabled();
+	}
+	await scoreWithoutDrawing(ada, title);
+
+	const seenOnBeasBoard = async (name: string) => {
+		await bea.goto(`${GAMES}/g/letterjoin/`);
+		await pageReady(bea);
+		await bea.locator('#board-open').click();
+		await expect(bea.getByRole('rowheader', { name })).toBeVisible();
+	};
+	await seenOnBeasBoard(`Ada${tag}`);
+
+	await ada.goto(`${GAMES}/profile/`);
+	await pageReady(ada);
+	await ada.getByLabel('Your name in games').fill(`Cleo${tag}`);
+	const refreshed = ada.waitForResponse((response) => response.url().endsWith('/api/g/letterjoin/board/me') && response.request().method() === 'GET');
+	await ada.getByRole('button', { name: 'Save' }).click();
+	await expect(ada.getByRole('status')).toHaveText(`Saved. Your name in games is Cleo${tag}.`);
+	await refreshed;
+
+	await seenOnBeasBoard(`Cleo${tag}`);
+	await expect(bea.getByRole('rowheader', { name: `Ada${tag}` })).toHaveCount(0);
+
+	expect(problems).toEqual([]);
+	await adminContext.close();
+	await ada.context().close();
+	await bea.context().close();
+});
 
 test('a slow or failing game holds up only its own switch, never the name', async ({ browser }) => {
 	test.setTimeout(180_000);

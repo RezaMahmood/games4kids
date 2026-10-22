@@ -58,7 +58,8 @@ export type GameManifest = {
 	readonly admin?: Part;
 	/**
 	 * The play API answers GET and PUT `board/me` for a child's own switch: `{ optedIn }`, and `{ on }` to change it.
-	 * The profile page shows a switch for each granted game that sets this.
+	 * The profile page shows a switch for each granted game that sets this, and reads `board/me` after a rename, so the
+	 * game must bring any copy it keeps of the child's name up to date on that read.
 	 */
 	readonly scoreboard?: true;
 	readonly exports?: ReservedExports;

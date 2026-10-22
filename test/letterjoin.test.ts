@@ -306,6 +306,22 @@ test('GET board/me says whether the child is on the board, and nobody else\'s sw
 	assert.deepEqual(await mine(), { optedIn: false });
 });
 
+test('GET board/me brings the child\'s own row up to their current name, so a rename reaches the others without them opening the board', async () => {
+	const s = await setup();
+	const { id } = await publish(s, 'Trace me');
+	const bea = await s.child('Bea');
+	const asBea = s.as(bea.token);
+	await asBea('PUT', 'board/me', { json: { on: true } });
+	await s.asAda('PUT', 'board/me', { json: { on: true } });
+	s.clock.at = new Date(NOW.getTime() + STEP);
+	await s.asAda('PUT', `activities/${id}/result`, { json: result(1, { score: 80 }) });
+
+	await s.w.portal.setProfile(s.ada.userId, { displayName: 'Ada B', timeZone: 'Europe/London' }, s.w.now());
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada', false, 80]], 'nothing has read Ada\'s row yet');
+	assert.deepEqual((await s.asAda('GET', 'board/me')).data, { optedIn: true });
+	assert.deepEqual(lineFor(await boardOf(s, asBea), 'explorer'), [['Ada B', false, 80]]);
+});
+
 test('switching the board on twice keeps the first moment, and the board shows the name and time zone the child has now', async () => {
 	const s = await setup();
 	const { id } = await publish(s, 'Trace me');

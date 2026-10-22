@@ -139,7 +139,8 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				path: 'board/me',
 				body: 'none',
 				async run({ caller }) {
-					return { status: 200, json: { optedIn: await store.optedIn(caller.userId) } };
+					const me = await store.refreshBoardEntry(caller.userId, caller.displayName, caller.timeZone);
+					return { status: 200, json: { optedIn: me !== undefined } };
 				},
 			},
 			{
