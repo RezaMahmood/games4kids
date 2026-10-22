@@ -1,4 +1,5 @@
 import { toTraceText } from './activity.js';
+import { ask, QUESTIONS } from './confirm.js';
 import { copyImageSize, renderCopyPng } from './copy.js';
 import { formatClock, storedScore } from './format.js';
 import { createInk } from './ink.js';
@@ -232,13 +233,16 @@ export function createWriteView({ api, onBack, onStroke, onSaved, nextAfter, onN
     $('write-done').disabled = finished || state.strokes.length === 0;
   }
 
+  /** The time is the moment Done was pressed, so deciding in the question costs nothing. */
   async function done() {
-    if (finished || state.strokes.length === 0) return;
+    const at = performance.now();
+    if (finished || state.strokes.length === 0 || !await ask(QUESTIONS.finishWrite)) return;
     finished = true;
     const mine = run;
+    if (startedAt !== null) elapsedMs = at - startedAt;
     renderClock();
     clearInterval(ticker);
-    ink.halt(performance.now());
+    ink.halt(at);
     if (strokesOn(state, state.line).length && !reads[state.line]) enqueue(state.line);
     renderControls();
     $('write-done').textContent = 'Reading…';
@@ -271,6 +275,7 @@ export function createWriteView({ api, onBack, onStroke, onSaved, nextAfter, onN
     $('wr-next').hidden = !next;
     $('wr-back').classList.toggle('primary', !next);
     $('write-controls').hidden = true;
+    $('write-done').hidden = true;
     panel.hidden = false;
     if (result.basis === 'readingAndLines') save();
   }
@@ -310,6 +315,7 @@ export function createWriteView({ api, onBack, onStroke, onSaved, nextAfter, onN
     $('write-results').hidden = true;
     $('wr-save').hidden = true;
     $('write-controls').hidden = false;
+    $('write-done').hidden = false;
     $('write-done').textContent = 'Done';
     expected = textWords(toTraceText(activity));
     spans = expected.map((word) => Object.assign(document.createElement('span'), { textContent: word }));
@@ -346,7 +352,10 @@ export function createWriteView({ api, onBack, onStroke, onSaved, nextAfter, onN
   $('write-newline').addEventListener('click', () => !finished && dispatch({ type: 'newLine' }));
   $('write-done').addEventListener('click', done);
   $('wr-again').addEventListener('click', () => open(activity));
-  for (const id of ['write-back', 'wr-back']) $(id).addEventListener('click', onBack);
+  $('write-back').addEventListener('click', async () => {
+    if (finished || state.strokes.length === 0 || await ask(QUESTIONS.leave)) onBack();
+  });
+  $('wr-back').addEventListener('click', onBack);
   $('wr-next').addEventListener('click', () => {
     const next = activity && nextAfter(activity);
     if (next) onNext(next);

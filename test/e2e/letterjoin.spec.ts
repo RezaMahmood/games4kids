@@ -149,7 +149,9 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await expect(kid.getByRole('heading', { level: 1 })).toHaveText('Letter Tracing');
 		await kid.locator('.activity-card', { hasText: RENAMED }).click();
 		await kid.waitForFunction(() => Boolean((window as unknown as { __tracing?: { layout(): unknown } }).__tracing?.layout()) && !document.getElementById('trace-screen')!.hidden);
+		const sheetTop = (await kid.locator('#stage').boundingBox())!.y;
 		await draw(kid, await outlineStrokes(kid));
+		expect((await kid.locator('#stage').boundingBox())!.y, 'the sheet stays put when Clear and Finish replace the style buttons').toBe(sheetTop);
 		await restPalm(kid);
 		expect(await phase(kid)).toBe('tracing');
 		const ask = kid.getByRole('dialog', { name: 'Finished tracing?' });
