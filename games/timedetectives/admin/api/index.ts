@@ -17,7 +17,7 @@ import manifest from '../../manifest.ts';
 import { AiFailure, type FoundryDeps } from './foundry.ts';
 import { parseDraftMessage, runDraft, type DraftMessage } from './worker.ts';
 
-/** Minutes of AI work at most, so a stuck page cannot fill the queue. */
+/** About ten minutes of AI work, so a stuck page cannot fill the queue. */
 const MAX_DRAFTING = 10;
 const CHANGED = 'Someone else changed this since you loaded it. Reload to see the latest version, then make your change again.';
 

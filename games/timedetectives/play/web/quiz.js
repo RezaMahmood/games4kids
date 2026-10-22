@@ -2,7 +2,7 @@
 
 /** @typedef {{ tries: string[], hint: boolean }} Answer */
 
-export const MAX_TRIES = 2;
+const MAX_TRIES = 2;
 
 export const fresh = () => ({ tries: [], hint: false });
 
