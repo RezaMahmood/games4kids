@@ -170,6 +170,9 @@ Every table, container, and queue has one writer. The manifest declares it, `Sto
 | letterjoin | `results`, `attempts` | scores, practice-day partitions, attempts | player app | admin app reads (practice, progress) |
 | letterjoin | `submissions` table and container | copy-writing submissions | player app | admin app reads (review) |
 | letterjoin | `reviews` | reviewed, note, reviewer, time | admin app | none |
+| timedetectives | `topics`, `rounds`, `pictures` container | topics, and each round with its AI job state and picture | admin app | player app reads (published rounds only) |
+| timedetectives | `attempts`, `board` | each child's finished rounds, and who switched the board on | player app | none |
+| timedetectives | `drafts` queue | rounds for the AI to write and draw | admin app | none |
 
 Review state moves out of `submissions` into `reviews`, keyed by submission id, so a review never makes the admin app a second writer. Deleting on the Review tab becomes a `discarded` review that hides the submission. Its image stays in the player-owned container at a few kilobytes each (guess).
 
