@@ -305,6 +305,8 @@ function renderRound(round) {
   $('r-publish').disabled = !round?.hasPicture;
   $('r-unpublish').hidden = kind !== 'published';
   $('r-retry').hidden = kind !== 'failed';
+  $('retry-form').hidden = kind !== 'failed';
+  $('r-focus').value = kind === 'failed' ? round.state.focus : '';
   $('r-delete').hidden = !round;
   $('preview').hidden = !editable && !content;
   fillForm(content);
@@ -395,8 +397,9 @@ async function unpublish() {
   await change(() => api.edit(round.id, unsaved, round.etag), 'Unpublished, and your changes are saved.');
 }
 
-async function retry() {
-  const queued = await change(() => api.retry(editing.round.id), 'The AI is trying again.');
+async function retry(event) {
+  event.preventDefault();
+  const queued = await change(() => api.retry(editing.round.id, $('r-focus').value), 'The AI is trying again.');
   if (queued) openRound(queued.id);
 }
 
@@ -454,6 +457,7 @@ $('r-unpublish').addEventListener('click', unpublish);
 $('r-delete').addEventListener('click', deleteRound);
 $('r-redraw').addEventListener('click', redraw);
 $('r-retry').addEventListener('click', retry);
+$('retry-form').addEventListener('submit', retry);
 $('r-upload').addEventListener('change', upload);
 addEventListener('hashchange', route);
 

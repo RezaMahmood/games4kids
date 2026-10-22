@@ -42,6 +42,7 @@ label .note { font-weight: 400; }
 .badge.published { border-color: var(--color-success); color: #fff; background: var(--color-success); }
 .reason { margin: 0; color: var(--color-danger); }
 #round-note[data-tone="error"] { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-tint); }
+#retry-form label { margin-top: 0; }
 
 .picture-panel { margin-top: var(--space-md); }
 .picture-panel img { display: block; width: 100%; max-width: 640px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: var(--radius-card); background: var(--color-desk); }

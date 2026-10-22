@@ -355,7 +355,7 @@ test('a refused picture keeps the words, leaves a draft that says why and takes 
 	const redrawn = await s.adminRound(round.id);
 	assert.deepEqual([redrawn.state.kind, redrawn.hasPicture], ['draft', true]);
 	assert.deepEqual(callsSince(before), [IMAGE], 'the words were not paid for twice');
-	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/retry`)).status, 409, 'only a failed round is retried');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/retry`, { json: {} })).status, 409, 'only a failed round is retried');
 });
 
 test('a refusal of the words fails the round at once without drawing, and the failed round can be deleted', async () => {
@@ -369,6 +369,20 @@ test('a refusal of the words fails the round at once without drawing, and the fa
 	assert.equal((await s.asAdmin('DELETE', `rounds/${failed.id}`)).status, 204);
 	assert.equal((await s.asAdmin('GET', `rounds/${failed.id}`)).status, 404);
 	assert.equal((await s.asAdmin('DELETE', `topics/${topic}`)).status, 204);
+});
+
+test('a refused round is tried again about whatever the admin now asks for', async () => {
+	const s = await setup();
+	foundry.refuseNext(1, 'chat');
+	const failed = await drafted(s, await adminTopic(s));
+	assert.equal(failed.state.kind, 'failed');
+	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`, { json: { focus: 'x'.repeat(121) } })).status, 400);
+
+	const retried = await s.asAdmin('POST', `rounds/${failed.id}/retry`, { json: { focus: '  Jorvik ' } });
+	assert.equal(retried.status, 202);
+	assert.deepEqual((retried.data as AdminRound).state, { kind: 'drafting', focus: 'Jorvik', source: 'ai' });
+	await s.settled();
+	assert.deepEqual((await s.adminRound(failed.id)).state, { kind: 'draft', content: ROUND, source: 'ai' });
 });
 
 test('a chat reply the content filter stopped part way fails the round as refused, without trying again', async () => {
@@ -607,7 +621,7 @@ test('a drafting round no worker finishes stops counting toward the cap once sta
 	assert.equal(codeOf(await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })), 'too_many_drafts');
 	const [first, second] = stuck;
 	assert.ok(first && second);
-	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${first}/retry`)), 'not_failed', 'a round still within its attempts is left to the worker');
+	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${first}/retry`, { json: {} })), 'not_failed', 'a round still within its attempts is left to the worker');
 
 	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
 	assert.deepEqual((await s.adminRound(first)).state, { kind: 'failed', focus: 'Jorvik', source: 'ai', reason: `${STOPPED} Try again, or delete it.` });
@@ -618,7 +632,7 @@ test('a drafting round no worker finishes stops counting toward the cap once sta
 	assert.match((kept.state as { notice: string }).notice, /^The AI could not draw a picture\. The AI stopped without finishing\./);
 	assert.equal((await s.asAdmin('PUT', `rounds/${redrawing}`, { json: { content: VIKING_ROUND, etag: kept.etag } })).status, 200);
 
-	assert.equal((await s.asAdmin('POST', `rounds/${first}/retry`)).status, 202);
+	assert.equal((await s.asAdmin('POST', `rounds/${first}/retry`, { json: { focus: 'Jorvik' } })).status, 202);
 	await s.settled();
 	assert.equal((await s.adminRound(first)).state.kind, 'draft');
 	assert.equal((await s.asAdmin('DELETE', `rounds/${second}`)).status, 204);

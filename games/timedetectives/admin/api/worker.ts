@@ -12,8 +12,8 @@ export const parseDraftMessage = (raw: unknown): DraftMessage | undefined => {
 	return id && { roundId: id };
 };
 
-/** Why a round the AI could not write is failed. Trying again asks with the same focus, so a refusal needs a new one. */
-export const WORDS_REFUSED = 'The AI safety filter turned this round down. Delete it and draft another with a different focus.';
+/** Why a round the AI refused to write is failed. Asking about the same thing gets the same answer, so it asks for a new focus. */
+export const WORDS_REFUSED = 'The AI safety filter turned this round down. Change what it should be about and try again, or delete it.';
 /** What a round whose new picture never came says. The words and any picture it had are still there. */
 const pictureNotice = (why: string) => `The AI could not draw a picture. ${why} Upload a picture, or change the picture description and redraw.`;
 export const PICTURE_REFUSED = pictureNotice('The AI safety filter turned it down.');

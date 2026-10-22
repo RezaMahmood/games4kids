@@ -323,13 +323,16 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				name: 'retryRound',
 				method: 'POST',
 				path: 'rounds/{id}/retry',
-				body: 'none',
-				async run({ params, now }) {
+				body: 'json',
+				/** Asks again with the focus the admin sends, which the page fills with the last one for them to change. */
+				async run({ params, body, now }) {
 					const found = await existingRound(params['id'], now);
 					const { state } = found.round;
 					if (state.kind !== 'failed') throw new HttpError(409, 'not_failed', 'Only a round the AI gave up on can be tried again.');
+					const focus = parseFocus(body);
+					if (!focus.ok) throw invalid(focus.problems);
 					await guardDrafting(now);
-					const next: RoundState = { kind: 'drafting', focus: state.focus, source: state.source };
+					const next: RoundState = { kind: 'drafting', focus: focus.value, source: state.source };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},

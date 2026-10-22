@@ -41,7 +41,8 @@ export function createApi(client) {
     publish: async (roundId, etag) => parseRound(await client.post(`rounds/${id(roundId)}/publish`, { etag })),
     unpublish: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/unpublish`, {})),
     redraw: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/redraw`, {})),
-    retry: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/retry`, {})),
+    /** Asks the AI again, about `focus`, or about whatever it chooses when that is empty. */
+    retry: async (roundId, focus) => parseRound(await client.post(`rounds/${id(roundId)}/retry`, { focus })),
     /** @param {File} file a PNG or a JPEG */
     upload: async (roundId, file) => {
       const bytes = new Uint8Array(await file.arrayBuffer());

@@ -189,6 +189,42 @@ for (const { name, width, options } of SIZES) {
 	});
 }
 
+const RETRY_API = /\/api\/admin\/g\/timedetectives\/rounds\/[0-9a-f-]{36}\/retry$/;
+const WORDS_REFUSED = 'The AI safety filter turned this round down. Change what it should be about and try again, or delete it.';
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, Try again on a round the AI refused asks about the focus the admin changes it to`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await draftedRound(page, await newTopic(page));
+		let refused = true;
+		let real: Record<string, unknown> = {};
+		await page.route(ROUND_API, async (route) => {
+			if (route.request().method() !== 'GET' || !refused) return route.fallback();
+			real = (await (await route.fetch()).json()) as Record<string, unknown>;
+			return route.fulfill({ json: { ...real, hasPicture: false, state: { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: WORDS_REFUSED } } });
+		});
+		const asked: unknown[] = [];
+		await page.route(RETRY_API, (route) => {
+			asked.push(route.request().postDataJSON());
+			refused = false;
+			return route.fulfill({ status: 202, json: { ...real, state: { kind: 'drafting', focus: 'Jorvik', source: 'ai' } } });
+		});
+		await page.reload();
+		await adminReady(page);
+
+		await expect(page.locator('#round-note')).toHaveText(WORDS_REFUSED);
+		const focus = page.getByLabel('What should the AI write about this time? (optional)');
+		await expect(focus).toHaveValue('Lindisfarne');
+		await focus.fill('Jorvik');
+		await shot(page, `admin-retry-focus-${width}`);
+		await page.getByRole('button', { name: 'Try again' }).click();
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		expect(asked).toEqual([{ focus: 'Jorvik' }]);
+		await expect(focus).toBeHidden();
+		await page.context().close();
+	});
+}
+
 const UNPUBLISH_API = /\/api\/admin\/g\/timedetectives\/rounds\/[0-9a-f-]{36}\/unpublish$/;
 
 for (const { name, width, options } of SIZES) {
