@@ -28,6 +28,11 @@ export function findPlayers(profiles: readonly Entity[], members: readonly Entit
 		});
 }
 
+const EMAIL = /[^\s@'"|]+@([^\s@'"|]+\.[a-z]{2,})/gi;
+/** A child's email address says nothing a diagnosis needs, and dumps get pasted, so it is masked wherever it appears. */
+export const maskEmails = (value: string) => value.replace(EMAIL, '***@$1');
+const masked = (value: unknown) => (typeof value === 'string' ? maskEmails(value) : value);
+
 export type Found = { readonly account: string; readonly table: string; readonly partitionKey: string; readonly rowKey: string; readonly fields: Readonly<Record<string, unknown>> };
 
 /**
@@ -41,7 +46,7 @@ export function mentioning(userId: UserId, account: string, table: string, rows:
 		const rowKey = text(row['RowKey']);
 		const fields = Object.fromEntries(Object.entries(row).filter(([name]) => !['PartitionKey', 'RowKey', 'etag'].includes(name) && !name.startsWith('odata.')));
 		const hit = [partitionKey, rowKey, ...Object.values(fields).map(text)].some((value) => value.toLowerCase().includes(userId));
-		return hit ? [{ account, table, partitionKey, rowKey, fields }] : [];
+		return hit ? [{ account, table, partitionKey: maskEmails(partitionKey), rowKey: maskEmails(rowKey), fields: Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, masked(value)])) }] : [];
 	});
 }
 
@@ -62,6 +67,17 @@ requests | where timestamp between (since .. until) and operation_Id in (ops)
 | join kind=leftouter calls on operation_Id | join kind=leftouter errors on operation_Id
 | project timestamp, name, resultCode, role = cloud_RoleName, itemCount, writes, tables, errors
 | order by timestamp asc`;
+}
+
+/** How much telemetry the window holds at all, so an empty timeline cannot pass for "nothing happened". */
+export function coverageQuery(from: Date, to: Date): string {
+	return `union requests, dependencies, traces | where timestamp between (datetime(${from.toISOString()}) .. datetime(${to.toISOString()})) | summarize earliest = min(timestamp), latest = max(timestamp), items = count()`;
+}
+
+export function parseCoverage(reply: unknown): string {
+	const row = (reply as { tables?: { rows: unknown[][] }[] }).tables?.[0]?.rows[0];
+	const items = Number(row?.[2] ?? 0);
+	return items === 0 ? 'no telemetry at all in this window: retention, the daily cap or a reset may hide what happened' : `telemetry in this window runs from ${String(row?.[0])} to ${String(row?.[1])} (${items} items)`;
 }
 
 export type TimelineEntry = {
@@ -94,7 +110,7 @@ export function parseTimeline(reply: unknown): TimelineEntry[] {
 		role: String(row[role ?? -1]),
 		sampled: Number(row[count ?? -1]) > 1,
 		writes: strings(row[writes ?? -1]).map((write) => write.replace('TableClient.', '').replace('Entity', '')),
-		tables: strings(row[tables ?? -1]).map(decodeURIComponent),
+		tables: strings(row[tables ?? -1]).map((call) => maskEmails(decodeURIComponent(call))),
 		errors: strings(row[errors ?? -1]),
 	}));
 }
@@ -102,8 +118,18 @@ export function parseTimeline(reply: unknown): TimelineEntry[] {
 /** Admission reads the portal's identities, games, members and profiles on every request, so a successful one says nothing. */
 const ADMISSION_READ = /^g4kportal[a-z0-9]*\/(identities|games|members|profiles)\(.* 2\d\d$/;
 
-export function formatTimeline(entries: readonly TimelineEntry[], options: { readonly all?: boolean } = {}): string[] {
-	return entries.flatMap((entry) => [
+export type TimelineOptions = {
+	/** Also list admission's portal reads. */
+	readonly all?: boolean;
+	/** Only requests that wrote a row. */
+	readonly writes?: boolean;
+	/** Only requests one app answered, such as `letterjoin` or `admin`. */
+	readonly app?: string;
+};
+
+export function formatTimeline(entries: readonly TimelineEntry[], options: TimelineOptions = {}): string[] {
+	const shown = entries.filter((entry) => (!options.writes || entry.writes.length > 0) && (!options.app || entry.role.includes(options.app)));
+	return shown.flatMap((entry) => [
 		`${entry.at}  ${entry.request}  ${entry.status}  ${entry.role}${entry.sampled ? '  (sampled: more requests stand behind this row)' : ''}${entry.writes.length ? `  writes: ${entry.writes.join(', ')}` : ''}`,
 		...entry.tables.filter((call) => options.all || !ADMISSION_READ.test(call)).map((call) => `    ${call}`),
 		...entry.errors.map((error) => `    error: ${error}`),

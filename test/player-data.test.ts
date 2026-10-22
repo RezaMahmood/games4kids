@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { findPlayers, formatTimeline, mentioning, parseTimeline, parseUserId, timelineQuery, type UserId } from '../tools/player-data.ts';
+import { findPlayers, formatTimeline, mentioning, parseCoverage, parseTimeline, parseUserId, timelineQuery, type UserId } from '../tools/player-data.ts';
 
 const KITTY = 'b463e4c9-3af9-40c3-8f4a-e95486340aed' as UserId;
 const OLI = '667e525d-ef10-48f4-9bb7-fba1152db437';
@@ -29,8 +29,9 @@ test("a child's rows are found however the game keys them, and another child's a
 		{ PartitionKey: 'board', RowKey: OLI, since: '2026-10-22T18:19:17.850Z' },
 	];
 	const found = mentioning(KITTY, 'letterjoin', 'results', rows);
-	assert.deepEqual(found.map((row) => `${row.partitionKey} | ${row.rowKey}`), [`${KITTY} | a1`, `practice-${KITTY} | 2026-10-22`, `board | ${KITTY}`, 'email | kitty@example.test']);
+	assert.deepEqual(found.map((row) => `${row.partitionKey} | ${row.rowKey}`), [`${KITTY} | a1`, `practice-${KITTY} | 2026-10-22`, `board | ${KITTY}`, 'email | ***@example.test']);
 	assert.deepEqual(found[0]?.fields, { score: 97 }, 'keys and etags are not repeated as fields');
+	assert.equal(found[3]?.rowKey, '***@example.test', 'an email address is masked, even as a key');
 });
 
 test('only a user id reaches a query, so a name or KQL cannot', () => {
@@ -82,4 +83,11 @@ test('the timeline shows each write, hides the reads admission makes on every re
 	]);
 	assert.ok(formatTimeline(entries, { all: true }).includes("    g4kportal347up/identities(PartitionKey='identity',RowKey='entra|4fb357f4-2f09-4f22-9996-067e1802baf2') 200"), '--all keeps them, decoded');
 	assert.deepEqual(parseTimeline({ tables: [] }), []);
+	assert.deepEqual(formatTimeline(entries, { writes: true, app: 'admin' }), [], 'filters keep only one app, and only requests that wrote');
+	assert.equal(formatTimeline(entries, { writes: true, app: 'letterjoin' }).length, 5);
+});
+
+test('an empty window says the telemetry is missing, rather than that nothing happened', () => {
+	assert.match(parseCoverage({ tables: [{ rows: [[null, null, 0]] }] }), /^no telemetry at all in this window/);
+	assert.equal(parseCoverage({ tables: [{ rows: [['2026-10-22T18:10:05Z', '2026-10-22T18:19:45Z', 1787]] }] }), 'telemetry in this window runs from 2026-10-22T18:10:05Z to 2026-10-22T18:19:45Z (1787 items)');
 });

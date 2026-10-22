@@ -24,11 +24,12 @@ The tool runs as whoever is signed in to `az` on the Mac.
 ```
 node tools/player-data.mjs who <name or id>                         # match a display name (any part, any case) or a user id
 node tools/player-data.mjs rows <name or id> [--out file.json]      # every row in every portal and game table that names the child
-node tools/player-data.mjs timeline <name or id> --from <iso> [--to <iso>] [--all]   # requests that touched the child, with their writes
+node tools/player-data.mjs timeline <name or id> --from <iso> [--to <iso>] [--writes] [--app <name>] [--all]   # requests that touched the child
 ```
 
 - `rows` scans every table in every tagged account except `shared`, which holds only Functions host state. It keeps any row whose keys or string fields contain the child's id. That catches the different ways games key a child: `attempts` partitioned by id, `results` with a `practice-<id>` partition, a `board` row keyed by id, and the portal's `emails` row that holds the id as a field. Write `--out` to the scratchpad when you want to compute over the rows.
-- `timeline` finds requests by their table calls. Every request on a child's behalf reads `profiles` and `members` with the child's id in the URL, so this finds the child's own requests and an admin's requests about the child. The `role` column tells you which app answered: `func-g4k-<game>` is the child's own request, `func-g4k-admin` is an admin's. Each request lists its writes (`create`, `update`, `upsert`, `delete`) and the table calls with status codes. It hides the four portal reads that admission makes on every request, and `--all` shows them.
+- `timeline` finds requests by their table calls. Every request on a child's behalf reads `profiles` and `members` with the child's id in the URL, so this finds the child's own requests and an admin's requests about the child. The `role` column tells you which app answered: `func-g4k-<game>` is the child's own request, `func-g4k-admin` is an admin's. Each request lists its writes (`create`, `update`, `upsert`, `delete`) and the table calls with status codes. It hides the four portal reads that admission makes on every request, and `--all` shows them. An evening of play can be hundreds of requests, mostly practice-clock POSTs and autosaves. Use `--writes` to keep only requests that changed a row, and `--app letterjoin` (or `admin`, `portal`) to keep one app. The second line of output says how much telemetry the window holds at all. Read it before you treat a missing request as "it never happened".
+- Both commands mask email addresses (`***@domain`), and `--out` holds the masked rows too.
 
 ## Workflow
 
@@ -61,6 +62,8 @@ Mark each claim as measured or inferred. Telemetry has gaps, so say so when a co
 ## Gotchas
 
 - **Telemetry can be incomplete.** Retention is 30 days. Log Analytics has a daily cap of 0.16 GB, after which ingestion stops for the rest of that day. Functions use adaptive sampling by default, and `timeline` marks a row `(sampled …)` when one row stands for several requests. A missing request is not proof that nothing happened.
+- **Ad-hoc KQL.** `az monitor app-insights query` covers only the last hour unless you pass `--start-time` and `--end-time`, whatever your `where` clause says. `timeline` passes them. `from`, `to`, `first` and `last` are reserved words, and a query that uses them as names fails with only `BadArgumentError: The request had some invalid properties`.
+- **Credential noise.** `GET api/portal/me` can log `EnvironmentCredential is unavailable` exceptions while the credential chain tries its options. They are harmless when the request returned 200.
 - **A 404 on a table read** is often expected. For example, a read before an opt-in row exists logs a `ResourceNotFound` exception. Check whether the code treats "absent" as a normal state before calling it an error.
 - **Times.** Rows and telemetry are UTC. The child's "today" uses their zone, and the UK is UTC+1 in summer.
 - **Privacy.** Rows include children's names and email addresses. Keep raw dumps in the scratchpad, quote only the fields the answer needs, and never publish them as a shared page or artifact.

@@ -3,8 +3,9 @@
 //
 //   node tools/player-data.mjs who <name or id>                         the children a name matches, with their grants
 //   node tools/player-data.mjs rows <name or id> [--out file.json]      every row in every game and portal table that names the child
-//   node tools/player-data.mjs timeline <name or id> --from <iso> [--to <iso>] [--all]   the requests that touched the child, with their
-//                                                                         table writes; --all also lists admission's portal reads
+//   node tools/player-data.mjs timeline <name or id> --from <iso> [--to <iso>] [--writes] [--app <name>] [--all]
+//       the requests that touched the child, with their table writes. --writes keeps only requests that wrote a row, --app only one
+//       app's (letterjoin, admin, portal), and --all also lists the portal reads admission makes on every request.
 
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -15,12 +16,12 @@ import { relaunchWithSource } from './migrate/launch.mjs';
 relaunchWithSource(fileURLToPath(import.meta.url));
 
 const { RESOURCE_GROUP } = await import('./deploy.ts');
-const { findPlayers, formatTimeline, mentioning, parseTimeline, timelineQuery } = await import('./player-data.ts');
+const { coverageQuery, findPlayers, formatTimeline, mentioning, parseCoverage, parseTimeline, timelineQuery } = await import('./player-data.ts');
 
 const APP_INSIGHTS = 'appi-g4k';
 const NO_ROLE = /AuthorizationPermissionMismatch|AuthorizationFailure|required permissions/;
 
-const { positionals, values } = parseArgs({ allowPositionals: true, options: { from: { type: 'string' }, to: { type: 'string' }, out: { type: 'string' }, all: { type: 'boolean', default: false } } });
+const { positionals, values } = parseArgs({ allowPositionals: true, options: { from: { type: 'string' }, to: { type: 'string' }, out: { type: 'string' }, all: { type: 'boolean', default: false }, writes: { type: 'boolean', default: false }, app: { type: 'string' } } });
 const [command, ...words] = positionals;
 const query = words.join(' ');
 
@@ -77,12 +78,14 @@ try {
 		const from = new Date(values.from ?? '');
 		const to = values.to ? new Date(values.to) : new Date();
 		if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) throw new Error('pass --from (and optionally --to) as ISO times, such as 2026-10-22T18:00Z');
-		const reply = az(['monitor', 'app-insights', 'query', '--resource-group', RESOURCE_GROUP, '--app', APP_INSIGHTS, '--analytics-query', timelineQuery(one.userId, from, to)]);
-		const entries = parseTimeline(reply);
+		// Without a time range, az queries only the last hour, whatever the query's own where clause says.
+		const insights = (kql) => az(['monitor', 'app-insights', 'query', '--resource-group', RESOURCE_GROUP, '--app', APP_INSIGHTS, '--start-time', from.toISOString(), '--end-time', to.toISOString(), '--analytics-query', kql]);
+		const entries = parseTimeline(insights(timelineQuery(one.userId, from, to)));
 		console.log(`${one.name}  ${one.userId}  ${entries.length} requests from ${from.toISOString()} to ${to.toISOString()}`);
-		for (const line of formatTimeline(entries, { all: values.all })) console.log(line);
+		console.log(parseCoverage(insights(coverageQuery(from, to))));
+		for (const line of formatTimeline(entries, { all: values.all, writes: values.writes, app: values.app })) console.log(line);
 	} else {
-		throw new Error('usage: node tools/player-data.mjs who|rows|timeline <name or id> [--from <iso>] [--to <iso>] [--all] [--out file.json]');
+		throw new Error('usage: node tools/player-data.mjs who|rows|timeline <name or id> [--from <iso>] [--to <iso>] [--writes] [--app <name>] [--all] [--out file.json]');
 	}
 } catch (error) {
 	console.error(error.message);
