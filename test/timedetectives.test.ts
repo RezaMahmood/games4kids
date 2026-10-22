@@ -192,6 +192,10 @@ test('the server marks the whole round again, saves it once per attemptId, and s
 	assert.equal(saved.status, 200);
 	assert.deepEqual(saved.data, { points: 26, right: { who: true, where: true, when: true }, total: 26 });
 	assert.deepEqual((await put(first, once, { confidence: 'lots', answers: perfect })).data, { points: 26, right: { who: true, where: true, when: true }, total: 26 }, 'a repeat keeps the points saved first');
+	const missed = attemptId();
+	const missedWho = [{ kind: 'who', tries: ['Romans', 'Normans'], hint: false }, ...perfect.slice(1)];
+	assert.deepEqual((await put(first, missed, { confidence: 'easy', answers: missedWho })).data, { points: 20, right: { who: false, where: true, when: true }, total: 26 });
+	assert.deepEqual((await put(first, missed, { confidence: 'easy', answers: perfect })).data, { points: 20, right: { who: false, where: true, when: true }, total: 26 }, 'a repeat keeps the marks saved first too');
 	assert.equal(((await put(first, attemptId(), { confidence: 'easy', answers: perfect })).data as Saved).total, 30, 'only the best go at a round counts on a day');
 	assert.equal(((await put(second, attemptId(), { confidence: 'lots', answers: perfect })).data as Saved).total, 75);
 

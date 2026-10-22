@@ -99,9 +99,10 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 					const marked = scoreAttempt(round.state.content, input.value);
 					if (!marked.ok) throw invalid(marked.problems);
 					const { attemptId: id, confidence, answers } = input.value;
-					const saved = await store.saveAttempt(caller.userId, { id, roundId: round.id, topicId: round.topicId, confidence, answers, points: marked.value.points, completedAt: now.toISOString() });
+					const { points, right } = marked.value;
+					const saved = await store.saveAttempt(caller.userId, { id, roundId: round.id, topicId: round.topicId, confidence, answers, points, right, completedAt: now.toISOString() });
 					const total = pointsOn(localDate(now, caller.timeZone), await store.played(caller.userId), caller.timeZone);
-					return { status: 200, json: { points: saved.points, right: marked.value.right, total } };
+					return { status: 200, json: { points: saved.points, right: saved.right, total } };
 				},
 			},
 			{

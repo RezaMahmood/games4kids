@@ -1,7 +1,7 @@
 import type { Blob, ReadTable, Row, StorageFor, Stored } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
 import type { BoardEntry, Played } from './board.ts';
-import { parseRoundContent, type Confidence, type RoundContent } from './content.ts';
+import { isRecord, KINDS, parseRoundContent, type Confidence, type QuestionKind, type RoundContent } from './content.ts';
 import { roundId, topicId, type RoundId, type TopicId } from './ids.ts';
 import type { Round, RoundState, Source, Topic } from './round.ts';
 import type { AnswerLog } from './score.ts';
@@ -14,7 +14,9 @@ export type StoredRound = { round: Round; etag: string };
 /** A stored round row that no longer parses. It keeps the raw keys, so the admin can still see it and delete it. */
 export type BrokenRound = { broken: true; id: string; topicId: string; problems: readonly string[] };
 export type RoundRows = { rounds: StoredRound[]; broken: BrokenRound[] };
-export type Attempt = Played & { id: string; topicId: TopicId; confidence: Confidence; answers: readonly AnswerLog[] };
+/** Which questions the child got right, as marked when the attempt was first saved. */
+export type Marks = Partial<Record<QuestionKind, boolean>>;
+export type Attempt = Played & { id: string; topicId: TopicId; confidence: Confidence; answers: readonly AnswerLog[]; right: Marks };
 
 const TOPIC = 'topic';
 /** One partition: every round route carries only the round's id, and a point read needs the partition. */
@@ -38,7 +40,7 @@ type RoundRow = {
 	picturePrompt?: string;
 	updatedAt: string;
 };
-type AttemptRow = { partitionKey: string; rowKey: string; roundId: string; topicId: string; confidence: Confidence; points: number; completedAt: string; answers: string };
+type AttemptRow = { partitionKey: string; rowKey: string; roundId: string; topicId: string; confidence: Confidence; points: number; completedAt: string; answers: string; right: string };
 type BoardRow = { partitionKey: string; rowKey: string; name: string; timeZone: string; since: string };
 
 const toTopic = ({ rowKey, title, guidance, order }: TopicRow): Topic => ({ id: rowKey as TopicId, title, guidance, order });
@@ -146,6 +148,22 @@ function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: 
 
 const toPlayed = ({ roundId, points, completedAt }: AttemptRow): Played => ({ roundId, points, completedAt });
 
+function storedMarks({ rowKey, right }: AttemptRow): Marks {
+	let raw: unknown = null;
+	try {
+		raw = JSON.parse(right);
+	} catch {
+		// Stays null and fails below.
+	}
+	const marks: Marks = {};
+	for (const kind of KINDS) {
+		const mark = isRecord(raw) ? raw[kind] : undefined;
+		if (typeof mark !== 'boolean') throw new Error(`stored attempt ${rowKey} has no mark for ${kind}`);
+		marks[kind] = mark;
+	}
+	return marks;
+}
+
 const toBoardEntry = ({ rowKey, name, timeZone, since }: BoardRow): BoardEntry => ({ userId: rowKey, name, timeZone, since });
 
 async function topicsOf(table: ReadTable): Promise<StoredTopic[]> {
@@ -174,7 +192,7 @@ export type PlayStore = {
 	picture(id: RoundId, ifNoneMatch: string | undefined): Promise<ImageRead>;
 	played(userId: string): Promise<Played[]>;
 	/** Saves a finished round once per attemptId. A repeat changes nothing and answers with what was saved first. */
-	saveAttempt(userId: string, attempt: Attempt): Promise<Played>;
+	saveAttempt(userId: string, attempt: Attempt): Promise<Played & { right: Marks }>;
 	boardEntries(): Promise<BoardEntry[]>;
 	/** A child already on the board keeps their first `since`, so a repeat changes nothing. */
 	optIn(entry: BoardEntry): Promise<void>;
@@ -199,12 +217,12 @@ export function playStore(storage: StorageFor<TimeDetectives, 'play'>): PlayStor
 		picture: (id, ifNoneMatch) => storage.blobs.pictures.get(id, ifNoneMatch),
 		played: async (userId) => (await attempts.inPartition<AttemptRow>(userId)).map(toPlayed),
 		async saveAttempt(userId, attempt) {
-			const { id, roundId, topicId, confidence, points, completedAt, answers } = attempt;
-			const row: AttemptRow = { partitionKey: userId, rowKey: id, roundId, topicId, confidence, points, completedAt, answers: JSON.stringify(answers) };
-			if (await attempts.insertIfAbsent(row)) return toPlayed(row);
+			const { id, roundId, topicId, confidence, points, completedAt, answers, right } = attempt;
+			const row: AttemptRow = { partitionKey: userId, rowKey: id, roundId, topicId, confidence, points, completedAt, answers: JSON.stringify(answers), right: JSON.stringify(right) };
+			if (await attempts.insertIfAbsent(row)) return { ...toPlayed(row), right };
 			const first = await attempts.get<AttemptRow>(userId, id);
 			if (!first) throw new Error(`attempt ${id} was there and then gone`);
-			return toPlayed(first);
+			return { ...toPlayed(first), right: storedMarks(first) };
 		},
 		boardEntries: async () => (await board.inPartition<BoardRow>(BOARD)).map(toBoardEntry),
 		async optIn({ userId, name, timeZone, since }) {
