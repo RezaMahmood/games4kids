@@ -373,8 +373,8 @@ describe('--apply --after-first-deploy', () => {
 		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
 		const games = parseApplication(world.applications.find((app) => app['displayName'] === 'games4kids'));
 		const admin = parseApplication(world.applications.find((app) => app['displayName'] === 'games4kids-admin'));
-		assert.deepEqual(games.redirectUris, ['https://games-one.4.azurestaticapps.net/', 'https://games-one.4.azurestaticapps.net/redirect.html']);
-		assert.deepEqual(admin.redirectUris, ['https://admin-two.4.azurestaticapps.net/', 'https://admin-two.4.azurestaticapps.net/redirect.html']);
+		assert.deepEqual(games.redirectUris, ['https://games4kids.rezamahmood.net/', 'https://games4kids.rezamahmood.net/redirect.html', 'https://games-one.4.azurestaticapps.net/', 'https://games-one.4.azurestaticapps.net/redirect.html']);
+		assert.deepEqual(admin.redirectUris, ['https://games4kidsadmin.rezamahmood.net/', 'https://games4kidsadmin.rezamahmood.net/redirect.html', 'https://admin-two.4.azurestaticapps.net/', 'https://admin-two.4.azurestaticapps.net/redirect.html']);
 		const account = world.users.find((user) => user['employeeType'] === ADMIN_MARKER);
 		assert.deepEqual(world.entities.get(String(account?.['id'])), { PartitionKey: 'admin', RowKey: account?.['id'], email: 'g4k-admin@example.test' });
 		const reads = world.armRoles.map((row) => row['properties'] as { scope: string; principalId: string; roleDefinitionId: string }).find((row) => row.principalId === world.letterjoinPrincipalId);
@@ -385,6 +385,16 @@ describe('--apply --after-first-deploy', () => {
 		assert.equal(await run(parseFlags(['--apply', '--after-first-deploy', ...APPLY.slice(1)]), second), 0);
 		assert.match(second.lines.join('\n'), /\nNo changes\.$/);
 		assert.equal(world.snapshot(), settled);
+	});
+
+	test('a registration that already holds the default hostname gains only the custom domain, and keeps every URI it had', async () => {
+		const world = await deployed();
+		const games = world.applications.find((app) => app['displayName'] === 'games4kids');
+		const kept = ['https://games-one.4.azurestaticapps.net/', 'https://games-one.4.azurestaticapps.net/redirect.html', 'http://localhost:4280/'];
+		if (games) games['spa'] = { redirectUris: kept };
+		const io = world.io();
+		assert.equal(await run(parseFlags(['--apply', '--step', 'after-first-deploy']), io), 0, io.lines.join('\n'));
+		assert.deepEqual(parseApplication(games).redirectUris, [...kept, 'https://games4kids.rezamahmood.net/', 'https://games4kids.rezamahmood.net/redirect.html']);
 	});
 
 	const OLD_DRAWPAD = '/subscriptions/sub-0000/resourceGroups/rg-drawpad/providers/Microsoft.Storage/storageAccounts/stdp2qnzjgj6a3qtq';

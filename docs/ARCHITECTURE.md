@@ -84,10 +84,13 @@ games4kids/
 | | Games site | Admin site |
 | --- | --- | --- |
 | Static Web App | `swa-g4k-games` | `swa-g4k-admin` |
+| Custom domain | `games4kids.rezamahmood.net` | `games4kidsadmin.rezamahmood.net` |
 | Registration | games4kids: SPA client and API, scope `access_as_user` | games4kids-admin: SPA client and API, scopes `admin.console` and `admin.elevate` |
 | Assigned accounts | Each invited child | Admin accounts only |
 | Pages | `/`, `/welcome/`, `/g/<id>/` play pages | `/` (members, Entra), `/games/` (pause a game), `/g/<id>/` game admin pages |
 | Backends | `func-g4k-portal`, `func-g4k-<id>` per game | `func-g4k-admin` |
+
+The custom domains live in `infra/domains.json`, which `infra/main.bicep`, `infra/game.bicep` and bootstrap read. Each site keeps its default `*.azurestaticapps.net` hostname too, for invitations already sent and for bookmarks, so every Function app's platform CORS allows both origins, and each registration holds redirect URIs for both. Invitations redeem on the games custom domain (`GAMES_ORIGIN`). The Free plan allows two custom domains per site with a managed certificate (verified, [plans](https://learn.microsoft.com/en-us/azure/static-web-apps/plans)). A domain is added by CNAME validation, so its CNAME must resolve, unproxied, before the infra job that adds it runs.
 
 Both registrations have assignment required on, and neither pre-authorizes a client. On one shared origin and MSAL cache, any game page could silently get an admin token (review C1). Two origins have two caches, and the games shell's config has no admin scope or admin origin at all, which a negative proves.
 
@@ -257,7 +260,7 @@ Required reviewers and wait timers (review N12) exist only for public repositori
 3. Create the admin account (only with `--create-admin-account`), give it Guest Inviter, make it an owner of the games4kids enterprise application, assign it to games4kids-admin, and grant its `Principal` consent (review W12). Its `admins` row waits for step 6, because the table is created by the first infra run.
 4. Create `id-g4k-infra`, `id-g4k-deploy`, and `id-g4k-admin`, their GitHub federated credentials, `id-g4k-admin`'s federated credential on games4kids-admin, and their Azure roles. A managed identity as a federated credential needs a user-assigned identity (verified, [managed identity as a credential](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity)).
 5. Create the GitHub environments and repository variables.
-6. After the first infra run creates the two Static Web Apps and the portal account, run bootstrap again with `--after-first-deploy`. It writes each registration's SPA redirect URIs from the sites' hostnames, addressing `/applications/{objectId}` directly (review N10), writes the admin account's `admins` row, and gives you the data roles `tools/migrate` needs from your Mac: Table and Blob Data Reader on the old drawpad and letterjoin accounts, Table and Blob Data Contributor on the new game accounts, and Table Data Reader on the portal's `emails` and `identities` tables. A role you already hold at or above a scope counts, and an old account that is gone is skipped. The hostnames do not change, so no pipeline needs an Entra role.
+6. After the first infra run creates the two Static Web Apps and the portal account, run bootstrap again with `--after-first-deploy`. It writes each registration's SPA redirect URIs for the site's custom domain and its default hostname, addressing `/applications/{objectId}` directly (review N10), writes the admin account's `admins` row, and gives you the data roles `tools/migrate` needs from your Mac: Table and Blob Data Reader on the old drawpad and letterjoin accounts, Table and Blob Data Contributor on the new game accounts, and Table Data Reader on the portal's `emails` and `identities` tables. A role you already hold at or above a scope counts, and an old account that is gone is skipped. It only adds missing redirect URIs and removes none. No pipeline holds an Entra role, so a hostname change, a new custom domain or a recreated site, means running `--after-first-deploy` again from your Mac before anyone can sign in on the new name.
 
 ### Bringing the two games in
 

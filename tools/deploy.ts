@@ -12,6 +12,10 @@ const MINUTE = 60 * SECOND;
 
 export const staticWebAppName = (kind: SiteKind) => `swa-g4k-${kind}`;
 
+/** The custom domain of each site. infra/main.bicep reads the same file. */
+const DOMAINS = JSON.parse(readFileSync(new URL('../infra/domains.json', import.meta.url), 'utf8')) as Record<SiteKind, string>;
+export const customDomain = (kind: SiteKind) => DOMAINS[kind];
+
 /** The route each app answers without a token, as the apps' routers define it. */
 export const healthPath = (app: string) => (app === 'portal' ? '/api/portal/health' : app === 'admin' ? '/api/admin/portal/health' : `/api/g/${app}/health`);
 

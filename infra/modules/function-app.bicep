@@ -8,8 +8,8 @@ param tags object
 param memoryMb int
 @minValue(1)
 param maxInstances int
-@description('The one origin platform CORS allows: the site that calls this app.')
-param allowedOrigin string
+@description('The origins platform CORS allows: the custom domain and the default hostname of the site that calls this app.')
+param allowedOrigins string[]
 @description('The account that holds the code package and the Functions host state. It holds no game data.')
 param hostStorageName string
 param appSettings object
@@ -72,7 +72,7 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       cors: {
-        allowedOrigins: [allowedOrigin]
+        allowedOrigins: allowedOrigins
         supportCredentials: false
       }
     }

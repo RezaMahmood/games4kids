@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
+import { customDomain, RESOURCE_GROUP, staticWebAppName } from './deploy.ts';
 import { guestHomeEmail } from '@g4k/host';
 import { parseEmail, type Email } from '@g4k/sdk';
 import { OLD_ACCOUNTS, type Game } from './migrate/model.ts';
@@ -758,8 +758,9 @@ export function planAfterFirstDeploy(core: Core, extras: SpaExtras, goal: SpaGoa
 			rows.push(blocked(step, id, `${staticWebAppName(key)} does not exist yet. Merge to main so the infra job creates it, then run this again`));
 			continue;
 		}
-		const gaps = missingFrom(lookup.app.redirectUris, redirectUrisFor(host));
-		rows.push(gaps.length === 0 ? fine(step, id, redirectUrisFor(host).join(', ')) : changing(step, id, `missing ${gaps.join(', ')}`, action(`add redirect URIs to ${spec.displayName}`, `add SPA redirect URIs ${gaps.join(', ')} to ${spec.displayName}`, graphCommand('PATCH', `/applications/${lookup.app.id}`, { spa: { redirectUris: [...lookup.app.redirectUris, ...gaps] } }))));
+		const wanted = [customDomain(key), host].flatMap(redirectUrisFor);
+		const gaps = missingFrom(lookup.app.redirectUris, wanted);
+		rows.push(gaps.length === 0 ? fine(step, id, wanted.join(', ')) : changing(step, id, `missing ${gaps.join(', ')}`, action(`add redirect URIs to ${spec.displayName}`, `add SPA redirect URIs ${gaps.join(', ')} to ${spec.displayName}`, graphCommand('PATCH', `/applications/${lookup.app.id}`, { spa: { redirectUris: [...lookup.app.redirectUris, ...gaps] } }))));
 	}
 
 	const visionScope = borrowedVisionScope(core);

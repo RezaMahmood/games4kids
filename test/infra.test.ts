@@ -12,7 +12,7 @@ import manifest from '../games/drawpad/manifest.ts';
 import letterjoin from '../games/letterjoin/manifest.ts';
 import { BORROWED_VISION } from '../tools/bootstrap.ts';
 import { gameId } from './support/ids.ts';
-import { moduleParameters, prefixed } from '../tools/deploy.ts';
+import { customDomain, moduleParameters, prefixed } from '../tools/deploy.ts';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const bicep = spawnSync('az', ['bicep', 'version'], { stdio: 'ignore' }).status === 0;
@@ -70,6 +70,41 @@ test('each portal table has one writer, and the portal app and every player app 
 		'profiles portal writer',
 	]);
 	assert.deepEqual(compile('infra/game.bicep').variables?.['portalTablesPlayersRead'], ['members', 'games', 'identities', 'profiles']);
+});
+
+/** Each Function app's CORS origins, with the compiled ARM expressions read back to the custom domain or `<site>` for a site's default hostname. */
+function corsOrigins(template: Template): Record<string, string[]> {
+	const resolve = (value: string): string => {
+		const variable = /^\[variables\('(\w+)'\)\]$/.exec(value)?.[1];
+		if (variable) return resolve(String(template.variables?.[variable]));
+		const domain = /^\[format\('https:\/\/\{0\}', variables\('domains'\)\.(games|admin)\)\]$/.exec(value)?.[1];
+		if (domain === 'games' || domain === 'admin') return `https://${customDomain(domain)}`;
+		const site = /^\[format\('https:\/\/\{0\}', reference\(resourceId\('Microsoft\.Web\/staticSites', '([\w-]+)'\), '[\d-]+'\)\.defaultHostname\)\]$/.exec(value)?.[1];
+		return site ? `https://<${site}>` : value;
+	};
+	return Object.fromEntries(template.resources.filter((resource) => resource.type === 'Microsoft.Resources/deployments').map((resource) => {
+		const origins = (resource.properties?.['parameters'] as Record<string, { value: string[] }>)['allowedOrigins']?.value ?? [];
+		return [resource.name, origins.map(resolve)];
+	}));
+}
+
+test('every Function app allows its site on the custom domain and on the default hostname', { skip }, () => {
+	const games = ['https://games4kids.rezamahmood.net', 'https://<swa-g4k-games>'];
+	assert.deepEqual(corsOrigins(compile('infra/main.bicep')), { 'func-g4k-portal': games, 'func-g4k-admin': ['https://games4kidsadmin.rezamahmood.net', 'https://<swa-g4k-admin>'] });
+	assert.deepEqual(corsOrigins(compile('infra/game.bicep')), { "[format('func-g4k-{0}', parameters('id'))]": games });
+});
+
+test('each site takes its custom domain by CNAME, and invitations redeem on the games domain', { skip }, () => {
+	const template = compile('infra/main.bicep');
+	const domains = template.resources.filter((resource) => resource.type === 'Microsoft.Web/staticSites/customDomains');
+	assert.deepEqual(domains.map((resource) => [resource.name, resource.properties?.['validationMethod']]), [
+		["[format('{0}/{1}', 'swa-g4k-games', variables('domains').games)]", 'cname-delegation'],
+		["[format('{0}/{1}', 'swa-g4k-admin', variables('domains').admin)]", 'cname-delegation'],
+	]);
+	const admin = template.resources.find((resource) => resource.name === 'func-g4k-admin');
+	const settings = (admin?.properties?.['parameters'] as Record<string, { value: string }>)['appSettings']?.value;
+	assert.match(JSON.stringify(settings), /GAMES_ORIGIN', variables\('gamesOrigin'\)/);
+	assert.equal(template.variables?.['gamesOrigin'], "[format('https://{0}', variables('domains').games)]");
 });
 
 test('a game infra.bicep receives what the pipeline passes it and hands back app settings', { skip }, () => {
