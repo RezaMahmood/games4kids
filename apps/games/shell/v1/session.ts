@@ -81,6 +81,11 @@ type Context = { readonly config: GamesSiteConfig; readonly signedIn: SignedIn; 
 
 const gameApiFor = (ctx: Context, game: CatalogEntry) => createApiClient({ baseUrl: `${game.apiBaseUrl}/api/g/${game.id}`, tokens: ctx.signedIn.tokens });
 
+/** A game app sleeps after a few idle minutes and takes seconds to wake. Calling health while the child already waits on the portal means a card opens warm. */
+function wakeGames(catalog: readonly CatalogEntry[]): void {
+	for (const game of catalog) void fetch(`${game.apiBaseUrl}/api/g/${game.id}/health`).catch(() => {});
+}
+
 async function start(game: GameId | 'portal' | null): Promise<Context> {
 	listen(window);
 	const config = await loadGamesConfig();
@@ -104,8 +109,9 @@ function session(ctx: Context, api: ApiClient, who: { readonly userId: PortalUse
 }
 
 /**
- * The games site's one entry. `game: null` is a portal page: its api is the portal app and it calls GET me. A game
- * page's api is that game's own app and it calls GET session, so only that app wakes. It resolves only for a player
+ * The games site's one entry. `game: null` is a portal page: its api is the portal app and it calls GET me, and it
+ * wakes every game's app at the same time. A game page's api is that game's own app and it calls GET session, so
+ * only that app wakes. It resolves only for a player
  * of this game. Every other state is a screen or a redirect, and the promise never settles:
  *   signed out     loginRedirect, back to this page
  *   not_invited    "Ask your grown-up to invite you", with a sign-out button
@@ -120,6 +126,8 @@ export async function enter(options: { readonly game: string | null; readonly pl
 	const { config, signedIn } = ctx;
 
 	if (options.game === null) {
+		const catalog = loadCatalog();
+		void catalog.then(wakeGames, () => {});
 		const api = createApiClient({ baseUrl: `${config.portalApiOrigin}/api/portal`, tokens: signedIn.tokens });
 		const me = parseMe(await api.get('me').catch((error: unknown) => failed(error, signedIn.signOut)));
 		if (!me) return failed(null, signedIn.signOut);
@@ -131,8 +139,7 @@ export async function enter(options: { readonly game: string | null; readonly pl
 				location.replace(welcomeUrl('/'));
 				return never();
 			case 'active': {
-				const catalog = await loadCatalog();
-				const games = catalog.flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
+				const games = (await catalog).flatMap((entry) => me.games.filter((game) => game.id === entry.id).map(({ paused }) => ({ ...entry, paused })));
 				return { ...session(ctx, api, me, 'portal', options.place ?? { kind: 'home' }), games, canRenameToday: me.canRenameToday, gameApi: (game) => gameApiFor(ctx, game) };
 			}
 		}
