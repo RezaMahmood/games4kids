@@ -17,6 +17,8 @@ export type FakeFoundry = {
 	refuseNext(count: number): void;
 	/** The next `count` image calls answer 429 and ask to be tried again at once. */
 	rateLimitNext(count: number): void;
+	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
+	answerNextRounds(...replies: unknown[]): void;
 	/** Holds the next image call until `release`, so a test can change the world while a job is at work. `arrived` settles when the call comes in. */
 	holdNext(): { readonly arrived: Promise<void>; release(): void };
 	close(): Promise<void>;
@@ -69,8 +71,22 @@ const SCENE_PROMPTS = [
 
 const TITLES = ['Sleepy Fox', 'Fox On A Hill', 'Little Red House'];
 
+/** What the model answers for a Time Detectives round: Vikings at Lindisfarne in AD 793. */
+export const VIKING_ROUND = {
+	title: 'The raid on Lindisfarne',
+	full: 'The monks of a quiet island priory were singing their morning prayers. Out at sea, long ships with striped sails cut through the grey waves. The year was AD 793, and the island was Lindisfarne, off the coast of Northumbria. The ships carried Vikings from across the North Sea. They ran up the beach and burst into the church. They grabbed silver cups, jewelled books and food. Some monks hid in the fields until the ships sailed away. News of the raid spread across England. People had never seen anything like it. Many say the Viking Age began on that cold June day.',
+	brief: 'The bells were still ringing for morning prayers when the lookout saw sails on the horizon. The wind smelled of salt and seaweed. Nobody on the little island knew who was coming, or why. By lunchtime, nothing there would ever be the same again.',
+	pictureAlt: 'Longships with striped sails land on a rocky island beach beside a small stone church.',
+	picturePrompt: 'Three wooden longships with red and white striped sails pulled up on a rocky beach at dawn, a small stone priory on the grassy hill above, grey sea and soft clouds.',
+	questions: [
+		{ kind: 'who', answer: 'Vikings', decoys: ['Romans', 'Normans', 'Ancient Egyptians'], hint: 'Look for who the ships carried across the North Sea.' },
+		{ kind: 'where', answer: 'Lindisfarne', decoys: ["Hadrian's Wall", 'Stonehenge', 'The Tower of London'], hint: 'The story names the island off Northumbria.' },
+		{ kind: 'when', answer: 'AD 793', decoys: ['about 3000 BC', 'AD 43', 'AD 1066'], hint: 'Find the year in the third sentence.' },
+	],
+};
+
 /**
- * The Foundry API as drawpad calls it: chat completions that answer a JSON schema, and image edits and generations that
+ * The Foundry API as drawpad and Time Detectives call it: chat completions that answer a JSON schema, and image edits and generations that
  * answer a PNG. No network, no keys: it only wants a bearer token, as the real account does of the admin identity.
  */
 export async function startFakeFoundry(options: { readonly port?: number } = {}): Promise<FakeFoundry> {
@@ -79,6 +95,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	let refusing = 0;
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
+	const roundReplies: unknown[] = [];
 	const png = (bytes: Uint8Array) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }] });
 
 	const server = createServer(async (req, res) => {
@@ -95,7 +112,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 
 		if (path.endsWith('/chat/completions')) {
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
-			const content = schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
+			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
 			return json(200, { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }] });
 		}
 		if (held) {
@@ -134,6 +151,9 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		},
 		rateLimitNext(count) {
 			limiting = count;
+		},
+		answerNextRounds(...replies) {
+			roundReplies.push(...replies);
 		},
 		holdNext() {
 			let arrive = () => {};

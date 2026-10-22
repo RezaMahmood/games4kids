@@ -168,14 +168,14 @@ export type AdminStore = {
 	topics(): Promise<StoredTopic[]>;
 	topic(id: TopicId): Promise<StoredTopic | undefined>;
 	createTopic(topic: Topic): Promise<StoredTopic>;
-	/** False when the topic changed or went since `etag` was read. */
-	replaceTopic(topic: Topic, etag: string): Promise<boolean>;
+	/** Undefined when the topic changed or went since `etag` was read. */
+	replaceTopic(topic: Topic, etag: string): Promise<StoredTopic | undefined>;
 	deleteTopic(id: TopicId): Promise<void>;
 	rounds(): Promise<StoredRound[]>;
 	round(id: RoundId): Promise<StoredRound | undefined>;
 	createRound(round: Round): Promise<StoredRound>;
-	/** False when the round changed or went since `etag` was read. */
-	replaceRound(round: Round, etag: string): Promise<boolean>;
+	/** Undefined when the round changed or went since `etag` was read. */
+	replaceRound(round: Round, etag: string): Promise<StoredRound | undefined>;
 	/** The row and its picture. */
 	deleteRound(id: RoundId): Promise<void>;
 	picture(id: RoundId, ifNoneMatch: string | undefined): Promise<ImageRead>;
@@ -204,7 +204,9 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 			await topics.put(topicRow(next));
 			return saved(topic(next.id), `topic ${next.id}`);
 		},
-		replaceTopic: (next, etag) => topics.replaceIfMatch(topicRow(next), etag),
+		async replaceTopic(next, etag) {
+			return (await topics.replaceIfMatch(topicRow(next), etag)) ? saved(topic(next.id), `topic ${next.id}`) : undefined;
+		},
 		deleteTopic: (id) => topics.remove(TOPIC, id),
 		rounds: () => roundsOf(rounds),
 		round: (id) => roundIn(rounds, id),
@@ -212,7 +214,9 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 			await rounds.put(roundRow(next));
 			return saved(roundIn(rounds, next.id), `round ${next.id}`);
 		},
-		replaceRound: (next, etag) => rounds.replaceIfMatch(roundRow(next), etag),
+		async replaceRound(next, etag) {
+			return (await rounds.replaceIfMatch(roundRow(next), etag)) ? saved(roundIn(rounds, next.id), `round ${next.id}`) : undefined;
+		},
 		async deleteRound(id) {
 			await rounds.remove(ROUND, id);
 			await pictures.remove(id);

@@ -1,25 +1,35 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { test } from 'node:test';
-import { createPlayerApp, storageFor } from '@g4k/host';
+import { readFileSync } from 'node:fs';
+import { after, test } from 'node:test';
+import { adminModule, createAdminApp, createPlayerApp, storageFor, type App, type Env } from '@g4k/host';
+import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
+import { startFakeFoundry, VIKING_ROUND } from '../dev/fake-foundry.ts';
+import { REFUSED } from '../games/timedetectives/admin/api/foundry.ts';
+import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
+import { MAX_ATTEMPTS } from '../games/timedetectives/admin/api/worker.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
 import { topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
 import type { RoundState } from '../games/timedetectives/data/round.ts';
 import { adminStore } from '../games/timedetectives/data/stores.ts';
 import manifest from '../games/timedetectives/manifest.ts';
 import { createPlayApi } from '../games/timedetectives/play/api/index.ts';
-import { call, codeOf, PNG, type Send } from './support/http.ts';
+import { fakeGraph } from './support/graph.ts';
+import { call, codeOf, JPEG, PNG, type Send } from './support/http.ts';
 import { fakeIdp } from './support/idp.ts';
 import { gameId } from './support/ids.ts';
-import { NOW, seedPlayer, world } from './support/world.ts';
+import { newObjectId, NOW, seedAdmin, seedPlayer, world } from './support/world.ts';
 import { ROUND } from './timedetectives/lindisfarne.ts';
 
 const idp = await fakeIdp();
+const foundry = await startFakeFoundry();
+after(() => foundry.close());
 const timedetectives = gameId('timedetectives');
 const TODAY = NOW.toISOString().slice(0, 10);
 
 type View = { id: string; confidence: string; paragraph: string; pictureAlt: string; questions: { kind: string; label: string; choices: string[]; answer: string; hint: string }[] };
 type Saved = { points: number; right: Record<string, boolean>; total: number };
+type AdminRound = { id: string; topicId: string; state: RoundState; hasPicture: boolean; etag: string };
 
 const perfect = [
 	{ kind: 'who', tries: ['Vikings'], hint: false },
@@ -32,14 +42,32 @@ const mixed = [
 	{ kind: 'when', tries: ['AD 793'], hint: false },
 ];
 
-async function setup() {
+async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin }) {
 	const w = world();
+	const apps: App[] = [];
+	const accounts = deliverQueues(w.accounts, () => apps);
 	const clock = { at: NOW };
 	const tokens = async (service: string) => `tok-${service}`;
-	const player = createPlayerApp({ telemetry: w.telemetry, now: () => clock.at, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, accounts: w.accounts, tokens, env: {} });
+	const common = { telemetry: w.telemetry, now: () => clock.at, accounts, tokens };
+	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, env: {} });
+	const admin = createAdminApp({
+		...common,
+		issuer: idp.admin,
+		store: w.admin,
+		graph: () => fakeGraph().graph,
+		games: [timedetectives],
+		modules: [adminModule(manifest, createAdminApi)],
+		env,
+		gamesOrigin: 'https://games.example',
+	});
+	apps.push(player, admin);
+	const adminObjectId = newObjectId();
+	await seedAdmin(w, adminObjectId);
+	const adminToken = await idp.adminToken(adminObjectId);
 	const store = adminStore(storageFor(manifest, 'admin', w.accounts.open(timedetectives)));
 	const child = (displayName: string, timeZone = 'Europe/London') => seedPlayer(w, idp, { games: [timedetectives], profile: { displayName, timeZone } });
 	const as = (token: string) => (method: string, path: string, send: Send = {}) => call(player, method, `/api/g/timedetectives/${path}`, { token, ...send });
+	const asAdmin = (method: string, path: string, send: Send = {}) => call(admin, method, `/api/admin/g/timedetectives/${path}`, { token: adminToken, ...send });
 	const ada = await child('Ada');
 
 	async function topic(title: string, order = 0): Promise<TopicId> {
@@ -57,7 +85,8 @@ async function setup() {
 		return id;
 	}
 
-	return { w, clock, store, child, as, asAda: as(ada.token), ada, topic, round, exceptions: w.telemetry.exceptions };
+	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => accounts.idle(), queue: accounts.open(timedetectives).queue('drafts'), exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -198,4 +227,230 @@ test('a child who switches the board on sees each child on it by name, from the 
 	assert.deepEqual(((await asBea('GET', `board?day=${TODAY}`)).data as typeof board).children.map((line) => line.name), ['Bea']);
 	assert.equal((await s.asAda('GET', 'board?day=2020-01-01')).status, 400);
 	assert.equal((await s.asAda('PUT', 'board/me', { json: { on: 'yes' } })).status, 400);
+});
+
+const callsSince = (before: number) => foundry.calls.slice(before).map((entry) => `${entry.path} ${entry.model}`);
+const CHAT = 'chat/completions gpt-5.4-mini';
+const IMAGE = 'images/generations gpt-image-1-mini';
+
+async function adminTopic(s: Awaited<ReturnType<typeof setup>>, title = 'Vikings'): Promise<string> {
+	const made = await s.asAdmin('POST', 'topics', { json: { title, guidance: 'Raids, longships and settlers.' } });
+	assert.equal(made.status, 201, JSON.stringify(made.data));
+	return (made.data as { id: string }).id;
+}
+
+async function drafted(s: Awaited<ReturnType<typeof setup>>, topic: string, focus = 'Lindisfarne'): Promise<AdminRound> {
+	const queued = await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: { focus } });
+	assert.equal(queued.status, 202, JSON.stringify(queued.data));
+	await s.settled();
+	return s.adminRound((queued.data as AdminRound).id);
+}
+
+test('an admin drafts a round with AI through the worker, with the platform token, and children see it only once published', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	const queued = await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: { focus: '  Lindisfarne ' } });
+	assert.deepEqual((queued.data as AdminRound).state, { kind: 'drafting', focus: 'Lindisfarne', source: 'ai' });
+	await s.settled();
+
+	const round = await s.adminRound((queued.data as AdminRound).id);
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai' });
+	assert.equal(round.hasPicture, true);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
+	assert.ok(foundry.calls.slice(before).every((entry) => entry.token === 'tok-cognitiveServices'));
+	const picture = await s.asAdmin('GET', `rounds/${round.id}/picture`);
+	assert.equal(picture.headers['content-type'], 'image/png');
+	assert.deepEqual([...(picture.body as Uint8Array).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number; published: number }[] }).topics.map(({ title, rounds, published }) => [title, rounds, published]), [['Vikings', 1, 0]]);
+
+	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
+	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/publish`)).status, 200);
+	assert.deepEqual(((await s.asAda('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings']);
+	assert.equal(((await s.asAda('GET', `topics/${topic}/next?confidence=easy`)).data as View).id, round.id);
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('a refusal fails the round at once with a reason, and trying again only draws what is missing', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	let before = foundry.calls.length;
+	foundry.refuseNext(1);
+	const failed = await drafted(s, topic);
+	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: REFUSED, content: ROUND });
+	assert.equal(failed.hasPicture, false);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE], 'a refusal is not retried');
+	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/publish`)).status, 409);
+
+	before = foundry.calls.length;
+	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`)).status, 202);
+	await s.settled();
+	assert.equal((await s.adminRound(failed.id)).state.kind, 'draft');
+	assert.deepEqual(callsSince(before), [IMAGE], 'the words were not paid for twice');
+	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`)).status, 409, 'only a failed round is retried');
+});
+
+test('any other failure is tried again from the step it stopped at, until the last attempt fails the round', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	let before = foundry.calls.length;
+	foundry.failNext(1);
+	assert.equal((await drafted(s, topic)).state.kind, 'draft');
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE, IMAGE]);
+
+	before = foundry.calls.length;
+	foundry.failNext(MAX_ATTEMPTS);
+	const doomed = await drafted(s, topic);
+	assert.equal(doomed.state.kind, 'failed');
+	assert.match((doomed.state as { reason: string }).reason, /^The AI did not answer after 3 tries/);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE, IMAGE, IMAGE]);
+});
+
+test('an answer that is not a usable round is asked for once more, then fails the round without drawing it', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const twoQuestions = { ...VIKING_ROUND, questions: VIKING_ROUND.questions.slice(0, 2) };
+	let before = foundry.calls.length;
+	foundry.answerNextRounds(twoQuestions);
+	assert.equal((await drafted(s, topic)).state.kind, 'draft');
+	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
+
+	before = foundry.calls.length;
+	foundry.answerNextRounds(twoQuestions, { ...VIKING_ROUND, picturePrompt: ' ' });
+	const failed = await drafted(s, topic);
+	assert.equal(failed.state.kind, 'failed');
+	assert.match((failed.state as { reason: string }).reason, /not usable: picturePrompt must not be empty/);
+	assert.deepEqual(callsSince(before), [CHAT, CHAT]);
+});
+
+test('a round written by hand needs a picture to publish, stays published through an edit, and refuses a stale edit', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const made = await s.asAdmin('POST', `topics/${topic}/rounds`, { json: { content: VIKING_ROUND } });
+	assert.equal(made.status, 201);
+	const round = made.data as AdminRound;
+	assert.deepEqual([round.state.kind, round.hasPicture], ['draft', false]);
+	const unready = await s.asAdmin('POST', `rounds/${round.id}/publish`);
+	assert.equal(unready.status, 409);
+	assert.equal(codeOf(unready), 'not_ready');
+
+	const uploaded = await s.asAdmin('POST', `rounds/${round.id}/picture/jpeg`, { jpeg: JPEG });
+	assert.equal((uploaded.data as AdminRound).hasPicture, true);
+	assert.equal((await s.asAdmin('GET', `rounds/${round.id}/picture`)).headers['content-type'], 'image/jpeg');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { jpeg: JPEG })).status, 415);
+	const live = (await s.asAdmin('POST', `rounds/${round.id}/publish`)).data as AdminRound;
+	assert.equal(live.state.kind, 'published');
+	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).headers['content-type'], 'image/jpeg');
+
+	const edit = (etag: string, content: unknown = { ...VIKING_ROUND, brief: 'A new beginning.' }) => s.asAdmin('PUT', `rounds/${round.id}`, { json: { content, etag } });
+	const edited = await edit(live.etag);
+	assert.equal(edited.status, 200);
+	assert.deepEqual([(edited.data as AdminRound).state.kind, (edited.data as { state: { source: string } }).state.source], ['published', 'human']);
+	assert.equal(((await s.asAda('GET', `topics/${topic}/next?confidence=lots`)).data as View).paragraph, 'A new beginning.');
+	const stale = await edit(live.etag);
+	assert.equal(stale.status, 412);
+	assert.equal(codeOf(stale), 'changed');
+	assert.equal((await edit((edited.data as AdminRound).etag, { ...VIKING_ROUND, questions: [] })).status, 400);
+	assert.equal((await edit('')).status, 400);
+
+	assert.equal(((await s.asAdmin('POST', `rounds/${round.id}/unpublish`)).data as AdminRound).state.kind, 'draft');
+	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
+	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
+});
+
+test('a redraw keeps the words, takes the round away from children while it works, and draws only a picture', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const round = await drafted(s, topic);
+	await s.asAdmin('POST', `rounds/${round.id}/publish`);
+	const before = foundry.calls.length;
+	const hold = foundry.holdNext();
+	const redraw = await s.asAdmin('POST', `rounds/${round.id}/redraw`);
+	assert.equal(redraw.status, 202);
+	await hold.arrived;
+	assert.deepEqual((await s.adminRound(round.id)).state, { kind: 'drafting', focus: '', source: 'ai', content: ROUND });
+	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
+	const busy = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: VIKING_ROUND, etag: (redraw.data as AdminRound).etag } });
+	assert.equal(busy.status, 409);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { png: PNG })).status, 409);
+	hold.release();
+	await s.settled();
+	const redrawn = await s.adminRound(round.id);
+	assert.deepEqual([redrawn.state.kind, redrawn.hasPicture], ['draft', true]);
+	assert.deepEqual(callsSince(before), [IMAGE]);
+});
+
+test('a round deleted while its picture is drawn leaves no row and no picture behind', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const hold = foundry.holdNext();
+	const queued = (await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).data as AdminRound;
+	await hold.arrived;
+	assert.equal((await s.asAdmin('DELETE', `rounds/${queued.id}`)).status, 204);
+	hold.release();
+	await s.settled();
+	assert.equal((await s.asAdmin('GET', `rounds/${queued.id}`)).status, 404);
+	assert.deepEqual(await s.w.accounts.open(timedetectives).container('pictures').list(''), []);
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('drafting needs a Foundry account, stops at 10 rounds at work, and checks the request before anything is queued', async () => {
+	const unset = await setup({});
+	const topicOff = await adminTopic(unset);
+	const off = await unset.asAdmin('POST', `topics/${topicOff}/rounds/draft`, { json: {} });
+	assert.equal(off.status, 503);
+	assert.equal(codeOf(off), 'ai_unavailable');
+
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	for (let n = 0; n < 10; n++) await s.round(typedTopic, { kind: 'drafting', focus: '', source: 'ai' }, false);
+	const full = await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} });
+	assert.equal(full.status, 429);
+	assert.equal(codeOf(full), 'too_many_drafts');
+	assert.equal((await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: { focus: 'x'.repeat(121) } })).status, 400);
+	assert.equal((await s.asAdmin('POST', `topics/${randomUUID()}/rounds/draft`, { json: {} })).status, 404);
+	assert.equal(s.w.accounts.messages(timedetectives, 'drafts').length, 0);
+});
+
+test('a topic is named and guided by the admin, edited with its etag, and deleted only once it has no rounds', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	await adminTopic(s, 'Ancient Greeks');
+	const listed = (await s.asAdmin('GET', 'topics')).data as { topics: { id: string; title: string; guidance: string; order: number; etag: string }[] };
+	assert.deepEqual(listed.topics.map(({ title, order }) => [title, order]), [['Vikings', 0], ['Ancient Greeks', 1]]);
+	const vikings = listed.topics[0];
+	assert.ok(vikings);
+	const renamed = await s.asAdmin('PUT', `topics/${topic}`, { json: { title: 'The Vikings', guidance: '', etag: vikings.etag } });
+	assert.deepEqual([(renamed.data as { title: string }).title, (renamed.data as { order: number }).order], ['The Vikings', 0]);
+	assert.equal((await s.asAdmin('PUT', `topics/${topic}`, { json: { title: 'Again', etag: vikings.etag } })).status, 412);
+	assert.equal((await s.asAdmin('POST', 'topics', { json: { title: '' } })).status, 400);
+
+	const round = (await s.asAdmin('POST', `topics/${topic}/rounds`, { json: { content: VIKING_ROUND } })).data as AdminRound;
+	const refused = await s.asAdmin('DELETE', `topics/${topic}`);
+	assert.equal(refused.status, 409);
+	assert.equal(codeOf(refused), 'has_rounds');
+	await s.asAdmin('DELETE', `rounds/${round.id}`);
+	assert.equal((await s.asAdmin('DELETE', `topics/${topic}`)).status, 204);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Ancient Greeks']);
+});
+
+test('a queue message that names no round, or a round that is not drafting, is left alone', async () => {
+	const s = await setup();
+	const before = foundry.calls.length;
+	const topic = topicId(await adminTopic(s));
+	assert.ok(topic);
+	const done = await s.round(topic);
+	for (const message of ['not json', {}, { roundId: 'nope' }, { roundId: randomUUID() }, { roundId: done }]) await s.queue.send(message);
+	await s.settled();
+	assert.equal(foundry.calls.length, before);
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('the admin app gives up on a message after the attempts the worker fails its round on', () => {
+	const host = JSON.parse(readFileSync(new URL('../apps/admin/api/host.json', import.meta.url), 'utf8')) as { extensions: { queues: Record<string, unknown> } };
+	assert.equal(host.extensions.queues['maxDequeueCount'], MAX_ATTEMPTS);
+	assert.equal(MAX_DEQUEUE_COUNT, MAX_ATTEMPTS);
 });
