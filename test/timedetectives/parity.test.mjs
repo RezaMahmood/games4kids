@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { CONFIDENCE, QUESTION_KINDS, offeredChoices } from '../../games/timedetectives/data/content.ts';
 import { POINTS, questionPoints } from '../../games/timedetectives/data/score.ts';
 import * as page from '../../games/timedetectives/play/web/rules.js';
@@ -16,4 +17,9 @@ test('the page marks a question and offers choices the way the server does', () 
     for (const hint of [false, true]) assert.equal(page.questionPoints({ tries, hint }, 'Vikings'), questionPoints({ tries, hint }, 'Vikings'), JSON.stringify({ tries, hint }));
   }
   for (const confidence of Object.keys(CONFIDENCE)) assert.deepEqual(page.offeredChoices(question, confidence), offeredChoices(question, confidence));
+});
+
+test('the admin page holds a byte for byte copy of the play rules, so its preview cannot drift from what a child sees', () => {
+  const root = new URL('../../games/timedetectives/', import.meta.url);
+  assert.equal(readFileSync(new URL('admin/web/rules.js', root), 'utf8'), readFileSync(new URL('play/web/rules.js', root), 'utf8'), 'copy play/web/rules.js to admin/web/rules.js');
 });
