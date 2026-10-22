@@ -3,8 +3,8 @@
  * @typedef {{ kind: string, answer: string, decoys: string[], hint: string }} Question
  * @typedef {{ title: string, full: string, brief: string, pictureAlt: string, questions: Question[] }} Content
  * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content }
- *   | { kind: 'failed', focus: string, source: string, reason: string, content?: Content }
- *   | { kind: 'draft', content: Content, source: string }
+ *   | { kind: 'failed', focus: string, source: string, reason: string }
+ *   | { kind: 'draft', content: Content, source: string, notice?: string }
  *   | { kind: 'published', content: Content, source: string, publishedAt: string }} RoundState
  * @typedef {{ id: string, topicId: string, state: RoundState, hasPicture: boolean, updatedAt: string, etag: string, broken?: undefined }} Round
  * @typedef {{ id: string, topicId: string, broken: string[] }} Broken A stored round the server can no longer read; it can only be deleted.
