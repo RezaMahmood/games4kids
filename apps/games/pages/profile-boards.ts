@@ -57,13 +57,10 @@ export function mountBoardSwitches(list: HTMLElement, games: readonly CatalogEnt
 		const row = { input, note };
 		render(row, { kind: 'loading' });
 
-		api.get('board/me').then(
-			(reply) => render(row, { kind: 'ready', on: optedIn(reply), message: '' }),
-			(error: unknown) => {
-				report(error);
-				render(row, { kind: 'unavailable', message: failure(error, 'load') });
-			},
-		);
+		api.get('board/me').then((reply) => render(row, { kind: 'ready', on: optedIn(reply), message: '' })).catch((error: unknown) => {
+			report(error);
+			render(row, { kind: 'unavailable', message: failure(error, 'load') });
+		});
 		input.addEventListener('change', async () => {
 			const wanted = input.checked;
 			render(row, { kind: 'saving', on: wanted });

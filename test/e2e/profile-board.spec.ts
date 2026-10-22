@@ -173,6 +173,18 @@ test('a slow or failing game holds up only its own switch, never the name', asyn
 		await kid.unroute('**/api/g/letterjoin/board/me');
 	});
 
+	await test.step('a reply that cannot be read ends in the same error, never in Loading…', async () => {
+		await kid.route('**/api/g/letterjoin/board/me', async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			return route.fulfill({ response: await route.fetch(), json: {} });
+		});
+		await kid.goto(`${GAMES}/profile/`);
+		await pageReady(kid);
+		await expect(note).toHaveText('We could not load this. Try again.');
+		await expect(toggle).toBeDisabled();
+		await kid.unroute('**/api/g/letterjoin/board/me');
+	});
+
 	await test.step('while the game answers nothing, the page is ready, the switch says Loading…, and a rename saves', async () => {
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => (release = resolve));
