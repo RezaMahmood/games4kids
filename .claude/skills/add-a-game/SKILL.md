@@ -31,7 +31,8 @@ Settle each choice before you copy any code, because each one changes which file
 - Declare `services: ['cognitiveServices']` on the admin part. Make the endpoint setting `optional` and answer 503 without it, like drawpad's `FOUNDRY_ENDPOINT`, so a missing value turns off one feature instead of the admin app.
 - Run the jobs in a worker. Declare an `admin-private` queue, add `workers: [{ queue, run }]` to `defineAdminApi`, and output the three `STORAGE__*` settings in `adminSettings` (copy drawpad's lines). Send the message from the route that creates the job. Use Event Grid, as drawpad does, only when an uploaded blob must start the job.
 - Make each worker step safe to repeat and save its result before the next step. `apps/admin/api/host.json` runs one message at a time, tries each message at most 3 times, and waits 60 seconds after a failure. On the last attempt, mark the job failed instead of throwing (`MAX_ATTEMPTS` in `games/drawpad/admin/api/worker.ts`).
-- Store generated content as rows with a status, and have the play API list only approved rows. A grown-up approves each item on the admin page before any child sees it.
+- Store generated content as rows with a status, and have the play API list only approved rows. A grown-up approves each item on the admin page before any child sees it. Keep the job's progress on that row so drafts survive a closed tab. `games/timedetectives` does this: the round row moves through drafting, failed, draft and published.
+- Give every state, failed and stuck ones included, a way out on the admin page (Try again, Delete), and make a failed redraw keep the old picture and words. The first review of timedetectives found rounds that could not be deleted and refusals that took a published round away from children.
 - In dev, `dev/fake-foundry.ts` answers chat completions by `response_format.json_schema.name`. Add a case for your schema name and for any endpoint it doesn't answer. Add `<ID>_FOUNDRY_ENDPOINT: foundry.origin` to `adminEnv` in `dev/stack.ts`.
 
 ## Write these by hand
@@ -39,16 +40,19 @@ Settle each choice before you copy any code, because each one changes which file
 Gen writes the catalogs, the registered ids, the admin module list, the per-game parameters, the CSP and `tsconfig.games.json`. The deploy targets and the workbook come from paths and names. Nothing in `.github/workflows/`, `infra/main.bicep`, `infra/game.bicep`, or the shared `tsconfig` files needs a per-game edit. You write:
 
 1. `games/<id>/manifest.ts`. The id matches `GAME_ID` (no hyphen, at most 16 characters, because the storage account `g4k<id><5 chars>` must fit in 24), equals the folder name, and is not in `RESERVED_IDS`. The manifest imports only `@g4k/sdk`. Storage names follow `NAME_RULES` in `tools/gen.mjs`, and gen prints the rule a name breaks.
-2. `data/index.ts`, `play/api/index.ts`, `play/web/index.html`, and the icon the manifest names, under the served web root. With an admin part, also `admin/api/index.ts` and `admin/web/index.html`. ESLint enforces which part may import which. Read the message when it refuses an import, and don't work around it.
+2. `data/index.ts`, `play/api/index.ts`, `play/web/index.html`, and the icon the manifest names, under the served web root. With an admin part, also `admin/api/index.ts` and `admin/web/index.html`. Gen refuses the folder while any of these is missing (`missing-file`), so scaffold every part first with no routes and an overlay-only page, then fill them in. Set `scoreboard: true` in the same commit as the `board/me` routes, or conformance fails. ESLint enforces which part may import which. Read the message when it refuses an import, and don't work around it.
 3. Each setting. Admin settings are read as `<ID>_<NAME>` and play settings as `<NAME>`. A required setting (a `url` or `string` without `optional`) must come out of `infra.bicep`, and in dev from `playEnv` or `adminEnv` in `dev/stack.ts`. Without it the app refuses to start.
 4. A case in `test/e2e/loading.spec.ts` for each page. Add a play page to `GAMES_PAGES`, and copy the Draw Pad admin cases for an admin page.
-5. A parity test like `test/letterjoin/parity.test.mjs` when web JavaScript repeats a rule from `data/`.
-6. Tests for the game's own rules and routes, in `test/<id>.test.ts` over the real apps. Conformance covers the platform contract for every game with no edit.
+5. Row keys. A table reads one row only by `get(partitionKey, rowKey)` (`ReadTable` in `packages/sdk/src/api.ts`). Choose a partition every route can name from its own path, or each read becomes a scan. A route like `rounds/{id}` cannot use a partition per topic.
+6. Image uploads as one route per type. The shell client sends images only by POST (`sendPng`, `sendJpeg` in `apps/shared/api-client.ts`), and a route takes exactly one body kind.
+7. A parity test like `test/letterjoin/parity.test.mjs` when web JavaScript repeats a rule from `data/`.
+8. Tests for the game's own rules and routes, in `test/<id>.test.ts` over the real apps. Conformance covers the platform contract for every game with no edit.
 
 ## Traps no check catches
 
 - A missing icon shows a broken image on home. Nothing tests it.
 - A missing required admin setting stops the whole admin app, so every game's admin pages and the members page go down with it.
+- Each game with an admin part adds a link to the admin bar, and `test/e2e/phone.spec.ts` caps that bar at 160px on a phone. Run `npm run e2e` early. If the new link breaks the cap, fix the bar in `apps/shared/shell.css` rather than loosening the test.
 - A play part that imports from another game's folder passes lint, `tsc -b`, and the tests, then fails in Azure. A player app's zip holds only `games/<id>/` (`appPlan` in `tools/package-app.ts`).
 
 ## After the merge
