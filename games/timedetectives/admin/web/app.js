@@ -39,6 +39,14 @@ function show(view) {
   for (const id of VIEWS) $(id).hidden = id !== view;
   $('round-actions').hidden = view !== 'round-view';
   window.scrollTo(0, 0);
+  $(view).querySelector('h1').focus({ preventScroll: true });
+}
+
+/** When the control that had focus has gone or been disabled, moves focus to the first of these that can take it. */
+function refocus(...targets) {
+  const active = document.activeElement;
+  if (active && active !== document.body && active.checkVisibility() && !active.disabled) return;
+  targets.find((target) => target.checkVisibility() && !target.disabled)?.focus();
 }
 
 /** @type {import('./api.js').Topic[]} */
@@ -123,6 +131,7 @@ async function saveTopic(event) {
     if (editingTopic) await api.updateTopic(editingTopic.id, { ...body, etag: editingTopic.etag });
     else await api.createTopic(body);
     $('topic-form').hidden = true;
+    refocus($('new-topic'));
     status('Saved.');
   } catch (err) {
     problems('topic-problems', err);
@@ -138,6 +147,7 @@ async function deleteTopic(t) {
   try {
     await api.deleteTopic(t.id);
     await loadTopics();
+    refocus($('topics-heading'));
   } catch (err) {
     status(err.message, 'error');
   }
@@ -331,6 +341,7 @@ async function change(work, done) {
   try {
     const round = await work();
     renderRound(round);
+    refocus($('r-publish'), $('r-unpublish'), $('round-heading'));
     if (done) status(done);
     return round;
   } catch (err) {
@@ -424,7 +435,10 @@ async function route() {
 
 $('suggestions').replaceChildren(...STARTERS.map((title) => h('button', { type: 'button', className: 'chip', textContent: title, onclick: () => ($('t-title').value = title) })));
 $('new-topic').addEventListener('click', () => openTopicForm(null));
-$('t-cancel').addEventListener('click', () => ($('topic-form').hidden = true));
+$('t-cancel').addEventListener('click', () => {
+  $('topic-form').hidden = true;
+  $('new-topic').focus();
+});
 $('topic-form').addEventListener('submit', saveTopic);
 $('draft-form').addEventListener('submit', draftRound);
 $('write').addEventListener('click', () => (location.hash = `#new/${topic.id}`));

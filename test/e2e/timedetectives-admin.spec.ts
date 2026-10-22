@@ -184,3 +184,27 @@ test('Publish publishes what is on screen, and Upload and Unpublish keep edits t
 	await expect(page.locator('#q-who-hint')).toHaveValue('Who sailed from the north?');
 	await page.context().close();
 });
+
+test('focus moves to what replaced a control that went away, and to the heading of each new view', async ({ browser }) => {
+	const page = await adminPage(browser);
+	await page.getByRole('button', { name: 'New topic' }).click();
+	await page.getByRole('button', { name: 'Cancel' }).click();
+	await expect(page.getByRole('button', { name: 'New topic' })).toBeFocused();
+	const topic = await newTopic(page);
+	await expect(page.getByRole('button', { name: 'New topic' })).toBeFocused();
+	await page.getByRole('link', { name: topic }).click();
+	await expect(page.locator('#topic-heading')).toBeFocused();
+	await page.getByRole('button', { name: 'Draft with AI' }).click();
+	await expect(page.locator('#rounds .badge.draft')).toBeVisible();
+	await page.getByRole('link', { name: 'The raid on Lindisfarne' }).click();
+	await expect(page.locator('#round-heading')).toBeFocused();
+	await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+
+	await page.getByRole('button', { name: 'Publish', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Unpublish' })).toBeFocused();
+	await page.getByRole('button', { name: 'Unpublish' }).click();
+	await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeFocused();
+	await page.getByRole('button', { name: 'Redraw with AI' }).click();
+	await expect(page.locator('#round-heading')).toBeFocused();
+	await page.context().close();
+});

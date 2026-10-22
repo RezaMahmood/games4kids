@@ -14,7 +14,7 @@
     <main>
       <section id="topics-view" aria-labelledby="topics-heading">
         <div class="row">
-          <h1 id="topics-heading">Time Detectives</h1>
+          <h1 id="topics-heading" tabindex="-1">Time Detectives</h1>
           <button id="new-topic" type="button" class="primary">New topic</button>
         </div>
         <form id="topic-form" class="panel" hidden novalidate>
@@ -37,7 +37,7 @@
 
       <section id="topic-view" hidden aria-labelledby="topic-heading">
         <a href="#" class="back">All topics</a>
-        <h1 id="topic-heading"></h1>
+        <h1 id="topic-heading" tabindex="-1"></h1>
         <p id="topic-guidance" class="note"></p>
         <form id="draft-form" class="panel" novalidate>
           <h2>Draft a round with AI</h2>
@@ -57,7 +57,7 @@
       <section id="round-view" hidden aria-labelledby="round-heading">
         <a id="round-back" href="#" class="back">Back to the topic</a>
         <div class="row">
-          <h1 id="round-heading"></h1>
+          <h1 id="round-heading" tabindex="-1"></h1>
           <span id="round-badge" class="badge"></span>
         </div>
         <p id="round-note" class="panel note" hidden></p>

@@ -14,9 +14,11 @@ function h(tag, props = {}, ...children) {
   return node;
 }
 
-function show(screen) {
+/** Shows one screen and moves focus to its heading, so a keyboard or screen reader user starts at the top of it. */
+function show(screen, heading = $(screen).querySelector('h1, h2')) {
   for (const id of SCREENS) $(id).hidden = id !== screen;
   window.scrollTo(0, 0);
+  heading.focus({ preventScroll: true });
 }
 
 function say(id, text) {
@@ -49,10 +51,10 @@ function renderTopics() {
 }
 
 function showTopics() {
-  show('home-screen');
+  $('topics-panel').hidden = false;
+  show('home-screen', $('topics-heading'));
   $('cover').setAttribute('aria-expanded', 'true');
   $('cover').classList.add('opened');
-  $('topics-panel').hidden = false;
   renderTopics();
 }
 
@@ -140,7 +142,15 @@ function choose(question, item, choice, button) {
   renderQuestion(question, item);
   const finished = play.round.questions.every((q) => isDone(play.answers.get(q.kind), q.answer));
   $('finish').hidden = !finished;
-  if (finished) $('finish').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // The tapped choice is now disabled, so focus moves on: to the next choice still open, else to what the tap meant.
+  if (finished) {
+    $('finish').focus({ preventScroll: true });
+    $('finish').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (isDone(after, question.answer)) item.querySelector('.feedback').focus();
+  else {
+    const open = [...item.querySelectorAll('.choice')].filter((choice) => !choice.disabled);
+    (open.find((choice) => button.compareDocumentPosition(choice) & Node.DOCUMENT_POSITION_FOLLOWING) ?? open[0]).focus();
+  }
 }
 
 function questionItem(question) {
@@ -159,8 +169,9 @@ function questionItem(question) {
   hint.addEventListener('click', () => {
     play.answers.set(question.kind, { ...play.answers.get(question.kind), hint: true });
     renderQuestion(question, item);
+    item.querySelector('.hint-text').focus();
   });
-  item.append(heading, choices, h('p', { className: 'feedback', ariaLive: 'polite' }), hint, h('p', { className: 'hint-text', textContent: question.hint }));
+  item.append(heading, choices, h('p', { className: 'feedback', ariaLive: 'polite', tabIndex: -1 }), hint, h('p', { className: 'hint-text', tabIndex: -1, textContent: question.hint }));
   renderQuestion(question, item);
   return item;
 }
@@ -187,6 +198,7 @@ async function finish() {
       say('quiz-status', 'A grown-up changed this mystery while you were solving it, so it cannot be scored. Sorry! Try another one.');
       $('finish').hidden = true;
       $('quiz-again').hidden = false;
+      $('quiz-again').focus();
       return;
     }
     delete $('quiz-status').dataset.tone;

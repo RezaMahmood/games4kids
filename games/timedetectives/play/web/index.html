@@ -21,7 +21,7 @@
         <span class="cover-label">Open the door to the past</span>
       </button>
       <section id="topics-panel" hidden aria-labelledby="topics-heading">
-        <h2 id="topics-heading">Where shall we go?</h2>
+        <h2 id="topics-heading" tabindex="-1">Where shall we go?</h2>
         <ul id="topics" class="topics"></ul>
         <p id="topics-status" class="status" role="status" hidden></p>
       </section>
@@ -29,7 +29,7 @@
 
     <section id="sure-screen" class="screen" hidden aria-labelledby="sure-heading">
       <p class="eyebrow" id="sure-topic"></p>
-      <h2 id="sure-heading">Do you know a lot about the subject you have chosen?</h2>
+      <h2 id="sure-heading" tabindex="-1">Do you know a lot about the subject you have chosen?</h2>
       <div id="sure-choices" class="sure-choices"></div>
       <p id="sure-status" class="status" role="alert" hidden></p>
       <button id="sure-back" type="button" class="quiet">Choose another topic</button>
@@ -37,13 +37,13 @@
 
     <section id="read-screen" class="screen" hidden aria-labelledby="read-heading">
       <p class="eyebrow">Read the clue carefully</p>
-      <h2 id="read-heading">What happened here?</h2>
+      <h2 id="read-heading" tabindex="-1">What happened here?</h2>
       <div id="read-text" class="paragraph"></div>
       <button id="read-done" type="button" class="primary big">I've read it</button>
     </section>
 
     <section id="quiz-screen" class="screen" hidden aria-labelledby="quiz-heading">
-      <h2 id="quiz-heading" class="visually-hidden">Solve the mystery</h2>
+      <h2 id="quiz-heading" tabindex="-1" class="visually-hidden">Solve the mystery</h2>
       <figure class="picture">
         <img id="quiz-picture" alt="">
       </figure>
@@ -57,7 +57,7 @@
     <section id="result-screen" class="screen" hidden aria-labelledby="result-heading">
       <div class="result-hero">
         <p class="eyebrow">Case closed!</p>
-        <h2 id="result-heading"><span id="result-points"></span> points</h2>
+        <h2 id="result-heading" tabindex="-1"><span id="result-points"></span> points</h2>
         <p id="result-bonus" class="note"></p>
       </div>
       <ul id="result-answers" class="result-answers"></ul>
