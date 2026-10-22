@@ -18,7 +18,7 @@ import {
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import { AiFailure, type FoundryDeps } from './foundry.ts';
-import { parseDraftMessage, runDraft, type DraftMessage } from './worker.ts';
+import { parseDraftMessage, runDraft, settleStale, type DraftMessage } from './worker.ts';
 
 /** About ten minutes of AI work, so a stuck page cannot fill the queue. */
 const MAX_DRAFTING = 10;
@@ -69,16 +69,21 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		return found;
 	}
 
-	async function readRound(raw: string | undefined): Promise<StoredRound | BrokenRound> {
+	async function readRound(raw: string | undefined, now: Date): Promise<StoredRound | BrokenRound> {
 		const id = roundId(raw);
 		const found = id && (await store.round(id));
 		if (!found) throw nothingHere();
-		return found;
+		return isBroken(found) ? found : settleStale(found, now);
+	}
+
+	async function allRounds(now: Date): Promise<RoundRows> {
+		const { rounds, broken } = await store.rounds();
+		return { rounds: rounds.map((round) => settleStale(round, now)), broken };
 	}
 
 	/** A round that can be changed. A stored row that no longer parses can only be deleted. */
-	async function existingRound(raw: string | undefined): Promise<StoredRound> {
-		const found = await readRound(raw);
+	async function existingRound(raw: string | undefined, now: Date): Promise<StoredRound> {
+		const found = await readRound(raw, now);
 		if (isBroken(found)) throw new HttpError(409, 'broken', 'This round\'s stored data is damaged. Delete it and make it again.');
 		return found;
 	}
@@ -90,13 +95,17 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	}
 
 	/** Refuses AI work when there is no Foundry account, or when the worker already has plenty queued. */
-	async function guardDrafting(): Promise<void> {
+	async function guardDrafting(now: Date): Promise<void> {
 		if (!platform.settings.FOUNDRY_ENDPOINT) throw new HttpError(503, 'ai_unavailable', 'Drafting with AI is not set up yet.');
-		const drafting = (await store.rounds()).rounds.filter(({ round }) => round.state.kind === 'drafting').length;
+		const drafting = (await allRounds(now)).rounds.filter(({ round }) => round.state.kind === 'drafting').length;
 		if (drafting >= MAX_DRAFTING) throw new HttpError(429, 'too_many_drafts', `The AI already has ${drafting} rounds to draft. Try again when some are done.`);
 	}
 
-	/** Puts a drafting round on the queue, and puts it back as it was if the queue refuses, since a drafting row nobody runs stays stuck. */
+	/**
+	 * Puts a drafting round on the queue, and puts it back as it was if the queue refuses, so the admin can act on it at
+	 * once. A put back that loses to another change leaves the row to that change; one that fails leaves a drafting row
+	 * nobody runs, which settleStale settles.
+	 */
 	async function queue(saved: StoredRound, before: Round | null): Promise<StoredRound> {
 		try {
 			await platform.queues.drafts.send({ roundId: saved.round.id } satisfies DraftMessage);
@@ -120,7 +129,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 			path: `rounds/{id}/picture/${kind}`,
 			body: kind,
 			async run({ params, body, now }) {
-				const found = await existingRound(params['id']);
+				const found = await existingRound(params['id'], now);
 				const state = acted(settled(found));
 				await store.putPicture(found.round.id, body, `image/${kind}`);
 				return { status: 200, json: roundView(await replaced({ ...found.round, state, hasPicture: true, updatedAt: now.toISOString() }, found.etag)) };
@@ -185,9 +194,9 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				method: 'GET',
 				path: 'topics/{id}/rounds',
 				body: 'none',
-				async run({ params }) {
+				async run({ params, now }) {
 					const { topic } = await existingTopic(params['id']);
-					const { rounds, broken } = await store.rounds();
+					const { rounds, broken } = await allRounds(now);
 					const mine = rounds.filter(({ round }) => round.topicId === topic.id).sort((a, b) => b.round.updatedAt.localeCompare(a.round.updatedAt));
 					return { status: 200, json: { rounds: [...broken.filter((round) => round.topicId === topic.id).map(brokenView), ...mine.map(roundView)] } };
 				},
@@ -201,7 +210,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const { topic } = await existingTopic(params['id']);
 					const focus = parseFocus(body);
 					if (!focus.ok) throw invalid(focus.problems);
-					await guardDrafting();
+					await guardDrafting(now);
 					const state: RoundState = { kind: 'drafting', focus: focus.value, source: 'ai' };
 					const created = await store.createRound({ id: newId(roundId), topicId: topic.id, state, hasPicture: false, updatedAt: now.toISOString() });
 					return { status: 202, json: roundView(await queue(created, null)) };
@@ -225,8 +234,8 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				method: 'GET',
 				path: 'rounds/{id}',
 				body: 'none',
-				async run({ params }) {
-					const found = await readRound(params['id']);
+				async run({ params, now }) {
+					const found = await readRound(params['id'], now);
 					return { status: 200, json: isBroken(found) ? brokenView(found) : roundView(found) };
 				},
 			},
@@ -237,7 +246,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				body: 'json',
 				/** An edit keeps a published round published, so a typo fix never takes it away from the children. */
 				async run({ params, body, now }) {
-					const found = await existingRound(params['id']);
+					const found = await existingRound(params['id'], now);
 					const state = settled(found);
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
@@ -254,7 +263,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				path: 'rounds/{id}/publish',
 				body: 'none',
 				async run({ params, now }) {
-					const found = await existingRound(params['id']);
+					const found = await existingRound(params['id'], now);
 					const state = settled(found);
 					if (!found.round.hasPicture) throw new HttpError(409, 'not_ready', 'Add a picture before publishing.');
 					if (state.kind === 'published') return { status: 200, json: roundView(found) };
@@ -268,7 +277,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				path: 'rounds/{id}/unpublish',
 				body: 'none',
 				async run({ params, now }) {
-					const found = await existingRound(params['id']);
+					const found = await existingRound(params['id'], now);
 					const state = settled(found);
 					if (state.kind === 'draft') return { status: 200, json: roundView(found) };
 					const next: RoundState = { kind: 'draft', content: state.content, source: state.source };
@@ -285,10 +294,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				 * draft is redrawn, so children never see a picture the admin has not checked.
 				 */
 				async run({ params, now }) {
-					const found = await existingRound(params['id']);
+					const found = await existingRound(params['id'], now);
 					const state = settled(found);
 					if (state.kind === 'published') throw new HttpError(409, 'published', 'Unpublish the round before redrawing its picture, so children only see a picture you have checked.');
-					await guardDrafting();
+					await guardDrafting(now);
 					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
@@ -300,10 +309,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				path: 'rounds/{id}/retry',
 				body: 'none',
 				async run({ params, now }) {
-					const found = await existingRound(params['id']);
+					const found = await existingRound(params['id'], now);
 					const { state } = found.round;
 					if (state.kind !== 'failed') throw new HttpError(409, 'not_failed', 'Only a round the AI gave up on can be tried again.');
-					await guardDrafting();
+					await guardDrafting(now);
 					const next: RoundState = { kind: 'drafting', focus: state.focus, source: state.source };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
@@ -316,8 +325,8 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				method: 'GET',
 				path: 'rounds/{id}/picture',
 				body: 'none',
-				async run({ params, ifNoneMatch }) {
-					const { round } = await existingRound(params['id']);
+				async run({ params, ifNoneMatch, now }) {
+					const { round } = await existingRound(params['id'], now);
 					if (!round.hasPicture) throw nothingHere();
 					return imageReply(await store.picture(round.id, ifNoneMatch));
 				},

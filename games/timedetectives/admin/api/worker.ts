@@ -1,4 +1,4 @@
-import { isRecord, roundId, type AdminStore, type Round, type RoundId, type StoredRound } from '../../data/index.ts';
+import { isRecord, roundId, type AdminStore, type Round, type RoundId, type RoundState, type StoredRound } from '../../data/index.ts';
 import { drawPicture, writeRound, type Written } from './draft.ts';
 import { AiFailure, Refusal, type FoundryDeps } from './foundry.ts';
 
@@ -17,6 +17,29 @@ export const WORDS_REFUSED = 'The AI safety filter turned this round down. Delet
 /** What a round whose new picture never came says. The words and any picture it had are still there. */
 const pictureNotice = (why: string) => `The AI could not draw a picture. ${why} Upload a picture, or change the picture description and redraw.`;
 export const PICTURE_REFUSED = pictureNotice('The AI safety filter turned it down.');
+
+/**
+ * A drafting round the worker has not saved for this long has no attempt left running. An attempt makes at most six
+ * Foundry requests (two asks for the words and one picture, each sent again after a 429) of REQUEST_TIMEOUT_MS, and
+ * three waits of RETRY_MAX_SECONDS: ten minutes. The queue makes MAX_ATTEMPTS of them, a minute apart (host.json's
+ * visibilityTimeout), so 32 minutes in all. An hour leaves room for the queue to notice the message and scale out.
+ */
+export const STALE_AFTER_MS = 60 * 60_000;
+export const STOPPED = 'The AI stopped without finishing.';
+
+/**
+ * A drafting round left behind by a message that will never run again, because it was poisoned or never sent, reads as
+ * settled: failed when it has no words, or a draft that says no picture came. It then stops counting toward the cap and
+ * can be tried again, edited or deleted. A late worker that still finds it drafting loses the etag race to the admin.
+ */
+export function settleStale({ round, etag }: StoredRound, now: Date): StoredRound {
+	const { state } = round;
+	if (state.kind !== 'drafting' || now.getTime() - Date.parse(round.updatedAt) < STALE_AFTER_MS) return { round, etag };
+	const settled: RoundState = state.content
+		? { kind: 'draft', content: state.content, source: state.source, notice: pictureNotice(STOPPED) }
+		: { kind: 'failed', focus: state.focus, source: state.source, reason: `${STOPPED} Try again, or delete it.` };
+	return { round: { ...round, state: settled }, etag };
+}
 
 type Ctx = { store: AdminStore; foundry: () => FoundryDeps; now: Date; log: (line: string) => void; dequeueCount: number };
 

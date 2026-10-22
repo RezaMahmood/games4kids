@@ -1,6 +1,8 @@
 const REFUSAL = /content_policy|content_filter|moderation_blocked|ResponsibleAIPolicyViolation/i;
 const RETRY_DEFAULT_SECONDS = 10;
-const RETRY_MAX_SECONDS = 20;
+export const RETRY_MAX_SECONDS = 20;
+/** An image takes about a minute at most, so a request still open after this has hung. */
+export const REQUEST_TIMEOUT_MS = 90_000;
 const DETAIL_MAX = 300;
 
 /**
@@ -28,6 +30,7 @@ export type FoundryDeps = {
 	/** The platform's service token for Cognitive Services, so this code holds no credential. */
 	token: () => Promise<string>;
 	sleep?: (ms: number) => Promise<void>;
+	timeoutMs?: number;
 };
 
 const retryDelayMs = (res: Response) => {
@@ -38,25 +41,30 @@ const retryDelayMs = (res: Response) => {
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** POSTs JSON to the Foundry OpenAI v1 API and returns the parsed reply. Waits out one 429, since back to back calls hit the per-minute limit. */
+/**
+ * POSTs JSON to the Foundry OpenAI v1 API and returns the parsed reply. Waits out one 429, since back to back calls hit
+ * the per-minute limit. Each request, body included, is given up after REQUEST_TIMEOUT_MS, so a hung call fails the attempt.
+ */
 async function postFoundry(deps: FoundryDeps, path: string, body: object): Promise<unknown> {
 	const send = async () => {
+		const signal = AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
 		try {
-			return await fetch(new URL(`openai/v1/${path}`, deps.endpoint), {
+			const res = await fetch(new URL(`openai/v1/${path}`, deps.endpoint), {
 				method: 'POST',
 				headers: { authorization: `Bearer ${await deps.token()}`, 'content-type': 'application/json' },
 				body: JSON.stringify(body),
+				signal,
 			});
+			return { res, text: await res.text() };
 		} catch (error) {
 			throw new AiFailure(true, `${(error as Error).name}: ${(error as Error).message}`);
 		}
 	};
-	let res = await send();
+	let { res, text } = await send();
 	if (res.status === 429) {
 		await (deps.sleep ?? wait)(retryDelayMs(res));
-		res = await send();
+		({ res, text } = await send());
 	}
-	const text = await res.text().catch(() => '');
 	if (res.status === 400 && REFUSAL.test(text)) throw new Refusal();
 	if (!res.ok) throw new AiFailure(true, `${res.status}: ${text}`);
 	try {

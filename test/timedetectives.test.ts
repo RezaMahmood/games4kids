@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { after, test } from 'node:test';
-import { adminModule, createAdminApp, createPlayerApp, storageFor, type App, type Env } from '@g4k/host';
+import { adminModule, createAdminApp, createPlayerApp, storageFor, type Accounts, type App, type Env } from '@g4k/host';
 import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
 import { startFakeFoundry, VIKING_ROUND } from '../dev/fake-foundry.ts';
 import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
-import { MAX_ATTEMPTS, PICTURE_REFUSED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
+import { MAX_ATTEMPTS, PICTURE_REFUSED, STALE_AFTER_MS, STOPPED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
+import { REQUEST_TIMEOUT_MS, RETRY_MAX_SECONDS } from '../games/timedetectives/admin/api/foundry.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
 import { topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
 import type { RoundState } from '../games/timedetectives/data/round.ts';
@@ -44,7 +45,26 @@ const mixed = [
 async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin }) {
 	const w = world();
 	const apps: App[] = [];
-	const accounts = deliverQueues(w.accounts, () => apps);
+	const delivering = deliverQueues(w.accounts, () => apps);
+	/** Storage faults a test switches on: each says whether the next queue send, or round write, throws. */
+	const faults = { send: () => false, replace: () => false };
+	const down = () => Promise.reject(new Error('storage is down'));
+	const accounts: Accounts = {
+		open(owner) {
+			const account = delivering.open(owner);
+			return {
+				...account,
+				table(name) {
+					const table = account.table(name);
+					return name === 'rounds' ? { ...table, replaceIfMatch: (row, etag) => (faults.replace() ? down() : table.replaceIfMatch(row, etag)) } : table;
+				},
+				queue(name) {
+					const queue = account.queue(name);
+					return { send: (message) => (faults.send() ? down() : queue.send(message)) };
+				},
+			};
+		},
+	};
 	const clock = { at: NOW };
 	const logs: string[] = [];
 	const telemetry = { ...w.telemetry, log: (_level: string, line: string) => void logs.push(line) };
@@ -87,7 +107,7 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	}
 
 	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => accounts.idle(), queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -475,6 +495,69 @@ test('drafting needs a Foundry account, stops at 10 rounds at work, and checks t
 	assert.equal(s.w.accounts.messages(timedetectives, 'drafts').length, 0);
 });
 
+test('a drafting round no worker finishes stops counting toward the cap once stale, and can then be tried again, edited or deleted', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	const stuck: RoundId[] = [];
+	for (let n = 0; n < 9; n++) stuck.push(await s.round(typedTopic, { kind: 'drafting', focus: 'Jorvik', source: 'ai' }, false));
+	const redrawing = await s.round(typedTopic, { kind: 'drafting', focus: '', source: 'human', content: ROUND });
+	assert.equal(codeOf(await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })), 'too_many_drafts');
+	const [first, second] = stuck;
+	assert.ok(first && second);
+	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${first}/retry`)), 'not_failed', 'a round still within its attempts is left to the worker');
+
+	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
+	assert.deepEqual((await s.adminRound(first)).state, { kind: 'failed', focus: 'Jorvik', source: 'ai', reason: `${STOPPED} Try again, or delete it.` });
+	const listed = ((await s.asAdmin('GET', `topics/${topic}/rounds`)).data as { rounds: AdminRound[] }).rounds;
+	assert.ok(listed.every((round) => round.state.kind !== 'drafting'));
+	const kept = await s.adminRound(redrawing);
+	assert.deepEqual([kept.state.kind, kept.hasPicture], ['draft', true], 'a stuck redraw keeps its words and picture');
+	assert.match((kept.state as { notice: string }).notice, /^The AI could not draw a picture\. The AI stopped without finishing\./);
+	assert.equal((await s.asAdmin('PUT', `rounds/${redrawing}`, { json: { content: VIKING_ROUND, etag: kept.etag } })).status, 200);
+
+	assert.equal((await s.asAdmin('POST', `rounds/${first}/retry`)).status, 202);
+	await s.settled();
+	assert.equal((await s.adminRound(first)).state.kind, 'draft');
+	assert.equal((await s.asAdmin('DELETE', `rounds/${second}`)).status, 204);
+	assert.equal((await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).status, 202);
+});
+
+test('a round the queue refused is put back, and one whose put back or last save failed settles once stale', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const once = (fail: number) => {
+		let calls = 0;
+		return () => ++calls === fail;
+	};
+	s.faults.send = once(1);
+	assert.equal((await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).status, 500);
+	assert.deepEqual(((await s.asAdmin('GET', `topics/${topic}/rounds`)).data as { rounds: unknown[] }).rounds, [], 'a new round nobody will draft is removed');
+
+	const round = await drafted(s, topic);
+	s.faults.send = once(1);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 500);
+	assert.deepEqual((await s.adminRound(round.id)).state, round.state, 'a redraw nobody will run is put back');
+
+	s.faults.send = once(1);
+	s.faults.replace = once(2);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 500);
+	assert.equal((await s.adminRound(round.id)).state.kind, 'drafting', 'the put back failed too');
+
+	const doomed = (await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).data as AdminRound;
+	foundry.failNext(MAX_ATTEMPTS, 503, 'chat');
+	s.faults.replace = () => true;
+	await s.settled();
+	s.faults.replace = () => false;
+	assert.equal((await s.adminRound(doomed.id)).state.kind, 'drafting', 'the last attempt could not save that it failed');
+
+	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
+	assert.equal((await s.adminRound(round.id)).state.kind, 'draft');
+	assert.equal((await s.adminRound(doomed.id)).state.kind, 'failed');
+	for (const id of [round.id, doomed.id]) assert.equal((await s.asAdmin('DELETE', `rounds/${id}`)).status, 204);
+});
+
 test('a topic is named and guided by the admin, edited with its etag, and deleted only once it has no rounds', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
@@ -542,8 +625,13 @@ test('a stored round that no longer parses is skipped and logged for children, a
 	assert.deepEqual(s.exceptions, []);
 });
 
-test('the admin app gives up on a message after the attempts the worker fails its round on', () => {
+test('the admin app gives up on a message after the attempts the worker settles its round on, all over before the round reads as stale', () => {
 	const host = JSON.parse(readFileSync(new URL('../apps/admin/api/host.json', import.meta.url), 'utf8')) as { extensions: { queues: Record<string, unknown> } };
 	assert.equal(host.extensions.queues['maxDequeueCount'], MAX_ATTEMPTS);
 	assert.equal(MAX_DEQUEUE_COUNT, MAX_ATTEMPTS);
+	const attempt = 6 * REQUEST_TIMEOUT_MS + 3 * RETRY_MAX_SECONDS * 1000;
+	const [, minutes, seconds] = /^00:(\d\d):(\d\d)$/.exec(String(host.extensions.queues['visibilityTimeout'])) ?? [];
+	const between = (Number(minutes) * 60 + Number(seconds)) * 1000;
+	assert.ok(between > 0);
+	assert.ok(MAX_ATTEMPTS * attempt + (MAX_ATTEMPTS - 1) * between < STALE_AFTER_MS, 'every attempt is over before a drafting round reads as stale');
 });
