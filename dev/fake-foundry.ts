@@ -11,10 +11,10 @@ export type FoundryCall = {
 export type FakeFoundry = {
 	readonly origin: string;
 	readonly calls: readonly FoundryCall[];
-	/** The next `count` image calls answer with this HTTP status. */
-	failNext(count: number, status?: number): void;
-	/** The next `count` image calls are refused by the content filter, as a 400 from Foundry is. */
-	refuseNext(count: number): void;
+	/** The next `count` image calls, or chat calls when `on` says so, answer with this HTTP status. */
+	failNext(count: number, status?: number, on?: Kind): void;
+	/** The next `count` image calls, or chat calls when `on` says so, are refused by the content filter, as a 400 from Foundry is. */
+	refuseNext(count: number, on?: Kind): void;
 	/** The next `count` image calls answer 429 and ask to be tried again at once. */
 	rateLimitNext(count: number): void;
 	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
@@ -23,6 +23,9 @@ export type FakeFoundry = {
 	holdNext(): { readonly arrived: Promise<void>; release(): void };
 	close(): Promise<void>;
 };
+
+/** Which calls a fault applies to: the image calls drawpad's tests expect, or the chat calls that write a Time Detectives round. */
+type Kind = 'images' | 'chat';
 
 const SIZE = 256;
 const NAVY: Rgb = [31, 36, 48];
@@ -91,8 +94,8 @@ export const VIKING_ROUND = {
  */
 export async function startFakeFoundry(options: { readonly port?: number } = {}): Promise<FakeFoundry> {
 	const calls: FoundryCall[] = [];
-	let failing = { count: 0, status: 500 };
-	let refusing = 0;
+	const failing = { images: { count: 0, status: 500 }, chat: { count: 0, status: 500 } };
+	const refusing = { images: 0, chat: 0 };
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const roundReplies: unknown[] = [];
@@ -110,7 +113,24 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		const asJson = req.headers['content-type']?.startsWith('application/json') ? (JSON.parse(body.toString('utf8')) as Record<string, unknown>) : null;
 		calls.push({ path: path.slice('/openai/v1/'.length), model: typeof asJson?.['model'] === 'string' ? asJson['model'] : (/name="model"\r\n\r\n([^\r]+)/.exec(body.toString('latin1'))?.[1] ?? null), token });
 
-		if (path.endsWith('/chat/completions')) {
+		const kind: Kind = path.endsWith('/chat/completions') ? 'chat' : 'images';
+		/** Answers with the fault the test asked for, if any is left for this kind of call. */
+		const fault = (): boolean => {
+			if (refusing[kind] > 0) {
+				refusing[kind] -= 1;
+				json(400, { error: { code: kind === 'chat' ? 'content_filter' : 'content_policy_violation', message: 'The request was refused.' } });
+				return true;
+			}
+			if (failing[kind].count > 0) {
+				failing[kind].count -= 1;
+				json(failing[kind].status, { error: { message: 'the fake Foundry was told to fail' } });
+				return true;
+			}
+			return false;
+		};
+
+		if (kind === 'chat') {
+			if (fault()) return;
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
 			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
 			return json(200, { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }] });
@@ -126,14 +146,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '0' }).end('{"error":{"message":"slow down"}}');
 			return;
 		}
-		if (refusing > 0) {
-			refusing -= 1;
-			return json(400, { error: { code: 'content_policy_violation', message: 'The image was refused.' } });
-		}
-		if (failing.count > 0) {
-			failing = { ...failing, count: failing.count - 1 };
-			return json(failing.status, { error: { message: 'the fake Foundry was told to fail' } });
-		}
+		if (fault()) return;
 		if (path.endsWith('/images/edits')) return json(200, png(lineArt()));
 		if (path.endsWith('/images/generations')) return json(200, png(scene()));
 		return json(404, { error: 'not found' });
@@ -143,11 +156,11 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	return {
 		origin: `http://localhost:${port}`,
 		calls,
-		failNext(count, status = 500) {
-			failing = { count, status };
+		failNext(count, status = 500, on = 'images') {
+			failing[on] = { count, status };
 		},
-		refuseNext(count) {
-			refusing = count;
+		refuseNext(count, on = 'images') {
+			refusing[on] = count;
 		},
 		rateLimitNext(count) {
 			limiting = count;

@@ -293,6 +293,30 @@ test('a refusal fails the round at once with a reason, and trying again only dra
 	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`)).status, 409, 'only a failed round is retried');
 });
 
+test('a refusal of the words fails the round at once without drawing, and the failed round can be deleted', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	foundry.refuseNext(1, 'chat');
+	const failed = await drafted(s, topic);
+	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: REFUSED });
+	assert.deepEqual(callsSince(before), [CHAT], 'a refusal is not retried, and nothing is drawn');
+	assert.equal((await s.asAdmin('DELETE', `rounds/${failed.id}`)).status, 204);
+	assert.equal((await s.asAdmin('GET', `rounds/${failed.id}`)).status, 404);
+	assert.equal((await s.asAdmin('DELETE', `topics/${topic}`)).status, 204);
+});
+
+test('words the AI never answers with fail the round after the last attempt', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	foundry.failNext(MAX_ATTEMPTS, 503, 'chat');
+	const failed = await drafted(s, topic);
+	assert.equal(failed.state.kind, 'failed');
+	assert.match((failed.state as { reason: string }).reason, /^The AI did not answer after 3 tries/);
+	assert.deepEqual(callsSince(before), [CHAT, CHAT, CHAT]);
+});
+
 test('any other failure is tried again from the step it stopped at, until the last attempt fails the round', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
