@@ -31,6 +31,7 @@ type RoundRow = {
 	source: Source;
 	focus?: string;
 	reason?: string;
+	notice?: string;
 	content?: string;
 	publishedAt?: string;
 	hasPicture: boolean;
@@ -85,11 +86,13 @@ function storedState(row: Row, problems: string[]): RoundState | undefined {
 		case 'drafting':
 			return { kind, focus, source, ...kept };
 		case 'failed':
-			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '', ...kept };
-		case 'draft':
-			if (content) return { kind, content, source };
+			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '' };
+		case 'draft': {
+			const notice = optionalText(row, 'notice', problems);
+			if (content) return { kind, content, source, ...(notice && { notice }) };
 			problems.push('a draft needs content');
 			return undefined;
+		}
 		case 'published': {
 			const publishedAt = optionalText(row, 'publishedAt', problems);
 			if (content && publishedAt) return { kind, content, source, publishedAt };
@@ -132,6 +135,7 @@ function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: 
 		source: state.source,
 		...job,
 		...(state.kind === 'failed' && { reason: state.reason }),
+		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
 		...content,
 		...(state.kind === 'published' && { publishedAt: state.publishedAt }),
 		hasPicture,

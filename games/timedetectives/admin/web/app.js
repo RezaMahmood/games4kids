@@ -275,11 +275,14 @@ function renderRound(round) {
     drafting: content ? 'The AI is drawing a new picture. This page updates when it is done.' : 'The AI is writing this round. This page updates when it is done.',
     failed: round?.state?.reason,
     broken: kind === 'broken' ? damage(round) : '',
-    draft: round?.hasPicture ? 'Only admins can see this round until you publish it.' : 'Add a picture before publishing.',
+    draft: round?.state?.notice ?? (round?.hasPicture ? 'Only admins can see this round until you publish it.' : 'Add a picture before publishing.'),
   };
   $('round-note').hidden = !notes[kind];
   $('round-note').textContent = notes[kind] ?? '';
+  $('round-note').dataset.tone = kind === 'failed' || kind === 'broken' || round?.state?.notice ? 'error' : '';
   $('round-picture').hidden = !round || working || kind === 'failed' || kind === 'broken';
+  $('r-redraw').hidden = kind !== 'draft';
+  $('r-redraw-note').hidden = kind !== 'published';
   $('round-form').hidden = !editable && !content;
   for (const control of $('round-form').elements) control.disabled = !editable;
   $('r-save').hidden = !editable;
@@ -349,7 +352,6 @@ async function saveRound(event) {
 
 async function redraw() {
   const { round } = editing;
-  if (round.state.kind === 'published' && !confirm('Children cannot play this round while the AI draws its new picture. Publish it again when you are happy with it.')) return;
   const queued = await change(() => api.redraw(round.id), 'The AI is drawing a new picture.');
   if (queued) openRound(queued.id);
 }

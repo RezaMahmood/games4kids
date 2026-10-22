@@ -7,13 +7,17 @@ export type Source = 'ai' | 'human';
 
 /**
  * Where a round is in its life. The AI job lives here too, so there is no jobs table: `drafting` is queued for the
- * worker and keeps any content it already wrote, so a retry or a redraw only does what is left.
+ * worker, and once it has content the words are written and only the picture is left to draw. The AI failing to
+ * write the words leaves a `failed` round with nothing in it. The AI failing to draw a picture never loses the words
+ * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came.
  */
 export type RoundState =
 	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent }
-	| { kind: 'failed'; focus: string; source: Source; reason: string; content?: RoundContent }
-	| { kind: 'draft'; content: RoundContent; source: Source }
+	| { kind: 'failed'; focus: string; source: Source; reason: string }
+	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string }
 	| { kind: 'published'; content: RoundContent; source: Source; publishedAt: string };
+/** A round whose words are written and that the AI is not working on: it can be edited, published or given a picture. */
+export type Settled = Extract<RoundState, { kind: 'draft' | 'published' }>;
 
 export type Round = {
 	id: RoundId;

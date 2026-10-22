@@ -16,7 +16,12 @@ export class AiFailure extends Error {
 	}
 }
 
-export const REFUSED = 'The AI safety filter turned this round down. Try another focus.';
+/** The content filter said no. Asking again with the same words gets the same answer. */
+export class Refusal extends AiFailure {
+	constructor() {
+		super(false, 'The AI safety filter turned it down.');
+	}
+}
 
 export type FoundryDeps = {
 	endpoint: string;
@@ -52,7 +57,7 @@ async function postFoundry(deps: FoundryDeps, path: string, body: object): Promi
 		res = await send();
 	}
 	const text = await res.text().catch(() => '');
-	if (res.status === 400 && REFUSAL.test(text)) throw new AiFailure(false, REFUSED);
+	if (res.status === 400 && REFUSAL.test(text)) throw new Refusal();
 	if (!res.ok) throw new AiFailure(true, `${res.status}: ${text}`);
 	try {
 		return JSON.parse(text) as unknown;
@@ -73,7 +78,7 @@ export async function chatJson(deps: FoundryDeps, ask: { model: string; messages
 		max_completion_tokens: 4000,
 	})) as ChatReply;
 	const choice = reply?.choices?.[0];
-	if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new AiFailure(false, REFUSED);
+	if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new Refusal();
 	if (choice?.finish_reason !== 'stop' || typeof choice.message?.content !== 'string') throw new AiFailure(true, `the reply stopped early: ${choice?.finish_reason ?? 'no choice'}`);
 	try {
 		return JSON.parse(choice.message.content) as unknown;

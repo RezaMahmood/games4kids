@@ -12,6 +12,7 @@ import {
 	type Round,
 	type RoundRows,
 	type RoundState,
+	type Settled,
 	type StoredRound,
 	type StoredTopic,
 } from '../../data/index.ts';
@@ -25,7 +26,9 @@ const CHANGED = 'Someone else changed this since you loaded it. Reload to see th
 
 const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', 'The request is not valid.', problems);
 const changed = () => new HttpError(412, 'changed', CHANGED);
-const busy = () => new HttpError(409, 'busy', 'The AI is still working on this round.');
+const busy = () => new HttpError(409, 'busy', 'The AI is still working on this round, or could not write it.');
+/** The admin acted on the round, so a notice about the AI's last picture no longer applies. */
+const acted = (state: Settled): Settled => (state.kind === 'draft' ? { kind: 'draft', content: state.content, source: state.source } : state);
 const field = (body: unknown, name: string): unknown => (typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined);
 
 function etagOf(body: unknown, what: string): string {
@@ -105,8 +108,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		}
 	}
 
-	/** A round whose words are written and that the AI is not working on: it can be edited, published or given a picture. */
-	function settled({ round }: StoredRound) {
+	function settled({ round }: StoredRound): Settled {
 		if (round.state.kind !== 'draft' && round.state.kind !== 'published') throw busy();
 		return round.state;
 	}
@@ -119,9 +121,9 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 			body: kind,
 			async run({ params, body, now }) {
 				const found = await existingRound(params['id']);
-				if (found.round.state.kind === 'drafting') throw busy();
+				const state = acted(settled(found));
 				await store.putPicture(found.round.id, body, `image/${kind}`);
-				return { status: 200, json: roundView(await replaced({ ...found.round, hasPicture: true, updatedAt: now.toISOString() }, found.etag)) };
+				return { status: 200, json: roundView(await replaced({ ...found.round, state, hasPicture: true, updatedAt: now.toISOString() }, found.etag)) };
 			},
 		};
 	}
@@ -239,7 +241,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const state = settled(found);
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
-					const next: RoundState = { ...state, content: content.value, source: 'human' };
+					const next: RoundState = { ...acted(state), content: content.value, source: 'human' };
 					return { status: 200, json: roundView(await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, etagOf(body, 'round'))) };
 				},
 			},
@@ -275,13 +277,17 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				method: 'POST',
 				path: 'rounds/{id}/redraw',
 				body: 'none',
-				/** The words stay and the worker only draws a new picture. A published round comes off until it is published again. */
+				/**
+				 * The words stay and the worker only draws a new picture, which replaces the old one only once it is drawn. Only a
+				 * draft is redrawn, so children never see a picture the admin has not checked.
+				 */
 				async run({ params, now }) {
 					const found = await existingRound(params['id']);
 					const state = settled(found);
+					if (state.kind === 'published') throw new HttpError(409, 'published', 'Unpublish the round before redrawing its picture, so children only see a picture you have checked.');
 					await guardDrafting();
 					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content };
-					const saved = await replaced({ ...found.round, state: next, hasPicture: false, updatedAt: now.toISOString() }, found.etag);
+					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},
 			},
@@ -295,7 +301,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const { state } = found.round;
 					if (state.kind !== 'failed') throw new HttpError(409, 'not_failed', 'Only a round the AI gave up on can be tried again.');
 					await guardDrafting();
-					const next: RoundState = { kind: 'drafting', focus: state.focus, source: state.source, ...(state.content && { content: state.content }) };
+					const next: RoundState = { kind: 'drafting', focus: state.focus, source: state.source };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},

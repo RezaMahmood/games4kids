@@ -5,9 +5,8 @@ import { after, test } from 'node:test';
 import { adminModule, createAdminApp, createPlayerApp, storageFor, type App, type Env } from '@g4k/host';
 import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
 import { startFakeFoundry, VIKING_ROUND } from '../dev/fake-foundry.ts';
-import { REFUSED } from '../games/timedetectives/admin/api/foundry.ts';
 import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
-import { MAX_ATTEMPTS } from '../games/timedetectives/admin/api/worker.ts';
+import { MAX_ATTEMPTS, PICTURE_REFUSED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
 import { topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
 import type { RoundState } from '../games/timedetectives/data/round.ts';
@@ -102,7 +101,7 @@ test('a child sees only topics with a published round, in order, and never a dra
 	await s.round(vikings);
 	await s.round(egypt);
 	const draft = await s.round(greeks, { kind: 'draft', content: ROUND, source: 'human' });
-	const failed = await s.round(greeks, { kind: 'failed', focus: '', source: 'ai', reason: 'refused', content: ROUND });
+	const failed = await s.round(greeks, { kind: 'failed', focus: '', source: 'ai', reason: 'refused' });
 	await s.round(greeks, { kind: 'drafting', focus: 'Olympia', source: 'ai' }, false);
 
 	const topics = (await s.asAda('GET', 'topics')).data as { topics: { id: string; title: string }[] };
@@ -274,23 +273,25 @@ test('an admin drafts a round with AI through the worker, with the platform toke
 	assert.deepEqual(s.exceptions, []);
 });
 
-test('a refusal fails the round at once with a reason, and trying again only draws what is missing', async () => {
+test('a refused picture keeps the words, leaves a draft that says why and takes an upload, and a redraw only draws', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
 	let before = foundry.calls.length;
 	foundry.refuseNext(1);
-	const failed = await drafted(s, topic);
-	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: REFUSED, content: ROUND });
-	assert.equal(failed.hasPicture, false);
+	const round = await drafted(s, topic);
+	assert.deepEqual([round.state, round.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai', notice: PICTURE_REFUSED }, false]);
 	assert.deepEqual(callsSince(before), [CHAT, IMAGE], 'a refusal is not retried');
-	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/publish`)).status, 409);
+	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${round.id}/publish`)), 'not_ready');
+	const edited = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: { ...VIKING_ROUND, title: 'Raid' }, etag: round.etag } });
+	assert.deepEqual((edited.data as AdminRound).state, { kind: 'draft', content: { ...ROUND, title: 'Raid' }, source: 'human' }, 'the notice goes once the admin acts');
 
 	before = foundry.calls.length;
-	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`)).status, 202);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
 	await s.settled();
-	assert.equal((await s.adminRound(failed.id)).state.kind, 'draft');
+	const redrawn = await s.adminRound(round.id);
+	assert.deepEqual([redrawn.state.kind, redrawn.hasPicture], ['draft', true]);
 	assert.deepEqual(callsSince(before), [IMAGE], 'the words were not paid for twice');
-	assert.equal((await s.asAdmin('POST', `rounds/${failed.id}/retry`)).status, 409, 'only a failed round is retried');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/retry`)).status, 409, 'only a failed round is retried');
 });
 
 test('a refusal of the words fails the round at once without drawing, and the failed round can be deleted', async () => {
@@ -299,7 +300,7 @@ test('a refusal of the words fails the round at once without drawing, and the fa
 	const before = foundry.calls.length;
 	foundry.refuseNext(1, 'chat');
 	const failed = await drafted(s, topic);
-	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: REFUSED });
+	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: WORDS_REFUSED });
 	assert.deepEqual(callsSince(before), [CHAT], 'a refusal is not retried, and nothing is drawn');
 	assert.equal((await s.asAdmin('DELETE', `rounds/${failed.id}`)).status, 204);
 	assert.equal((await s.asAdmin('GET', `rounds/${failed.id}`)).status, 404);
@@ -317,7 +318,7 @@ test('words the AI never answers with fail the round after the last attempt', as
 	assert.deepEqual(callsSince(before), [CHAT, CHAT, CHAT]);
 });
 
-test('any other failure is tried again from the step it stopped at, until the last attempt fails the round', async () => {
+test('any other failure is tried again from the step it stopped at, until the last attempt settles the round', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
 	let before = foundry.calls.length;
@@ -327,10 +328,11 @@ test('any other failure is tried again from the step it stopped at, until the la
 
 	before = foundry.calls.length;
 	foundry.failNext(MAX_ATTEMPTS);
-	const doomed = await drafted(s, topic);
-	assert.equal(doomed.state.kind, 'failed');
-	assert.match((doomed.state as { reason: string }).reason, /^The AI did not answer after 3 tries/);
+	const unpictured = await drafted(s, topic);
+	assert.deepEqual([unpictured.state.kind, unpictured.hasPicture], ['draft', false]);
+	assert.match((unpictured.state as { notice: string }).notice, /^The AI could not draw a picture\. The AI did not answer after 3 tries\. .* Upload a picture, or change the picture description and redraw\.$/);
 	assert.deepEqual(callsSince(before), [CHAT, IMAGE, IMAGE, IMAGE]);
+	assert.equal((await s.asAdmin('POST', `rounds/${unpictured.id}/picture/png`, { png: PNG })).status, 200);
 });
 
 test('an answer that is not a usable round is asked for once more, then fails the round without drawing it', async () => {
@@ -385,25 +387,39 @@ test('a round written by hand needs a picture to publish, stays published throug
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
 });
 
-test('a redraw keeps the words, takes the round away from children while it works, and draws only a picture', async () => {
+test('a redraw keeps the words and the old picture until a new one is drawn, a refused one changes nothing else, and a published round is not redrawn', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
 	const round = await drafted(s, topic);
-	await s.asAdmin('POST', `rounds/${round.id}/publish`);
+	await s.asAdmin('POST', `rounds/${round.id}/picture/jpeg`, { jpeg: JPEG });
+	const picture = async () => (await s.asAdmin('GET', `rounds/${round.id}/picture`)).headers['content-type'];
+
+	const live = (await s.asAdmin('POST', `rounds/${round.id}/publish`)).data as AdminRound;
+	const refused = await s.asAdmin('POST', `rounds/${round.id}/redraw`);
+	assert.equal(codeOf(refused), 'published');
+	assert.equal(((await s.adminRound(round.id)).state.kind), 'published');
+	await s.asAdmin('POST', `rounds/${live.id}/unpublish`);
+
+	foundry.refuseNext(1);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	const kept = await s.adminRound(round.id);
+	assert.deepEqual([kept.state, kept.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai', notice: PICTURE_REFUSED }, true]);
+	assert.equal(await picture(), 'image/jpeg', 'the old picture is still there');
+
 	const before = foundry.calls.length;
 	const hold = foundry.holdNext();
 	const redraw = await s.asAdmin('POST', `rounds/${round.id}/redraw`);
-	assert.equal(redraw.status, 202);
 	await hold.arrived;
 	assert.deepEqual((await s.adminRound(round.id)).state, { kind: 'drafting', focus: '', source: 'ai', content: ROUND });
-	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
-	const busy = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: VIKING_ROUND, etag: (redraw.data as AdminRound).etag } });
-	assert.equal(busy.status, 409);
+	assert.equal(await picture(), 'image/jpeg', 'the old picture stays while the new one is drawn');
+	assert.equal((await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: VIKING_ROUND, etag: (redraw.data as AdminRound).etag } })).status, 409);
 	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { png: PNG })).status, 409);
 	hold.release();
 	await s.settled();
 	const redrawn = await s.adminRound(round.id);
-	assert.deepEqual([redrawn.state.kind, redrawn.hasPicture], ['draft', true]);
+	assert.deepEqual([redrawn.state, redrawn.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai' }, true]);
+	assert.equal(await picture(), 'image/png');
 	assert.deepEqual(callsSince(before), [IMAGE]);
 });
 

@@ -89,6 +89,33 @@ for (const { name, fake, badge, note, retry } of STUCK) {
 	});
 }
 
+test('a round whose new picture was refused says why and stays editable with Upload and Redraw, and a published round is not redrawn', async ({ browser }) => {
+	const page = await adminPage(browser);
+	await draftedRound(page, await newTopic(page));
+	const notice = 'The AI could not draw a picture. The AI safety filter turned it down. Upload a picture, or change the picture description and redraw.';
+	await page.route(ROUND_API, async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const real = (await (await route.fetch()).json()) as { state: Record<string, unknown> };
+		return route.fulfill({ json: { ...real, hasPicture: false, state: { ...real.state, notice } } });
+	});
+	await page.reload();
+	await adminReady(page);
+	await expect(page.locator('#round-note')).toHaveText(notice);
+	await expect(page.getByRole('button', { name: 'Redraw with AI' })).toBeVisible();
+	await expect(page.getByText('Upload a picture', { exact: true })).toBeVisible();
+	await expect(page.locator('#r-full')).toBeEditable();
+	await shot(page, 'admin-picture-refused-1280');
+	await page.unroute(ROUND_API);
+
+	await page.reload();
+	await adminReady(page);
+	await page.getByRole('button', { name: 'Publish', exact: true }).click();
+	await expect(page.locator('#round-badge')).toHaveText('Published');
+	await expect(page.getByRole('button', { name: 'Redraw with AI' })).toBeHidden();
+	await expect(page.getByText('To redraw it with AI, unpublish the round first.')).toBeVisible();
+	await page.context().close();
+});
+
 for (const { name, width, options } of SIZES) {
 	test(`${name}, the status and the round's actions share one bar that covers neither each other nor the end of the page`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
