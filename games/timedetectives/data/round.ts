@@ -1,5 +1,5 @@
 import { CONFIDENCE, CONFIDENCES, isRecord, offeredChoices, QUESTION_KINDS, text, type Confidence, type Parsed, type QuestionKind, type RoundContent } from './content.ts';
-import type { RoundId, TopicId } from './ids.ts';
+import type { PictureId, RoundId, TopicId } from './ids.ts';
 
 export type Topic = { id: TopicId; title: string; guidance: string; order: number };
 
@@ -23,7 +23,8 @@ export type Round = {
 	id: RoundId;
 	topicId: TopicId;
 	state: RoundState;
-	hasPicture: boolean;
+	/** The picture the round shows. Only a save that checks the row's etag points the row at a new one. */
+	picture?: PictureId;
 	/** What the AI asked the image model for. A round written by hand has none, and its picture prompt comes from the alt text. */
 	picturePrompt?: string;
 	updatedAt: string;

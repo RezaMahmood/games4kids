@@ -84,8 +84,8 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				body: 'none',
 				async run({ params, ifNoneMatch, log }) {
 					const round = await published(params['id'], log);
-					if (!round) throw nothingHere();
-					return imageReply(await store.picture(round.id, ifNoneMatch));
+					if (!round?.picture) throw nothingHere();
+					return imageReply(await store.picture(round.id, round.picture, ifNoneMatch));
 				},
 			},
 			{

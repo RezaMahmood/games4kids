@@ -2,7 +2,7 @@ import type { Blob, ReadTable, Row, StorageFor, Stored } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
 import type { BoardEntry, Played } from './board.ts';
 import { isRecord, KINDS, parseRoundContent, type Confidence, type QuestionKind, type RoundContent } from './content.ts';
-import { roundId, topicId, type RoundId, type TopicId } from './ids.ts';
+import { pictureId, roundId, topicId, type PictureId, type RoundId, type TopicId } from './ids.ts';
 import type { Round, RoundState, Source, Topic } from './round.ts';
 import type { AnswerLog } from './score.ts';
 
@@ -23,6 +23,9 @@ const TOPIC = 'topic';
 const ROUND = 'round';
 const BOARD = 'board';
 
+/** Every picture of a round is stored under the round's id, so deleting the round finds the ones a failed removal left. */
+const picturePath = (round: RoundId, picture: PictureId) => `${round}/${picture}`;
+
 type TopicRow = { partitionKey: string; rowKey: string; title: string; guidance: string; order: number };
 /** Table fields are scalars, so the content travels as JSON text. readRound parses every field on the way back. */
 type RoundRow = {
@@ -36,7 +39,7 @@ type RoundRow = {
 	notice?: string;
 	content?: string;
 	publishedAt?: string;
-	hasPicture: boolean;
+	picture?: string;
 	picturePrompt?: string;
 	updatedAt: string;
 };
@@ -113,20 +116,22 @@ function readRound(row: Stored<Row>): StoredRound | BrokenRound {
 	const problems: string[] = [];
 	const id = roundId(row.rowKey);
 	const topic = topicId(row['topicId']);
-	const { hasPicture, updatedAt } = row;
+	const { updatedAt } = row;
 	if (!id) problems.push('rowKey must be a round id');
 	if (!topic) problems.push('topicId must be a topic id');
-	if (typeof hasPicture !== 'boolean') problems.push('hasPicture must be true or false');
 	if (typeof updatedAt !== 'string') problems.push('updatedAt must be text');
+	const storedPicture = optionalText(row, 'picture', problems);
+	const picture = pictureId(storedPicture);
+	if (storedPicture !== undefined && !picture) problems.push('picture must be a picture id');
 	const picturePrompt = optionalText(row, 'picturePrompt', problems);
 	const state = storedState(row, problems);
-	if (!id || !topic || typeof hasPicture !== 'boolean' || typeof updatedAt !== 'string' || !state || problems.length > 0) {
+	if (!id || !topic || typeof updatedAt !== 'string' || !state || problems.length > 0) {
 		return { broken: true, id: row.rowKey, topicId: typeof row['topicId'] === 'string' ? row['topicId'] : '', problems };
 	}
-	return { round: { id, topicId: topic, state, hasPicture, ...(picturePrompt !== undefined && { picturePrompt }), updatedAt }, etag: row.etag };
+	return { round: { id, topicId: topic, state, ...(picture && { picture }), ...(picturePrompt !== undefined && { picturePrompt }), updatedAt }, etag: row.etag };
 }
 
-function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: Round): RoundRow {
+function roundRow({ id, topicId, state, picture, picturePrompt, updatedAt }: Round): RoundRow {
 	const content = 'content' in state && state.content ? { content: JSON.stringify(state.content) } : {};
 	const job = state.kind === 'drafting' || state.kind === 'failed' ? { focus: state.focus } : {};
 	return {
@@ -140,7 +145,7 @@ function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: 
 		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
 		...content,
 		...(state.kind === 'published' && { publishedAt: state.publishedAt }),
-		hasPicture,
+		...(picture && { picture }),
 		...(picturePrompt !== undefined && { picturePrompt }),
 		updatedAt,
 	};
@@ -189,7 +194,7 @@ export type PlayStore = {
 	/** The rounds, and the rows that no longer parse, which the caller logs and skips. */
 	rounds(): Promise<{ rounds: Round[]; broken: BrokenRound[] }>;
 	round(id: RoundId): Promise<Round | BrokenRound | undefined>;
-	picture(id: RoundId, ifNoneMatch: string | undefined): Promise<ImageRead>;
+	picture(round: RoundId, picture: PictureId, ifNoneMatch: string | undefined): Promise<ImageRead>;
 	played(userId: string): Promise<Played[]>;
 	/** Saves a finished round once per attemptId. A repeat changes nothing and answers with what was saved first. */
 	saveAttempt(userId: string, attempt: Attempt): Promise<Played & { right: Marks }>;
@@ -215,7 +220,7 @@ export function playStore(storage: StorageFor<TimeDetectives, 'play'>): PlayStor
 			const read = await roundIn(rounds, id);
 			return read && 'broken' in read ? read : read?.round;
 		},
-		picture: (id, ifNoneMatch) => storage.blobs.pictures.get(id, ifNoneMatch),
+		picture: (round, picture, ifNoneMatch) => storage.blobs.pictures.get(picturePath(round, picture), ifNoneMatch),
 		played: async (userId) => (await attempts.inPartition<AttemptRow>(userId)).map(toPlayed),
 		async saveAttempt(userId, attempt) {
 			const { id, roundId, topicId, confidence, points, completedAt, answers, right } = attempt;
@@ -257,10 +262,15 @@ export type AdminStore = {
 	createRound(round: Round): Promise<StoredRound>;
 	/** Undefined when the round changed or went since `etag` was read. */
 	replaceRound(round: Round, etag: string): Promise<StoredRound | undefined>;
-	/** The row and its picture. */
+	/**
+	 * Saves `next` showing a new picture, only while the round still has `etag`. The bytes go under a new name first, so a
+	 * save that loses leaves the picture the row names alone. The picture that lost is removed after: the new one when the
+	 * save lost, else the one `next` showed before.
+	 */
+	replaceWithPicture(next: Round, etag: string, picture: { id: PictureId; bytes: Uint8Array; contentType: string }): Promise<StoredRound | undefined>;
+	/** The row and every picture it had. */
 	deleteRound(id: RoundId): Promise<void>;
-	picture(id: RoundId, ifNoneMatch: string | undefined): Promise<ImageRead>;
-	putPicture(id: RoundId, bytes: Uint8Array, contentType: string): Promise<void>;
+	picture(round: RoundId, picture: PictureId, ifNoneMatch: string | undefined): Promise<ImageRead>;
 };
 
 export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminStore {
@@ -277,6 +287,10 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 		const read = await saved(roundIn(rounds, id), `round ${id}`);
 		if ('broken' in read) throw new Error(`round ${id} was saved and reads back broken: ${read.problems.join('; ')}`);
 		return read;
+	}
+
+	async function replaceRound(next: Round, etag: string): Promise<StoredRound | undefined> {
+		return (await rounds.replaceIfMatch(roundRow(next), etag)) ? savedRound(next.id) : undefined;
 	}
 
 	async function topic(id: TopicId): Promise<StoredTopic | undefined> {
@@ -301,14 +315,18 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 			await rounds.put(roundRow(next));
 			return savedRound(next.id);
 		},
-		async replaceRound(next, etag) {
-			return (await rounds.replaceIfMatch(roundRow(next), etag)) ? savedRound(next.id) : undefined;
+		replaceRound,
+		async replaceWithPicture(next, etag, { id, bytes, contentType }) {
+			await pictures.put(picturePath(next.id, id), bytes, contentType);
+			const saved = await replaceRound({ ...next, picture: id }, etag);
+			const lost = saved ? next.picture : id;
+			if (lost) await pictures.remove(picturePath(next.id, lost));
+			return saved;
 		},
 		async deleteRound(id) {
 			await rounds.remove(ROUND, id);
-			await pictures.remove(id);
+			for (const path of await pictures.list(`${id}/`)) await pictures.remove(path);
 		},
-		picture: (id, ifNoneMatch) => pictures.get(id, ifNoneMatch),
-		putPicture: (id, bytes, contentType) => pictures.put(id, bytes, contentType),
+		picture: (round, picture, ifNoneMatch) => pictures.get(picturePath(round, picture), ifNoneMatch),
 	};
 }

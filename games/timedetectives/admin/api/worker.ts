@@ -1,4 +1,4 @@
-import { isRecord, roundId, type AdminStore, type Round, type RoundId, type RoundState, type StoredRound } from '../../data/index.ts';
+import { isRecord, roundId, type AdminStore, type PictureId, type Round, type RoundId, type RoundState, type StoredRound } from '../../data/index.ts';
 import { drawPicture, writeRound, type Written } from './draft.ts';
 import { AiFailure, Refusal, type FoundryDeps } from './foundry.ts';
 
@@ -19,10 +19,12 @@ const pictureNotice = (why: string) => `The AI could not draw a picture. ${why} 
 export const PICTURE_REFUSED = pictureNotice('The AI safety filter turned it down.');
 
 /**
- * A drafting round the worker has not saved for this long has no attempt left running. An attempt makes at most six
- * Foundry requests (two asks for the words and one picture, each sent again after a 429) of REQUEST_TIMEOUT_MS, and
- * three waits of RETRY_MAX_SECONDS: ten minutes. The queue makes MAX_ATTEMPTS of them, a minute apart (host.json's
- * visibilityTimeout), so 32 minutes in all. An hour leaves room for the queue to notice the message and scale out.
+ * How long a drafting round goes unsaved before the admin may act on it. One message's attempts are over in 32 minutes:
+ * an attempt makes at most six Foundry requests (two asks for the words and one picture, each sent again after a 429)
+ * of REQUEST_TIMEOUT_MS and three waits of RETRY_MAX_SECONDS, ten minutes, and the queue makes MAX_ATTEMPTS of them a
+ * minute apart (host.json's visibilityTimeout). A message can still start later than this, since drafts run one at a
+ * time behind up to nine others, so a worker may finish a round the admin has already acted on. Its save then loses
+ * the etag race, and the picture it drew, stored under a name of its own, is removed.
  */
 export const STALE_AFTER_MS = 60 * 60_000;
 export const STOPPED = 'The AI stopped without finishing.';
@@ -30,7 +32,8 @@ export const STOPPED = 'The AI stopped without finishing.';
 /**
  * A drafting round left behind by a message that will never run again, because it was poisoned or never sent, reads as
  * settled: failed when it has no words, or a draft that says no picture came. It then stops counting toward the cap and
- * can be tried again, edited or deleted. A late worker that still finds it drafting loses the etag race to the admin.
+ * can be tried again, edited or deleted. Nothing is saved here: a late worker that finds the row still drafting finishes
+ * it, and one that finds the admin acted first leaves the row and its picture alone.
  */
 export function settleStale({ round, etag }: StoredRound, now: Date): StoredRound {
 	const { state } = round;
@@ -41,7 +44,7 @@ export function settleStale({ round, etag }: StoredRound, now: Date): StoredRoun
 	return { round: { ...round, state: settled }, etag };
 }
 
-type Ctx = { store: AdminStore; foundry: () => FoundryDeps; now: Date; log: (line: string) => void; dequeueCount: number };
+type Ctx = { store: AdminStore; foundry: () => FoundryDeps; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
 
 /**
  * Takes a drafting round as far as it can: the words, then the picture, then a draft for the admin to review. Each step
@@ -92,8 +95,6 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 		await save({ ...current.round, state: { kind: 'draft', content, source: state.source, notice: refused ? PICTURE_REFUSED : pictureNotice(why) }, updatedAt });
 		return;
 	}
-	await ctx.store.putPicture(id, picture, 'image/png');
-	const done = await save({ ...current.round, state: { kind: 'draft', content, source: state.source }, hasPicture: true, updatedAt });
-	// The admin deleted the round while its picture was being drawn, so the picture just written has nothing to belong to.
-	if (!done && !(await ctx.store.round(id))) await ctx.store.deleteRound(id);
+	const next: Round = { ...current.round, state: { kind: 'draft', content, source: state.source }, updatedAt };
+	await ctx.store.replaceWithPicture(next, current.etag, { id: ctx.newPicture(), bytes: picture, contentType: 'image/png' });
 }

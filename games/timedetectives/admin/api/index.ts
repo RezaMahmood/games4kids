@@ -6,6 +6,7 @@ import {
 	parseFocus,
 	parseRoundContent,
 	parseTopicInput,
+	pictureId,
 	roundId,
 	topicId,
 	type BrokenRound,
@@ -44,7 +45,7 @@ const topicView = ({ topic, etag }: StoredTopic, { rounds, broken }: RoundRows) 
 	return { ...topic, etag, rounds: mine.length + damaged, published: mine.filter(({ round }) => round.state.kind === 'published').length };
 };
 
-const roundView = ({ round: { picturePrompt: _prompt, ...round }, etag }: StoredRound) => ({ ...round, etag });
+const roundView = ({ round: { picturePrompt: _prompt, picture, ...round }, etag }: StoredRound) => ({ ...round, hasPicture: picture !== undefined, etag });
 const brokenView = ({ id, topicId, problems }: BrokenRound) => ({ id, topicId, broken: problems });
 const isBroken = (read: StoredRound | BrokenRound): read is BrokenRound => 'broken' in read;
 
@@ -137,9 +138,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 			body: kind,
 			async run({ params, body, now }) {
 				const found = await existingRound(params['id'], now);
-				const state = acted(settled(found));
-				await store.putPicture(found.round.id, body, `image/${kind}`);
-				return { status: 200, json: roundView(await replaced({ ...found.round, state, hasPicture: true, updatedAt: now.toISOString() }, found.etag)) };
+				const next = { ...found.round, state: acted(settled(found)), updatedAt: now.toISOString() };
+				const saved = await store.replaceWithPicture(next, found.etag, { id: newId(pictureId), bytes: body, contentType: `image/${kind}` });
+				if (!saved) throw changed();
+				return { status: 200, json: roundView(saved) };
 			},
 		};
 	}
@@ -221,7 +223,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					if (!focus.ok) throw invalid(focus.problems);
 					await guardDrafting(now);
 					const state: RoundState = { kind: 'drafting', focus: focus.value, source: 'ai' };
-					const created = await store.createRound({ id: newId(roundId), topicId: topic.id, state, hasPicture: false, updatedAt: now.toISOString() });
+					const created = await store.createRound({ id: newId(roundId), topicId: topic.id, state, updatedAt: now.toISOString() });
 					return { status: 202, json: roundView(await queue(created, null)) };
 				},
 			},
@@ -235,7 +237,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
 					const state: RoundState = { kind: 'draft', content: content.value, source: 'human' };
-					return { status: 201, json: roundView(await store.createRound({ id: newId(roundId), topicId: topic.id, state, hasPicture: false, updatedAt: now.toISOString() })) };
+					return { status: 201, json: roundView(await store.createRound({ id: newId(roundId), topicId: topic.id, state, updatedAt: now.toISOString() })) };
 				},
 			},
 			{
@@ -274,7 +276,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run({ params, now }) {
 					const found = await existingRound(params['id'], now);
 					const state = settled(found);
-					if (!found.round.hasPicture) throw new HttpError(409, 'not_ready', 'Add a picture before publishing.');
+					if (!found.round.picture) throw new HttpError(409, 'not_ready', 'Add a picture before publishing.');
 					if (state.kind === 'published') return { status: 200, json: roundView(found) };
 					const next: RoundState = { kind: 'published', content: state.content, source: state.source, publishedAt: now.toISOString() };
 					return { status: 200, json: roundView(await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag)) };
@@ -336,8 +338,8 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				body: 'none',
 				async run({ params, ifNoneMatch, now }) {
 					const { round } = await existingRound(params['id'], now);
-					if (!round.hasPicture) throw nothingHere();
-					return imageReply(await store.picture(round.id, ifNoneMatch));
+					if (!round.picture) throw nothingHere();
+					return imageReply(await store.picture(round.id, round.picture, ifNoneMatch));
 				},
 			},
 			{
@@ -358,7 +360,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run(message, { now, log, dequeueCount }) {
 					const draft = parseDraftMessage(message);
 					if (!draft) return log('ignored a queue message that names no round');
-					await runDraft({ store, foundry: () => foundryFor(platform), now, log, dequeueCount }, draft.roundId);
+					await runDraft({ store, foundry: () => foundryFor(platform), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
 				},
 			},
 		],

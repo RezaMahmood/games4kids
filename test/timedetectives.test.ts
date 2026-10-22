@@ -9,7 +9,7 @@ import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
 import { MAX_ATTEMPTS, PICTURE_REFUSED, STALE_AFTER_MS, STOPPED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
 import { REQUEST_TIMEOUT_MS, RETRY_MAX_SECONDS } from '../games/timedetectives/admin/api/foundry.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
-import { topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
+import { pictureId, topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
 import type { RoundState } from '../games/timedetectives/data/round.ts';
 import { adminStore } from '../games/timedetectives/data/stores.ts';
 import manifest from '../games/timedetectives/manifest.ts';
@@ -101,8 +101,10 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	async function round(topicOf: TopicId, state: RoundState = published(), hasPicture = true): Promise<RoundId> {
 		const id = roundId(randomUUID());
 		assert.ok(id);
-		await store.createRound({ id, topicId: topicOf, state, hasPicture, updatedAt: NOW.toISOString() });
-		if (hasPicture) await store.putPicture(id, PNG, 'image/png');
+		const created = await store.createRound({ id, topicId: topicOf, state, updatedAt: NOW.toISOString() });
+		const picture = pictureId(randomUUID());
+		assert.ok(picture);
+		if (hasPicture) await store.replaceWithPicture(created.round, created.etag, { id: picture, bytes: PNG, contentType: 'image/png' });
 		return id;
 	}
 
@@ -518,6 +520,36 @@ test('a round deleted while its picture is drawn leaves no row and no picture be
 	assert.deepEqual(s.exceptions, []);
 });
 
+test('a redraw that finishes after its round was settled as stale and published leaves the published picture alone', async () => {
+	const s = await setup();
+	const round = await drafted(s, await adminTopic(s));
+	const hold = foundry.holdNext();
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await hold.arrived;
+	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/publish`)).status, 200);
+	const shown = await s.asAda('GET', `rounds/${round.id}/picture`);
+	assert.equal(shown.status, 200);
+
+	hold.release();
+	await s.settled();
+	assert.equal((await s.adminRound(round.id)).state.kind, 'published');
+	const again = await s.asAda('GET', `rounds/${round.id}/picture`, { headers: { 'if-none-match': shown.headers['etag'] ?? '' } });
+	assert.equal(again.status, 304, 'children still get the picture that was published');
+	assert.equal((await s.w.accounts.open(timedetectives).container('pictures').list('')).length, 1, 'the late picture is not left behind');
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('a new picture reaches a child who holds the old one, and the old one is removed', async () => {
+	const s = await setup();
+	const id = await s.round(await s.topic('Vikings'));
+	const old = await s.asAda('GET', `rounds/${id}/picture`);
+	assert.equal((await s.asAdmin('POST', `rounds/${id}/picture/jpeg`, { jpeg: JPEG })).status, 200);
+	const fresh = await s.asAda('GET', `rounds/${id}/picture`, { headers: { 'if-none-match': old.headers['etag'] ?? '' } });
+	assert.deepEqual([fresh.status, fresh.headers['content-type']], [200, 'image/jpeg']);
+	assert.equal((await s.w.accounts.open(timedetectives).container('pictures').list('')).length, 1);
+});
+
 test('drafting needs a Foundry account, stops at 10 rounds at work, and checks the request before anything is queued', async () => {
 	const unset = await setup({});
 	const topicOff = await adminTopic(unset);
@@ -653,7 +685,7 @@ test('a stored round that no longer parses is skipped and logged for children, a
 	const greeks = await s.topic('Ancient Greeks', 1);
 	await s.round(vikings);
 	const good = await s.round(greeks);
-	const row = { partitionKey: 'round', topicId: greeks, source: 'ai', hasPicture: true, publishedAt: NOW.toISOString(), updatedAt: NOW.toISOString() };
+	const row = { partitionKey: 'round', topicId: greeks, source: 'ai', publishedAt: NOW.toISOString(), updatedAt: NOW.toISOString() };
 	const badContent = randomUUID();
 	const badState = randomUUID();
 	await s.rows.put({ ...row, rowKey: badContent, state: 'published', content: JSON.stringify({ ...ROUND, questions: [] }) });
