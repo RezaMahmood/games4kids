@@ -3,7 +3,7 @@ import { CONFIDENCE, QUESTION_KINDS } from './rules.js';
 /**
  * @typedef {{ id: string, title: string }} Topic
  * @typedef {{ kind: keyof typeof QUESTION_KINDS, label: string, choices: string[], answer: string, hint: string }} Question
- * @typedef {{ id: string, confidence: import('./rules.js').Confidence, paragraph: string, pictureAlt: string, questions: Question[] }} Round
+ * @typedef {{ id: string, version: string, confidence: import('./rules.js').Confidence, paragraph: string, pictureAlt: string, questions: Question[] }} Round
  * @typedef {{ points: number, right: Record<string, boolean>, total: number }} Saved
  * @typedef {{ name: string, me: boolean, points: number[], total: number }} BoardLine
  * @typedef {{ optedIn: false } | { optedIn: true, days: string[], children: BoardLine[] }} Board
@@ -22,7 +22,7 @@ function parseTopics(raw) {
 function parseRound(raw) {
   const question = (q) => q && Object.hasOwn(QUESTION_KINDS, q.kind) && isText(q.label) && isText(q.answer) && isText(q.hint)
     && Array.isArray(q.choices) && q.choices.every(isText) && q.choices.includes(q.answer);
-  const ok = isText(raw?.id) && Object.hasOwn(CONFIDENCE, raw.confidence) && isText(raw.paragraph) && isText(raw.pictureAlt)
+  const ok = isText(raw?.id) && isText(raw.version) && Object.hasOwn(CONFIDENCE, raw.confidence) && isText(raw.paragraph) && isText(raw.pictureAlt)
     && Array.isArray(raw.questions) && raw.questions.length > 0 && raw.questions.every(question);
   if (!ok) throw strange('a round');
   return raw;

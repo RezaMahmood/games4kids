@@ -193,6 +193,7 @@ export type PlayStore = {
 	played(userId: string): Promise<Played[]>;
 	/** Saves a finished round once per attemptId. A repeat changes nothing and answers with what was saved first. */
 	saveAttempt(userId: string, attempt: Attempt): Promise<Played & { right: Marks }>;
+	savedAttempt(userId: string, id: string): Promise<(Played & { right: Marks }) | undefined>;
 	boardEntries(): Promise<BoardEntry[]>;
 	/** A child already on the board keeps their first `since`, so a repeat changes nothing. */
 	optIn(entry: BoardEntry): Promise<void>;
@@ -223,6 +224,10 @@ export function playStore(storage: StorageFor<TimeDetectives, 'play'>): PlayStor
 			const first = await attempts.get<AttemptRow>(userId, id);
 			if (!first) throw new Error(`attempt ${id} was there and then gone`);
 			return { ...toPlayed(first), right: storedMarks(first) };
+		},
+		async savedAttempt(userId, id) {
+			const row = await attempts.get<AttemptRow>(userId, id);
+			return row && { ...toPlayed(row), right: storedMarks(row) };
 		},
 		boardEntries: async () => (await board.inPartition<BoardRow>(BOARD)).map(toBoardEntry),
 		async optIn({ userId, name, timeZone, since }) {

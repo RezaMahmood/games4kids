@@ -21,6 +21,7 @@ button:disabled { cursor: default; }
 .note { color: var(--color-muted); }
 .status { font-size: var(--size-lead); font-weight: 700; }
 .status[role="alert"] { color: var(--color-danger); }
+.status[data-tone="kind"] { color: var(--color-ink); }
 
 .primary, .quiet {
   min-height: var(--touch-default);

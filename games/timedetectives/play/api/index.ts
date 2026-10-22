@@ -5,6 +5,7 @@ import {
 	daysEndingAt,
 	imageReply,
 	isPublished,
+	isRecord,
 	localDate,
 	nothingHere,
 	parseAttemptInput,
@@ -23,18 +24,18 @@ import {
 import manifest from '../../manifest.ts';
 
 const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', 'The request is not valid.', problems);
+const roundChanged = () => new HttpError(409, 'round_changed', 'This mystery was changed while you were solving it.');
 
 export const createPlayApi = definePlayApi(manifest, (platform) => {
 	const store = playStore(platform);
 
 	const skip = (log: (line: string) => void, { id, problems }: BrokenRound) => log(`skipped stored round ${id}, which does not parse: ${problems.join('; ')}`);
 
-	async function published(rawId: string | undefined, log: (line: string) => void): Promise<Published> {
+	async function published(rawId: string | undefined, log: (line: string) => void): Promise<Published | undefined> {
 		const id = roundId(rawId);
 		const round = id && (await store.round(id));
 		if (round && 'broken' in round) skip(log, round);
-		if (!round || 'broken' in round || !isPublished(round)) throw nothingHere();
-		return round;
+		return round && !('broken' in round) && isPublished(round) ? round : undefined;
 	}
 
 	async function playable(log: (line: string) => void): Promise<Published[]> {
@@ -83,6 +84,7 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				body: 'none',
 				async run({ params, ifNoneMatch, log }) {
 					const round = await published(params['id'], log);
+					if (!round) throw nothingHere();
 					return imageReply(await store.picture(round.id, ifNoneMatch));
 				},
 			},
@@ -91,18 +93,25 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				method: 'PUT',
 				path: 'rounds/{id}/attempts/{attemptId}',
 				body: 'json',
-				/** Marks the whole log again, so the score rule lives here and the page's marks are only for feedback. */
+				/**
+				 * Marks the whole log again, so the score rule lives here and the page's marks are only for feedback. A round an
+				 * admin took down, or changed so the log no longer scores, answers round_changed: trying again never helps.
+				 */
 				async run({ caller, params, body, now, log }) {
-					const round = await published(params['id'], log);
 					const input = parseAttemptInput(params['attemptId'], body);
 					if (!input.ok) throw invalid(input.problems);
-					const marked = scoreAttempt(round.state.content, input.value);
-					if (!marked.ok) throw invalid(marked.problems);
 					const { attemptId: id, confidence, answers } = input.value;
+					const total = async () => pointsOn(localDate(now, caller.timeZone), await store.played(caller.userId), caller.timeZone);
+					const repeat = await store.savedAttempt(caller.userId, id);
+					if (repeat) return { status: 200, json: { points: repeat.points, right: repeat.right, total: await total() } };
+					const round = await published(params['id'], log);
+					if (!round) throw roundChanged();
+					const marked = scoreAttempt(round.state.content, input.value);
+					const sawOlder = isRecord(body) && typeof body['version'] === 'string' && body['version'] !== round.updatedAt;
+					if (!marked.ok) throw sawOlder ? roundChanged() : invalid(marked.problems);
 					const { points, right } = marked.value;
 					const saved = await store.saveAttempt(caller.userId, { id, roundId: round.id, topicId: round.topicId, confidence, answers, points, right, completedAt: now.toISOString() });
-					const total = pointsOn(localDate(now, caller.timeZone), await store.played(caller.userId), caller.timeZone);
-					return { status: 200, json: { points: saved.points, right: saved.right, total } };
+					return { status: 200, json: { points: saved.points, right: saved.right, total: await total() } };
 				},
 			},
 			{

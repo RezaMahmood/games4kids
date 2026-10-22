@@ -27,7 +27,7 @@ after(() => foundry.close());
 const timedetectives = gameId('timedetectives');
 const TODAY = NOW.toISOString().slice(0, 10);
 
-type View = { id: string; confidence: string; paragraph: string; pictureAlt: string; questions: { kind: string; label: string; choices: string[]; answer: string; hint: string }[] };
+type View = { id: string; version: string; confidence: string; paragraph: string; pictureAlt: string; questions: { kind: string; label: string; choices: string[]; answer: string; hint: string }[] };
 type Saved = { points: number; right: Record<string, boolean>; total: number };
 type AdminRound = { id: string; topicId: string; state: RoundState; hasPicture: boolean; etag: string };
 
@@ -131,7 +131,7 @@ test('a child sees only topics with a published round, in order, and never a dra
 	assert.equal(codeOf(none), 'no_rounds');
 	for (const id of [draft, failed]) {
 		assert.equal((await s.asAda('GET', `rounds/${id}/picture`)).status, 404);
-		assert.equal((await s.asAda('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 404);
+		assert.equal((await s.asAda('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 409);
 	}
 	assert.equal((await s.asAda('GET', 'rounds/not-a-guid/picture')).status, 404);
 });
@@ -202,6 +202,36 @@ test('the server marks the whole round again, saves it once per attemptId, and s
 	s.clock.at = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
 	assert.equal(((await put(second, attemptId(), { confidence: 'easy', answers: mixed })).data as Saved).total, 22, 'a new day starts from nothing');
 	assert.deepEqual(s.exceptions, []);
+});
+
+test('a round changed or taken down while a child plays it answers round_changed, unless the log still scores, and a saved attempt is still answered', async () => {
+	const s = await setup();
+	const vikings = await s.topic('Vikings');
+	const id = await s.round(vikings);
+	const view = async () => (await s.asAda('GET', `topics/${vikings}/next?confidence=bit`)).data as View;
+	const put = (attempt: string, version: string, answers = perfect) => s.asAda('PUT', `rounds/${id}/attempts/${attempt}`, { json: { confidence: 'bit', version, answers } });
+	const edit = async (change: (content: RoundContent) => RoundContent) => {
+		s.clock.at = new Date(s.clock.at.getTime() + 60_000);
+		const { etag } = await s.adminRound(id);
+		assert.equal((await s.asAdmin('PUT', `rounds/${id}`, { json: { content: change(ROUND), etag } })).status, 200);
+	};
+
+	const first = await view();
+	assert.equal(typeof first.version, 'string');
+	await edit((content) => ({ ...content, brief: 'A calmer morning.' }));
+	const saved = attemptId();
+	assert.equal((await put(saved, first.version)).status, 200, 'an edit the log still scores against keeps the round');
+
+	const before = await view();
+	await edit((content) => ({ ...content, questions: content.questions.map((q) => (q.kind === 'who' ? { ...q, answer: 'Norsemen' } : q)) }));
+	const changed = await put(attemptId(), before.version);
+	assert.deepEqual([changed.status, codeOf(changed)], [409, 'round_changed']);
+	assert.equal(codeOf(await put(attemptId(), (await view()).version)), 'invalid', 'the same log against the round as the child saw it is just invalid');
+
+	await s.asAdmin('POST', `rounds/${id}/unpublish`);
+	assert.equal(codeOf(await put(attemptId(), before.version)), 'round_changed');
+	assert.equal(codeOf(await s.asAda('PUT', `rounds/${randomUUID()}/attempts/${attemptId()}`, { json: { confidence: 'bit', version: before.version, answers: perfect } })), 'round_changed');
+	assert.deepEqual((await put(saved, first.version)).data, { points: 36, right: { who: true, where: true, when: true }, total: 36 }, 'a repeat of a saved attempt still gets what was saved');
 });
 
 test('a log that breaks the rules of play, or is not a log at all, is refused and saves nothing', async () => {
@@ -612,7 +642,7 @@ test('a stored round that no longer parses is skipped and logged for children, a
 	assert.equal(topics.status, 200);
 	assert.deepEqual((topics.data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings', 'Ancient Greeks']);
 	for (let n = 0; n < 6; n++) assert.equal(((await s.asAda('GET', `topics/${greeks}/next?confidence=bit`)).data as View).id, good);
-	assert.equal((await s.asAda('PUT', `rounds/${badContent}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 404);
+	assert.equal(codeOf(await s.asAda('PUT', `rounds/${badContent}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })), 'round_changed');
 	assert.ok(s.logs.some((line) => line.includes(badContent) && line.includes('questions')), 'the skipped round is logged with why');
 	assert.ok(s.logs.some((line) => line.includes(badState) && line.includes('archived')));
 

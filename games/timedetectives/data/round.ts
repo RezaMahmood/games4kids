@@ -51,13 +51,15 @@ export function parseFocus(raw: unknown): Parsed<string> {
 export const parseConfidence = (raw: unknown): Confidence | undefined => CONFIDENCES.find((confidence) => confidence === raw);
 
 export type QuestionView = { kind: QuestionKind; label: string; choices: string[]; answer: string; hint: string };
-export type RoundView = { id: RoundId; confidence: Confidence; paragraph: string; pictureAlt: string; questions: QuestionView[] };
+/** `version` comes back with the attempt, so a log that no longer scores can be told apart from one the round changed under. */
+export type RoundView = { id: RoundId; version: string; confidence: Confidence; paragraph: string; pictureAlt: string; questions: QuestionView[] };
 
 /** What a child gets for one round. It carries the answers, so the page can mark each tap at once. */
 export function roundView(round: Published, confidence: Confidence): RoundView {
 	const { content } = round.state;
 	return {
 		id: round.id,
+		version: round.updatedAt,
 		confidence,
 		paragraph: content[CONFIDENCE[confidence].paragraph],
 		pictureAlt: content.pictureAlt,

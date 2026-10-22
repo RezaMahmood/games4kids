@@ -169,6 +169,7 @@ function showQuiz() {
   $('questions').replaceChildren(...play.round.questions.map(questionItem));
   $('finish').hidden = true;
   $('finish').disabled = false;
+  $('quiz-again').hidden = true;
   say('quiz-status', '');
   show('quiz-screen');
 }
@@ -178,9 +179,17 @@ async function finish() {
   $('finish').disabled = true;
   say('quiz-status', '');
   try {
-    const body = { confidence: round.confidence, answers: round.questions.map((q) => ({ kind: q.kind, ...answers.get(q.kind) })) };
+    const body = { confidence: round.confidence, version: round.version, answers: round.questions.map((q) => ({ kind: q.kind, ...answers.get(q.kind) })) };
     showResult(await whileLoading(api.save(round.id, attemptId, body)));
   } catch (err) {
+    if (err.code === 'round_changed') {
+      $('quiz-status').dataset.tone = 'kind';
+      say('quiz-status', 'A grown-up changed this mystery while you were solving it, so it cannot be scored. Sorry! Try another one.');
+      $('finish').hidden = true;
+      $('quiz-again').hidden = false;
+      return;
+    }
+    delete $('quiz-status').dataset.tone;
     say('quiz-status', `${err.message} Press the button to try again.`);
     $('finish').disabled = false;
   }
@@ -252,13 +261,16 @@ $('read-done').addEventListener('click', showQuiz);
 $('read-again').addEventListener('click', () => $('clue').showModal());
 $('finish').addEventListener('click', finish);
 $('board-switch').addEventListener('click', toggleBoard);
-$('again').addEventListener('click', () => {
+function playAnother() {
   showTopics();
   api.topics().then((latest) => {
     topics = latest;
     renderTopics();
   }, () => {});
-});
+}
+
+$('again').addEventListener('click', playAnother);
+$('quiz-again').addEventListener('click', playAnother);
 
 try {
   topics = await api.topics();
