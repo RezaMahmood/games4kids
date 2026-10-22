@@ -262,9 +262,7 @@ async function loadBoard() {
     if (run !== boardRun) return;
     say('board-status', '');
     $('board-switch').hidden = false;
-    $('board-switch').disabled = false;
-    $('board-switch').setAttribute('aria-checked', String(board.optedIn));
-    $('board-explain').hidden = board.optedIn;
+    showOptedIn(board.optedIn);
     $('board-table').hidden = !board.optedIn || board.children.length === 0;
     if (board.optedIn) {
       $('board-rows').replaceChildren(...board.children.map((line) => h('tr', { className: line.me ? 'me' : '' },
@@ -278,6 +276,13 @@ async function loadBoard() {
   }
 }
 
+function showOptedIn(on) {
+  $('board-switch').setAttribute('aria-checked', String(on));
+  $('board-explain').hidden = on;
+  if (!on) $('board-table').hidden = true;
+}
+
+/** The switch shows what was saved as soon as it is saved, so a board that then fails to load cannot leave it wrong. */
 async function toggleBoard() {
   const button = $('board-switch');
   const on = button.getAttribute('aria-checked') !== 'true';
@@ -285,10 +290,12 @@ async function toggleBoard() {
   try {
     await api.setBoard(on);
   } catch (err) {
-    button.disabled = false;
     say('board-status', err.message);
     return;
+  } finally {
+    button.disabled = false;
   }
+  showOptedIn(on);
   await loadBoard();
 }
 

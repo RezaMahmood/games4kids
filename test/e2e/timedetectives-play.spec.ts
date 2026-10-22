@@ -5,6 +5,7 @@ const SHOTS = process.env['G4K_SHOTS'];
 const RUN = Date.now().toString(36);
 const TOPIC = `Saxons ${RUN}`;
 const TOPICS_API = /\/api\/g\/timedetectives\/topics$/;
+const BOARD_API = /\/api\/g\/timedetectives\/board\?/;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -131,5 +132,27 @@ for (const width of [390, 820]) {
 		await expect(kid.getByRole('button', { name: new RegExp(TOPIC) })).toBeVisible();
 		await expect(kid.locator('#topics-status')).toBeHidden();
 		await kid.unroute(TOPICS_API);
+	});
+}
+
+for (const width of [390, 820]) {
+	test(`at ${width}px, the board switch shows what was saved and stays usable when the board then fails to load`, async () => {
+		await home(width);
+		await toQuiz();
+		await answerAll();
+		await kid.getByRole('button', { name: 'See my points' }).click();
+		const toggle = kid.getByRole('switch', { name: 'Show my scores on the board' });
+		await expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+		await kid.route(BOARD_API, (route) => route.fulfill({ status: 503, json: { error: 'storage_down', message: 'The board is resting.' } }));
+		await toggle.click();
+		await expect(kid.locator('#board-status')).toHaveText('The board is resting.');
+		await expect(toggle).toHaveAttribute('aria-checked', 'true');
+		await expect(toggle).toBeEnabled();
+		await shot('play-board-failed', width);
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-checked', 'false');
+		await expect(toggle).toBeEnabled();
+		await kid.unroute(BOARD_API);
 	});
 }
