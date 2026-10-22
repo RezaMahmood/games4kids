@@ -15,8 +15,11 @@ export type FakeFoundry = {
 	readonly calls: readonly FoundryCall[];
 	/** The next `count` image calls, or chat calls when `on` says so, answer with this HTTP status. */
 	failNext(count: number, status?: number, on?: Kind): void;
-	/** The next `count` image calls, or chat calls when `on` says so, are refused by the content filter, as a 400 from Foundry is. */
-	refuseNext(count: number, on?: Kind): void;
+	/**
+	 * The next `count` image calls, or chat calls when `on` says so, are refused by the content filter: as the 400 Foundry
+	 * answers a prompt it refuses, or with `as: 'finish'`, as a 200 chat reply the filter stopped part way.
+	 */
+	refuseNext(count: number, on?: Kind, as?: RefusedAs): void;
 	/** The next `count` image calls answer 429 and ask to be tried again at once. */
 	rateLimitNext(count: number): void;
 	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
@@ -28,6 +31,7 @@ export type FakeFoundry = {
 
 /** Which calls a fault applies to: the image calls drawpad's tests expect, or the chat calls that write a Time Detectives round. */
 type Kind = 'images' | 'chat';
+type RefusedAs = 'error' | 'finish';
 
 const SIZE = 256;
 const NAVY: Rgb = [31, 36, 48];
@@ -97,7 +101,7 @@ export const VIKING_ROUND = {
 export async function startFakeFoundry(options: { readonly port?: number } = {}): Promise<FakeFoundry> {
 	const calls: FoundryCall[] = [];
 	const failing = { images: { count: 0, status: 500 }, chat: { count: 0, status: 500 } };
-	const refusing = { images: 0, chat: 0 };
+	const refusing: Record<Kind, { count: number; as: RefusedAs }> = { images: { count: 0, as: 'error' }, chat: { count: 0, as: 'error' } };
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const roundReplies: unknown[] = [];
@@ -118,9 +122,10 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		const kind: Kind = path.endsWith('/chat/completions') ? 'chat' : 'images';
 		/** Answers with the fault the test asked for, if any is left for this kind of call. */
 		const fault = (): boolean => {
-			if (refusing[kind] > 0) {
-				refusing[kind] -= 1;
-				json(400, { error: { code: kind === 'chat' ? 'content_filter' : 'content_policy_violation', message: 'The request was refused.' } });
+			if (refusing[kind].count > 0) {
+				refusing[kind].count -= 1;
+				if (refusing[kind].as === 'finish') json(200, { choices: [{ finish_reason: 'content_filter', message: { content: null } }] });
+				else json(400, { error: { code: kind === 'chat' ? 'content_filter' : 'content_policy_violation', message: 'The request was refused.' } });
 				return true;
 			}
 			if (failing[kind].count > 0) {
@@ -161,8 +166,8 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		failNext(count, status = 500, on = 'images') {
 			failing[on] = { count, status };
 		},
-		refuseNext(count, on = 'images') {
-			refusing[on] = count;
+		refuseNext(count, on = 'images', as = 'error') {
+			refusing[on] = { count, as };
 		},
 		rateLimitNext(count) {
 			limiting = count;

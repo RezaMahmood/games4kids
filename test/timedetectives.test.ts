@@ -361,6 +361,15 @@ test('a refusal of the words fails the round at once without drawing, and the fa
 	assert.equal((await s.asAdmin('DELETE', `topics/${topic}`)).status, 204);
 });
 
+test('a chat reply the content filter stopped part way fails the round as refused, without trying again', async () => {
+	const s = await setup();
+	const before = foundry.calls.length;
+	foundry.refuseNext(1, 'chat', 'finish');
+	const failed = await drafted(s, await adminTopic(s));
+	assert.deepEqual(failed.state, { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: WORDS_REFUSED });
+	assert.deepEqual(callsSince(before), [CHAT]);
+});
+
 test('words the AI never answers with fail the round after the last attempt', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);
