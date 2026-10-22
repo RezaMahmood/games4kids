@@ -157,3 +157,30 @@ for (const { name, width, options } of SIZES) {
 		await page.context().close();
 	});
 }
+
+/** A 1 by 1 PNG. */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+test('Publish publishes what is on screen, and Upload and Unpublish keep edits that were never saved', async ({ browser }) => {
+	const page = await adminPage(browser);
+	await draftedRound(page, await newTopic(page));
+	const hint = page.locator('#q-where-hint');
+	await hint.fill('Look for the holy island.');
+	await page.getByRole('button', { name: 'Publish', exact: true }).click();
+	await expect(page.locator('#round-badge')).toHaveText('Published');
+	await expect(hint).toHaveValue('Look for the holy island.');
+
+	await page.locator('#r-brief').fill('Sails on the horizon.');
+	await page.locator('#r-upload').setInputFiles({ name: 'picture.png', mimeType: 'image/png', buffer: PNG });
+	await expect(page.getByRole('status')).toHaveText('Picture saved.');
+	await page.locator('#q-who-hint').fill('Who sailed from the north?');
+	await page.getByRole('button', { name: 'Unpublish' }).click();
+	await expect(page.locator('#round-badge')).toHaveText('Draft');
+
+	await page.reload();
+	await adminReady(page);
+	await expect(hint).toHaveValue('Look for the holy island.');
+	await expect(page.locator('#r-brief')).toHaveValue('Sails on the horizon.');
+	await expect(page.locator('#q-who-hint')).toHaveValue('Who sailed from the north?');
+	await page.context().close();
+});

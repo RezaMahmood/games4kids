@@ -235,6 +235,10 @@ function readForm() {
   };
 }
 
+/** The form as the server last filled it, so the page can tell when the admin has changed something. */
+let pristine = '';
+const edited = () => JSON.stringify(readForm()) !== pristine;
+
 let previewing = 'bit';
 
 function renderPreview() {
@@ -294,6 +298,7 @@ function renderRound(round) {
   $('r-delete').hidden = !round;
   $('preview').hidden = !editable && !content;
   fillForm(content);
+  pristine = JSON.stringify(readForm());
   problems('round-problems', null);
   renderPreview();
   if (round && !working && kind !== 'failed' && kind !== 'broken') showPicture(round).catch((err) => status(err.message, 'error'));
@@ -351,10 +356,27 @@ async function saveRound(event) {
   }
 }
 
-async function redraw() {
+/** Saves what is on screen before another action, so no action throws the admin's edits away. Null when the save failed. */
+async function saveEdits() {
   const { round } = editing;
+  return edited() ? change(() => api.edit(round.id, readForm(), round.etag)) : round;
+}
+
+async function redraw() {
+  const round = await saveEdits();
+  if (!round) return;
   const queued = await change(() => api.redraw(round.id), 'The AI is drawing a new picture.');
   if (queued) openRound(queued.id);
+}
+
+async function publish() {
+  const round = await saveEdits();
+  if (round) await change(() => api.publish(round.id), 'Published. Children can play it now.');
+}
+
+async function unpublish() {
+  const round = await saveEdits();
+  if (round) await change(() => api.unpublish(round.id), 'Unpublished.');
 }
 
 async function retry() {
@@ -365,7 +387,8 @@ async function retry() {
 async function upload() {
   const file = $('r-upload').files?.[0];
   $('r-upload').value = '';
-  if (file) await change(() => api.upload(editing.round.id, file), 'Picture saved.');
+  const round = file && (await saveEdits());
+  if (round) await change(() => api.upload(round.id, file), 'Picture saved.');
 }
 
 async function deleteRound() {
@@ -407,8 +430,8 @@ $('draft-form').addEventListener('submit', draftRound);
 $('write').addEventListener('click', () => (location.hash = `#new/${topic.id}`));
 $('round-form').addEventListener('submit', saveRound);
 $('round-form').addEventListener('input', renderPreview);
-$('r-publish').addEventListener('click', () => change(() => api.publish(editing.round.id), 'Published. Children can play it now.'));
-$('r-unpublish').addEventListener('click', () => change(() => api.unpublish(editing.round.id), 'Unpublished.'));
+$('r-publish').addEventListener('click', publish);
+$('r-unpublish').addEventListener('click', unpublish);
 $('r-delete').addEventListener('click', deleteRound);
 $('r-redraw').addEventListener('click', redraw);
 $('r-retry').addEventListener('click', retry);
