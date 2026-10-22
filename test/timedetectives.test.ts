@@ -614,6 +614,18 @@ test('a topic is named and guided by the admin, edited with its etag, and delete
 	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Ancient Greeks']);
 });
 
+test('a topic title already taken by another topic, in any case, is refused on create and rename', async () => {
+	const s = await setup();
+	await adminTopic(s, 'Vikings');
+	const greeks = (await s.asAdmin('POST', 'topics', { json: { title: 'Ancient Greeks' } })).data as { id: string; etag: string };
+	const copy = await s.asAdmin('POST', 'topics', { json: { title: ' vikings ' } });
+	assert.deepEqual([copy.status, codeOf(copy)], [409, 'duplicate_title']);
+	assert.equal(codeOf(await s.asAdmin('PUT', `topics/${greeks.id}`, { json: { title: 'VIKINGS', etag: greeks.etag } })), 'duplicate_title');
+	const recased = await s.asAdmin('PUT', `topics/${greeks.id}`, { json: { title: 'ancient greeks', etag: greeks.etag } });
+	assert.equal(recased.status, 200, 'a topic may keep its own title');
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings', 'ancient greeks']);
+});
+
 test('a queue message that names no round, or a round that is not drafting, is left alone', async () => {
 	const s = await setup();
 	const before = foundry.calls.length;

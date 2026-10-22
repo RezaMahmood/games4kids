@@ -15,6 +15,7 @@ import {
 	type Settled,
 	type StoredRound,
 	type StoredTopic,
+	type TopicId,
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import { AiFailure, type FoundryDeps } from './foundry.ts';
@@ -82,6 +83,12 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	}
 
 	/** A round that can be changed. A stored row that no longer parses can only be deleted. */
+	/** Two topics with one name would look the same to a child, so a title another topic has, in any case, is refused. */
+	async function refuseTakenTitle(title: string, self: TopicId | null): Promise<void> {
+		const taken = (await store.topics()).find(({ topic }) => topic.id !== self && topic.title.toLowerCase() === title.toLowerCase());
+		if (taken) throw new HttpError(409, 'duplicate_title', 'That title is taken.', [`There is already a topic called "${taken.topic.title}". Choose another title.`]);
+	}
+
 	async function existingRound(raw: string | undefined, now: Date): Promise<StoredRound> {
 		const found = await readRound(raw, now);
 		if (isBroken(found)) throw new HttpError(409, 'broken', 'This round\'s stored data is damaged. Delete it and make it again.');
@@ -157,6 +164,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run({ body }) {
 					const input = parseTopicInput(body);
 					if (!input.ok) throw invalid(input.problems);
+					await refuseTakenTitle(input.value.title, null);
 					const order = Math.max(-1, ...(await store.topics()).map(({ topic }) => topic.order)) + 1;
 					return { status: 201, json: topicView(await store.createTopic({ id: newId(topicId), ...input.value, order }), { rounds: [], broken: [] }) };
 				},
@@ -170,6 +178,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const current = await existingTopic(params['id']);
 					const input = parseTopicInput(body);
 					if (!input.ok) throw invalid(input.problems);
+					await refuseTakenTitle(input.value.title, current.topic.id);
 					const saved = await store.replaceTopic({ ...current.topic, ...input.value }, etagOf(body, 'topic'));
 					if (!saved) throw changed();
 					return { status: 200, json: topicView(saved, await store.rounds()) };

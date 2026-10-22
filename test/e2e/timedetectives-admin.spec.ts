@@ -142,3 +142,18 @@ for (const { name, width, options } of SIZES) {
 		await page.context().close();
 	});
 }
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, a topic title another topic has is refused with a clear message by the title`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const title = await newTopic(page);
+		await page.getByRole('button', { name: 'New topic' }).click();
+		await page.getByLabel('Title', { exact: true }).fill(title.toUpperCase());
+		await page.getByRole('button', { name: 'Save topic' }).click();
+		await expect(page.locator('#topic-problems')).toHaveText(`There is already a topic called "${title}". Choose another title.`);
+		await expect(page.getByLabel('Title', { exact: true })).toBeFocused();
+		await expect(page.locator('#topics .card', { hasText: title })).toHaveCount(1);
+		await shot(page, `admin-duplicate-topic-${width}`);
+		await page.context().close();
+	});
+}

@@ -126,6 +126,7 @@ async function saveTopic(event) {
     status('Saved.');
   } catch (err) {
     problems('topic-problems', err);
+    $('t-title').focus();
   } finally {
     $('t-save').disabled = false;
     await loadTopics().catch((err) => status(err.message, 'error'));
