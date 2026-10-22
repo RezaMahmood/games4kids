@@ -224,6 +224,11 @@ body[aria-busy="true"]::after {
 		row-gap: var(--space-xs);
 	}
 
+	/* Smaller words keep a third game's link from taking a row of its own. */
+	.g4k-bar.admin nav a {
+		font-size: var(--size-caption);
+	}
+
 	.g4k-bar.admin .g4k-button {
 		margin-left: auto;
 	}
