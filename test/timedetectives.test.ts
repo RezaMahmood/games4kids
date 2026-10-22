@@ -423,6 +423,24 @@ test('a redraw keeps the words and the old picture until a new one is drawn, a r
 	assert.deepEqual(callsSince(before), [IMAGE]);
 });
 
+test('a redraw draws what the AI described until the admin rewrites the picture description, then draws what the admin wrote', async () => {
+	const s = await setup();
+	const round = await drafted(s, await adminTopic(s));
+	const redraw = async (content: typeof VIKING_ROUND | RoundContent) => {
+		const { etag } = await s.adminRound(round.id);
+		assert.equal((await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content, etag } })).status, 200);
+		const before = foundry.calls.length;
+		assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+		await s.settled();
+		return foundry.calls.slice(before).map((entry) => entry.prompt?.split('\n')[0]);
+	};
+
+	assert.deepEqual(await redraw({ ...ROUND, questions: ROUND.questions.map((q) => ({ ...q, hint: 'Read it again.' })) }), [VIKING_ROUND.picturePrompt], 'a change elsewhere keeps the AI\'s description');
+	const own = 'A Viking longship on a calm sea at sunset.';
+	assert.deepEqual(await redraw({ ...ROUND, pictureAlt: own }), [own]);
+	assert.deepEqual(await redraw({ ...ROUND, pictureAlt: own, title: 'Again' }), [own]);
+});
+
 test('a round deleted while its picture is drawn leaves no row and no picture behind', async () => {
 	const s = await setup();
 	const topic = await adminTopic(s);

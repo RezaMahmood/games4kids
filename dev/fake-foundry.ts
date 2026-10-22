@@ -6,6 +6,8 @@ export type FoundryCall = {
 	readonly model: string | null;
 	/** What the caller sent after "Bearer ", so a test can see the platform's token was used. */
 	readonly token: string | null;
+	/** What an image generation was asked to draw. */
+	readonly prompt: string | null;
 };
 
 export type FakeFoundry = {
@@ -111,7 +113,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		if (req.method !== 'POST' || !path.startsWith('/openai/v1/')) return json(404, { error: 'not found' });
 		if (!token) return json(401, { error: 'no bearer token' });
 		const asJson = req.headers['content-type']?.startsWith('application/json') ? (JSON.parse(body.toString('utf8')) as Record<string, unknown>) : null;
-		calls.push({ path: path.slice('/openai/v1/'.length), model: typeof asJson?.['model'] === 'string' ? asJson['model'] : (/name="model"\r\n\r\n([^\r]+)/.exec(body.toString('latin1'))?.[1] ?? null), token });
+		calls.push({ path: path.slice('/openai/v1/'.length), model: typeof asJson?.['model'] === 'string' ? asJson['model'] : (/name="model"\r\n\r\n([^\r]+)/.exec(body.toString('latin1'))?.[1] ?? null), token, prompt: typeof asJson?.['prompt'] === 'string' ? asJson['prompt'] : null });
 
 		const kind: Kind = path.endsWith('/chat/completions') ? 'chat' : 'images';
 		/** Answers with the fault the test asked for, if any is left for this kind of call. */

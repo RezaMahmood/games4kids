@@ -242,7 +242,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
 					const next: RoundState = { ...acted(state), content: content.value, source: 'human' };
-					return { status: 200, json: roundView(await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, etagOf(body, 'round'))) };
+					// Once the admin rewrites the picture description, the next redraw draws from it instead of the AI's own prompt.
+					const { picturePrompt: _prompt, ...rest } = found.round;
+					const kept = content.value.pictureAlt === state.content.pictureAlt ? found.round : rest;
+					return { status: 200, json: roundView(await replaced({ ...kept, state: next, updatedAt: now.toISOString() }, etagOf(body, 'round'))) };
 				},
 			},
 			{
