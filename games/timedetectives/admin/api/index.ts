@@ -82,13 +82,13 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		return { rounds: rounds.map((round) => settleStale(round, now)), broken };
 	}
 
-	/** A round that can be changed. A stored row that no longer parses can only be deleted. */
 	/** Two topics with one name would look the same to a child, so a title another topic has, in any case, is refused. */
 	async function refuseTakenTitle(title: string, self: TopicId | null): Promise<void> {
 		const taken = (await store.topics()).find(({ topic }) => topic.id !== self && topic.title.toLowerCase() === title.toLowerCase());
 		if (taken) throw new HttpError(409, 'duplicate_title', 'That title is taken.', [`There is already a topic called "${taken.topic.title}". Choose another title.`]);
 	}
 
+	/** A round that can be changed. A stored row that no longer parses can only be deleted. */
 	async function existingRound(raw: string | undefined, now: Date): Promise<StoredRound> {
 		const found = await readRound(raw, now);
 		if (isBroken(found)) throw new HttpError(409, 'broken', 'This round\'s stored data is damaged. Delete it and make it again.');
