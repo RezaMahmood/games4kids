@@ -1,5 +1,6 @@
 import { LEVELS, LEVEL_INFO, toTraceText, typeLabel } from './activity.js';
 import { createAttempt, guidesHidden } from './attempt.js';
+import { ask, dismiss, QUESTIONS } from './confirm.js';
 import { renderCopyPng } from './copy.js';
 import { createDeadline } from './deadline.js';
 import { formatClock, formatTenths, shownScore, storedScore, timerLabel } from './format.js';
@@ -489,6 +490,7 @@ function scoreSheet() {
 /** Finish or expire: halt input at `t` and score what was drawn by then. */
 function end(type, t) {
   if (attempt.state.phase !== 'tracing') return;
+  dismiss();
   deadline.stop();
   ink.halt(t);
   attempt.send({ type, t, result: scoreSheet() });
@@ -582,8 +584,9 @@ function render() {
   }
   $('size-down').disabled = phase !== 'idle' || size === SIZE_STEPS[0];
   $('size-up').disabled = phase !== 'idle' || size === SIZE_STEPS.at(-1);
-  $('finish').disabled = phase !== 'tracing';
-  $('controls').hidden = !tracing;
+  $('styles').hidden = phase !== 'idle';
+  $('sizes').hidden = phase !== 'idle';
+  $('controls').hidden = phase !== 'tracing';
   $('copy-controls').hidden = phase !== 'copying' && phase !== 'sending';
   $('copy-clear').disabled = !(phase === 'copying' && state.inked);
   $('copy-done').disabled = !(phase === 'copying' && state.inked);
@@ -673,9 +676,11 @@ async function save() {
   await attemptSave();
 }
 
-$('finish').addEventListener('click', () => {
+// The time is the moment Finish was pressed, so deciding in the question costs nothing. The timer can still end the attempt meanwhile.
+$('finish').addEventListener('click', async () => {
   const t = now();
-  if (!deadline.check(t)) end('finish', t);
+  if (deadline.check(t)) return;
+  if (await ask(QUESTIONS.finishTrace)) end('finish', t);
 });
 $('clear').addEventListener('click', () => ink.clear());
 $('size-down').addEventListener('click', () => chooseSize(-1));
@@ -689,14 +694,18 @@ $('copy-clear').addEventListener('click', () => {
   ink.clear();
   attempt.send({ type: 'clear' });
 });
-$('copy-done').addEventListener('click', () => {
+$('copy-done').addEventListener('click', async () => {
   const { state } = attempt;
-  if (state.phase !== 'copying' || !state.inked) return;
+  if (state.phase !== 'copying' || !state.inked || !await ask(QUESTIONS.sendCopy)) return;
   ink.halt(now());
   attempt.send({ type: 'submit' });
 });
 $('copy-retry').addEventListener('click', () => attempt.send({ type: 'submit' }));
-$('back').addEventListener('click', showList);
+$('back').addEventListener('click', async () => {
+  const { state } = attempt;
+  const unsaved = state.phase === 'tracing' || (state.phase === 'copying' && state.inked);
+  if (!unsaved || await ask(QUESTIONS.leave)) showList();
+});
 $('hard-all').addEventListener('click', () => {
   hardMode.setAll(!hardMode.all());
   showHardMode();

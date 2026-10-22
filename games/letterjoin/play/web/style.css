@@ -179,9 +179,21 @@ button { font: inherit; color: inherit; touch-action: manipulation; }
 .controls { display: flex; gap: 16px; align-items: center; margin: 4px 16px 14px; padding: 12px; background: var(--accent-soft); border-radius: 26px; }
 .controls button { flex: 1; min-height: 72px; border-radius: 20px; font-size: 24px; padding: 0 24px; }
 .controls button.primary { flex: 2; }
-.controls button.primary:is(#finish, #copy-done, #next-activity) { background: var(--good); border-color: var(--good-dark); }
+.controls button.primary#next-activity { background: var(--good); border-color: var(--good-dark); }
 .controls button:disabled { opacity: 0.4; }
 #last-note { flex: 2; margin: 0; font-family: var(--round); font-size: 22px; text-align: center; color: var(--accent-dark); }
+
+/* Finish, Done and Clear sit in the top bar, away from the hand that rests on the bottom of the page while writing. */
+.bar-actions { display: flex; gap: 8px; }
+.bar-actions button { min-height: 56px; padding: 0 22px; border: 3px solid var(--line); border-bottom-width: 6px; border-radius: 16px; background: var(--paper); color: var(--ink); font-family: var(--round); font-size: 20px; cursor: pointer; }
+.bar-actions button.primary { background: var(--good); border-color: var(--good-dark); color: #fff; }
+.bar-actions button:active:not(:disabled) { transform: translateY(3px); border-bottom-width: 3px; }
+.bar-actions button:disabled { opacity: 0.4; }
+
+.confirm { padding: 0; border: 0; background: none; overflow: visible; }
+.confirm::backdrop { background: rgba(10, 14, 46, 0.82); }
+.confirm-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+.practice-card .confirm-buttons button:not(.primary) { border-color: var(--line); background: var(--paper); color: var(--ink); }
 
 /* Overall points in the header. */
 .score-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 18px 0 14px; border: 3px solid #fff; border-bottom-width: 6px; border-radius: 999px; background: #ffc933; color: #1f2a44; font-family: var(--round); font-size: 19px; cursor: pointer; box-shadow: 0 0 0 2px rgba(31, 42, 68, 0.25); }

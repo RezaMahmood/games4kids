@@ -61,10 +61,20 @@ async function draw(page: Page, strokes: readonly Point[][]): Promise<void> {
 	}
 }
 
+/** A writing hand rests on the bottom third of the screen, so taps all over it must never end the attempt. */
+async function restPalm(page: Page): Promise<void> {
+	const { width, height } = page.viewportSize()!;
+	for (let y = Math.round((height * 2) / 3); y < height; y += 40) {
+		for (let x = 20; x < width; x += 60) await page.touchscreen.tap(x, y);
+	}
+}
+
+const phase = (page: Page) => page.evaluate(() => (window as unknown as { __tracing: { state(): { phase: string } } }).__tracing.state().phase);
+
 test('a child traces what an admin wrote and finds it in their progress, and the admin edits it, reviews the copy and reads the practice report', async ({ browser }) => {
 	test.setTimeout(240_000);
 	const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
-	const kidContext = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1024, height: 1366 } });
+	const kidContext = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1024, height: 1366 }, hasTouch: true });
 	const admin = await adminContext.newPage();
 	const kid = await kidContext.newPage();
 	answerPopups(admin);
@@ -139,8 +149,21 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await expect(kid.getByRole('heading', { level: 1 })).toHaveText('Letter Tracing');
 		await kid.locator('.activity-card', { hasText: RENAMED }).click();
 		await kid.waitForFunction(() => Boolean((window as unknown as { __tracing?: { layout(): unknown } }).__tracing?.layout()) && !document.getElementById('trace-screen')!.hidden);
+		const sheetTop = (await kid.locator('#stage').boundingBox())!.y;
 		await draw(kid, await outlineStrokes(kid));
+		expect((await kid.locator('#stage').boundingBox())!.y, 'the sheet stays put when Clear and Finish replace the style buttons').toBe(sheetTop);
+		await restPalm(kid);
+		expect(await phase(kid)).toBe('tracing');
+		const ask = kid.getByRole('dialog', { name: 'Finished tracing?' });
 		await kid.locator('#finish').click();
+		await ask.getByRole('button', { name: 'Keep tracing' }).click();
+		await expect(ask).toBeHidden();
+		expect(await phase(kid)).toBe('tracing');
+		await kid.locator('#back').click();
+		await kid.getByRole('dialog', { name: 'Leave this activity?' }).getByRole('button', { name: 'Keep going' }).click();
+		expect(await phase(kid)).toBe('tracing');
+		await kid.locator('#finish').click();
+		await ask.getByRole('button', { name: "Yes, I've finished" }).click();
 		await kid.waitForFunction(() => (window as unknown as { __tracing: { state(): { phase: string } } }).__tracing.state().phase === 'scored');
 		await expect(kid.locator('#save-message')).toHaveText('Result saved.');
 		expect(Number(await kid.locator('#score').innerText())).toBeGreaterThan(40);
@@ -150,13 +173,34 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await kid.locator('#start-copy').click();
 		await kid.waitForFunction(() => (window as unknown as { __tracing: { state(): { phase: string } } }).__tracing.state().phase === 'copying');
 		await draw(kid, await handwriting(kid));
+		await restPalm(kid);
+		expect(await phase(kid)).toBe('copying');
 		const sent = kid.waitForResponse((response) => response.url().endsWith('/submission') && response.request().method() === 'POST');
 		await kid.locator('#copy-done').click();
+		await kid.getByRole('dialog', { name: 'Finished writing?' }).getByRole('button', { name: 'Yes, send it' }).click();
 		expect((await sent).status()).toBe(201);
 	});
 
-	await test.step('the result is in the child\'s progress', async () => {
+	await test.step('in hard mode, nothing at the bottom of the screen ends the writing, and Done and Back ask first', async () => {
 		await kid.locator('#back-to-list').click();
+		const toggle = kid.locator('.card-slot', { hasText: RENAMED }).locator('.hard-toggle');
+		await toggle.click();
+		await kid.locator('.activity-card', { hasText: RENAMED }).click();
+		await expect(kid.locator('#write-screen')).toBeVisible();
+		const pad = (await kid.locator('#write-pad').boundingBox())!;
+		await draw(kid, [[{ x: pad.x + 60, y: pad.y + pad.height / 2 }, { x: pad.x + 160, y: pad.y + pad.height / 2 }]]);
+		await restPalm(kid);
+		await expect(kid.locator('#write-results')).toBeHidden();
+		await kid.locator('#write-done').click();
+		await kid.getByRole('dialog', { name: 'Finished writing?' }).getByRole('button', { name: 'Keep writing' }).click();
+		await expect(kid.locator('#write-done')).toHaveText('Done');
+		await kid.locator('#write-back').click();
+		await kid.getByRole('dialog', { name: 'Leave this activity?' }).getByRole('button', { name: 'Yes, leave' }).click();
+		await expect(kid.locator('#list-screen')).toBeVisible();
+		await toggle.click();
+	});
+
+	await test.step('the result is in the child\'s progress', async () => {
 		await expect(kid.locator('.activity-card[data-done]', { hasText: RENAMED })).toBeVisible();
 		await kid.locator('#progress-open').click();
 		const today = kid.locator('.pg-day', { has: kid.getByRole('heading', { name: 'Today' }) });
