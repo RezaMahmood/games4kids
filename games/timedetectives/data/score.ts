@@ -6,7 +6,8 @@ const MAX_TRIES = 2;
 
 /** One question as the child answered it: what they tapped, in order, and whether they opened the hint. */
 export type AnswerLog = { kind: QuestionKind; tries: readonly string[]; hint: boolean };
-export type AttemptInput = { attemptId: string; confidence: Confidence; answers: readonly AnswerLog[] };
+/** `version` is the round's version the child was shown, so an attempt is only ever marked against the words they saw. */
+export type AttemptInput = { attemptId: string; version: string; confidence: Confidence; answers: readonly AnswerLog[] };
 export type Marked = { points: number; right: Record<QuestionKind, boolean> };
 
 /** The page marks each try with the same rule for instant feedback; the server's mark is the one that counts. */
@@ -19,6 +20,8 @@ export function parseAttemptInput(attemptId: unknown, body: unknown): Parsed<Att
 	const fields = isRecord(body) ? body : {};
 	const problems: string[] = [];
 	if (!isGuid(attemptId)) problems.push('attemptId must be a GUID, made once per finished round');
+	const version = fields['version'];
+	if (typeof version !== 'string' || version === '') problems.push('version must be the version of the round the child was shown');
 	const confidence = fields['confidence'];
 	if (!CONFIDENCES.includes(confidence as Confidence)) problems.push(`confidence must be one of ${CONFIDENCES.join(', ')}`);
 	const raw = fields['answers'];
@@ -35,7 +38,7 @@ export function parseAttemptInput(attemptId: unknown, body: unknown): Parsed<Att
 		else answers.push({ kind: kind as QuestionKind, tries: tries as string[], hint });
 	}
 	if (problems.length > 0) return { ok: false, problems };
-	return { ok: true, value: { attemptId: (attemptId as string).toLowerCase(), confidence: confidence as Confidence, answers } };
+	return { ok: true, value: { attemptId: (attemptId as string).toLowerCase(), version: version as string, confidence: confidence as Confidence, answers } };
 }
 
 /**

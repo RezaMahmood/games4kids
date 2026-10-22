@@ -5,7 +5,6 @@ import {
 	daysEndingAt,
 	imageReply,
 	isPublished,
-	isRecord,
 	localDate,
 	nothingHere,
 	parseAttemptInput,
@@ -95,20 +94,20 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				body: 'json',
 				/**
 				 * Marks the whole log again, so the score rule lives here and the page's marks are only for feedback. A round an
-				 * admin took down, or changed so the log no longer scores, answers round_changed: trying again never helps.
+				 * admin took down, or changed in any way since the child was shown it, answers round_changed: trying again never
+				 * helps. An attempt already saved is answered with what was saved, whatever changed since.
 				 */
 				async run({ caller, params, body, now, log }) {
 					const input = parseAttemptInput(params['attemptId'], body);
 					if (!input.ok) throw invalid(input.problems);
-					const { attemptId: id, confidence, answers } = input.value;
+					const { attemptId: id, version, confidence, answers } = input.value;
 					const total = async () => pointsOn(localDate(now, caller.timeZone), await store.played(caller.userId), caller.timeZone);
 					const repeat = await store.savedAttempt(caller.userId, id);
 					if (repeat) return { status: 200, json: { points: repeat.points, right: repeat.right, total: await total() } };
 					const round = await published(params['id'], log);
-					if (!round) throw roundChanged();
+					if (!round || round.updatedAt !== version) throw roundChanged();
 					const marked = scoreAttempt(round.state.content, input.value);
-					const sawOlder = isRecord(body) && typeof body['version'] === 'string' && body['version'] !== round.updatedAt;
-					if (!marked.ok) throw sawOlder ? roundChanged() : invalid(marked.problems);
+					if (!marked.ok) throw invalid(marked.problems);
 					const { points, right } = marked.value;
 					const saved = await store.saveAttempt(caller.userId, { id, roundId: round.id, topicId: round.topicId, confidence, answers, points, right, completedAt: now.toISOString() });
 					return { status: 200, json: { points: saved.points, right: saved.right, total: await total() } };

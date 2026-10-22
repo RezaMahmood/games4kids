@@ -18,7 +18,7 @@ const mixed: AnswerLog[] = [
 ];
 
 function mark(confidence: Confidence, answers: unknown) {
-	const input = parseAttemptInput(ATTEMPT, { confidence, answers });
+	const input = parseAttemptInput(ATTEMPT, { version: 'v1', confidence, answers });
 	if (!input.ok) return input;
 	return scoreAttempt(ROUND, input.value);
 }
@@ -73,10 +73,10 @@ test('the log must follow the rules of play: one answer per question, a right fi
 	assert.deepEqual(problems('bit', [{ kind: 'who', tries: ['Vikings'] }]), ['who hint must be true or false']);
 });
 
-test('the attempt needs a GUID and a known confidence', () => {
+test('the attempt needs a GUID, the version the child was shown and a known confidence', () => {
 	const bad = parseAttemptInput('nope', { confidence: 'sure', answers: perfect });
-	assert.deepEqual(bad.ok ? [] : bad.problems, ['attemptId must be a GUID, made once per finished round', 'confidence must be one of lots, bit, easy']);
-	const good = parseAttemptInput(ATTEMPT.toUpperCase(), { confidence: 'easy', answers: perfect });
+	assert.deepEqual(bad.ok ? [] : bad.problems, ['attemptId must be a GUID, made once per finished round', 'version must be the version of the round the child was shown', 'confidence must be one of lots, bit, easy']);
+	const good = parseAttemptInput(ATTEMPT.toUpperCase(), { version: 'v1', confidence: 'easy', answers: perfect });
 	assert.ok(good.ok);
 	assert.equal(good.value.attemptId, ATTEMPT);
 	assert.equal(parseAttemptInput(ATTEMPT, null).ok, false);

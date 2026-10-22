@@ -86,6 +86,21 @@ for (const width of [390, 820]) {
 }
 
 for (const width of [390, 820]) {
+	test(`at ${width}px, a child whose mystery is reworded while they solve it is told kindly, not marked against words they never read`, async () => {
+		await home(width);
+		await toQuiz();
+		await answerAll();
+		await admin.locator('#r-brief').fill(`The bells were still ringing at ${width}.`);
+		await Promise.all([admin.waitForResponse((res) => res.request().method() === 'PUT' && res.ok()), admin.getByRole('button', { name: 'Save', exact: true }).click()]);
+
+		await kid.getByRole('button', { name: 'See my points' }).click();
+		await expect(kid.getByRole('alert')).toHaveText('A grown-up changed this mystery while you were solving it, so it cannot be scored. Sorry! Try another one.');
+		await expect(kid.getByRole('button', { name: 'Play another' })).toBeFocused();
+		await shot('play-round-reworded', width);
+	});
+}
+
+for (const width of [390, 820]) {
 	test(`at ${width}px, focus follows the child through every screen, onto the next open choice after a wrong one, and onto the hint they asked for`, async () => {
 		await home(width);
 		const focused = () => kid.evaluate(() => {

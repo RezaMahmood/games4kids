@@ -114,6 +114,8 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
 const attemptId = () => randomUUID();
+/** The version a child is shown of a round seeded at NOW and not changed since. */
+const SEEN = NOW.toISOString();
 
 test('a child sees only topics with a published round, in order, and never a draft, a failed or a drafting round', async () => {
 	const s = await setup();
@@ -133,7 +135,7 @@ test('a child sees only topics with a published round, in order, and never a dra
 	assert.equal(codeOf(none), 'no_rounds');
 	for (const id of [draft, failed]) {
 		assert.equal((await s.asAda('GET', `rounds/${id}/picture`)).status, 404);
-		assert.equal((await s.asAda('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 409);
+		assert.equal((await s.asAda('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'bit', version: SEEN, answers: perfect } })).status, 409);
 	}
 	assert.equal((await s.asAda('GET', 'rounds/not-a-guid/picture')).status, 404);
 });
@@ -163,9 +165,9 @@ test('the next round is one the child has not played yet, until they have played
 	const second = await s.round(vikings, published({ ...ROUND, title: 'Again' }));
 	const next = async () => ((await s.asAda('GET', `topics/${vikings}/next?confidence=bit`)).data as View).id;
 
-	assert.equal((await s.asAda('PUT', `rounds/${first}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 200);
+	assert.equal((await s.asAda('PUT', `rounds/${first}/attempts/${attemptId()}`, { json: { confidence: 'bit', version: SEEN, answers: perfect } })).status, 200);
 	for (let n = 0; n < 8; n++) assert.equal(await next(), second);
-	await s.asAda('PUT', `rounds/${second}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } });
+	await s.asAda('PUT', `rounds/${second}/attempts/${attemptId()}`, { json: { confidence: 'bit', version: SEEN, answers: perfect } });
 	const seen = new Set<string>();
 	for (let n = 0; n < 30; n++) seen.add(await next());
 	assert.deepEqual([...seen].sort(), [first, second].sort(), 'once every round is played, any of them comes up');
@@ -187,7 +189,7 @@ test('the server marks the whole round again, saves it once per attemptId, and s
 	const vikings = await s.topic('Vikings');
 	const first = await s.round(vikings);
 	const second = await s.round(vikings);
-	const put = (id: RoundId, attempt: string, body: unknown) => s.asAda('PUT', `rounds/${id}/attempts/${attempt}`, { json: body });
+	const put = (id: RoundId, attempt: string, body: object) => s.asAda('PUT', `rounds/${id}/attempts/${attempt}`, { json: { version: SEEN, ...body } });
 
 	const once = attemptId();
 	const saved = await put(first, once, { confidence: 'bit', answers: mixed });
@@ -206,7 +208,7 @@ test('the server marks the whole round again, saves it once per attemptId, and s
 	assert.deepEqual(s.exceptions, []);
 });
 
-test('a round changed or taken down while a child plays it answers round_changed, unless the log still scores, and a saved attempt is still answered', async () => {
+test('a round changed in any way or taken down while a child plays it answers round_changed, and a saved attempt is still answered', async () => {
 	const s = await setup();
 	const vikings = await s.topic('Vikings');
 	const id = await s.round(vikings);
@@ -220,9 +222,12 @@ test('a round changed or taken down while a child plays it answers round_changed
 
 	const first = await view();
 	assert.equal(typeof first.version, 'string');
-	await edit((content) => ({ ...content, brief: 'A calmer morning.' }));
 	const saved = attemptId();
-	assert.equal((await put(saved, first.version)).status, 200, 'an edit the log still scores against keeps the round');
+	assert.equal((await put(saved, first.version)).status, 200);
+	await edit((content) => ({ ...content, brief: 'A calmer morning.' }));
+	const reworded = await put(attemptId(), first.version);
+	assert.deepEqual([reworded.status, codeOf(reworded)], [409, 'round_changed'], 'an edit the log still scores against is still a change');
+	assert.equal((await put(saved, first.version)).status, 200, 'an attempt saved before the edit is still answered');
 
 	const before = await view();
 	await edit((content) => ({ ...content, questions: content.questions.map((q) => (q.kind === 'who' ? { ...q, answer: 'Norsemen' } : q)) }));
@@ -249,10 +254,11 @@ test('a log that breaks the rules of play, or is not a log at all, is refused an
 		[attemptId(), { confidence: 'sure', answers: perfect }],
 		[attemptId(), null],
 		['not-a-guid', { confidence: 'bit', answers: perfect }],
-	] as const) assert.equal((await put(attempt, body)).status, 400, JSON.stringify(body));
+		[attemptId(), { confidence: 'bit', version: '', answers: perfect }],
+	] as const) assert.equal((await put(attempt, body === null ? null : { version: SEEN, ...body })).status, 400, JSON.stringify(body));
 	const view = (await s.asAda('GET', `topics/${vikings}/next?confidence=bit`)).data as View;
 	assert.equal(view.id, id, 'the round still counts as unplayed');
-	assert.equal(((await put(attemptId(), { confidence: 'bit', answers: thirdDecoy })).data as Saved).points, 30);
+	assert.equal(((await put(attemptId(), { confidence: 'bit', version: SEEN, answers: thirdDecoy })).data as Saved).points, 30);
 });
 
 test('a child who switches the board on sees each child on it by name, from the moment they switched it on, and never a user id', async () => {
@@ -260,7 +266,7 @@ test('a child who switches the board on sees each child on it by name, from the 
 	const id = await s.round(await s.topic('Vikings'));
 	const bea = await s.child('Bea');
 	const asBea = s.as(bea.token);
-	const play = (as: typeof asBea, answers = perfect) => as('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'easy', answers } });
+	const play = (as: typeof asBea, answers = perfect) => as('PUT', `rounds/${id}/attempts/${attemptId()}`, { json: { confidence: 'easy', version: SEEN, answers } });
 
 	await play(s.asAda);
 	assert.deepEqual((await s.asAda('GET', `board?day=${TODAY}`)).data, { optedIn: false });
@@ -695,7 +701,7 @@ test('a stored round that no longer parses is skipped and logged for children, a
 	assert.equal(topics.status, 200);
 	assert.deepEqual((topics.data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings', 'Ancient Greeks']);
 	for (let n = 0; n < 6; n++) assert.equal(((await s.asAda('GET', `topics/${greeks}/next?confidence=bit`)).data as View).id, good);
-	assert.equal(codeOf(await s.asAda('PUT', `rounds/${badContent}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })), 'round_changed');
+	assert.equal(codeOf(await s.asAda('PUT', `rounds/${badContent}/attempts/${attemptId()}`, { json: { confidence: 'bit', version: SEEN, answers: perfect } })), 'round_changed');
 	assert.ok(s.logs.some((line) => line.includes(badContent) && line.includes('questions')), 'the skipped round is logged with why');
 	assert.ok(s.logs.some((line) => line.includes(badState) && line.includes('archived')));
 
