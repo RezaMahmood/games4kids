@@ -85,39 +85,42 @@ for (const width of [390, 820]) {
 	});
 }
 
-test('focus follows the child through every screen, onto the next open choice after a wrong one, and onto the hint they asked for', async () => {
-	await home(390);
-	const focused = () => kid.evaluate(() => {
-		const active = document.activeElement;
-		return { id: active?.id ?? '', className: active?.className ?? '', text: active?.textContent?.trim() ?? '', question: active?.closest('.question')?.querySelector('h3')?.textContent ?? '' };
+for (const width of [390, 820]) {
+	test(`at ${width}px, focus follows the child through every screen, onto the next open choice after a wrong one, and onto the hint they asked for`, async () => {
+		await home(width);
+		const focused = () => kid.evaluate(() => {
+			const active = document.activeElement;
+			return { id: active?.id ?? '', className: active?.className ?? '', text: active?.textContent?.trim() ?? '', question: active?.closest('.question')?.querySelector('h3')?.textContent ?? '' };
+		});
+		await kid.getByRole('button', { name: 'Open the door to the past' }).click();
+		await expect(kid.locator('#topics-heading')).toBeFocused();
+		await kid.getByRole('button', { name: new RegExp(TOPIC) }).click();
+		await expect(kid.locator('#sure-heading')).toBeFocused();
+		await kid.getByRole('button', { name: /I know a bit about the subject/ }).click();
+		await expect(kid.locator('#read-heading')).toBeFocused();
+		await kid.getByRole('button', { name: "I've read it" }).click();
+		await expect(kid.locator('#quiz-heading')).toBeFocused();
+
+		const who = kid.locator('.question', { hasText: 'Who is it?' });
+		await who.getByRole('button', { name: 'Romans' }).click();
+		const next = await focused();
+		expect([next.question, next.className.includes('choice'), next.text === 'Romans'], 'focus is on another choice in the same question').toEqual(['Who is it?', true, false]);
+		await expect(kid.locator(':focus')).toBeEnabled();
+		await who.getByRole('button', { name: 'Vikings' }).click();
+		await expect(who.locator('.feedback')).toBeFocused();
+
+		const where = kid.locator('.question', { hasText: 'Where is it?' });
+		await where.getByRole('button', { name: /Show a hint/ }).click();
+		await expect(where.locator('.hint-text')).toBeFocused();
+		await shot('play-focus-hint', width);
+		await where.getByRole('button', { name: 'Lindisfarne' }).click();
+		await kid.locator('.question', { hasText: 'When was it?' }).getByRole('button', { name: 'AD 793' }).click();
+		await expect(kid.getByRole('button', { name: 'See my points' })).toBeFocused();
+		await kid.getByRole('button', { name: 'See my points' }).click();
+		await expect(kid.locator('#result-heading')).toBeFocused();
+		await shot('play-focus-result', width);
 	});
-	await kid.getByRole('button', { name: 'Open the door to the past' }).click();
-	await expect(kid.locator('#topics-heading')).toBeFocused();
-	await kid.getByRole('button', { name: new RegExp(TOPIC) }).click();
-	await expect(kid.locator('#sure-heading')).toBeFocused();
-	await kid.getByRole('button', { name: /I know a bit about the subject/ }).click();
-	await expect(kid.locator('#read-heading')).toBeFocused();
-	await kid.getByRole('button', { name: "I've read it" }).click();
-	await expect(kid.locator('#quiz-heading')).toBeFocused();
-
-	const who = kid.locator('.question', { hasText: 'Who is it?' });
-	await who.getByRole('button', { name: 'Romans' }).click();
-	const next = await focused();
-	expect([next.question, next.className.includes('choice'), next.text === 'Romans'], 'focus is on another choice in the same question').toEqual(['Who is it?', true, false]);
-	await expect(kid.locator(':focus')).toBeEnabled();
-	await who.getByRole('button', { name: 'Vikings' }).click();
-	await expect(who.locator('.feedback')).toBeFocused();
-
-	const where = kid.locator('.question', { hasText: 'Where is it?' });
-	await where.getByRole('button', { name: /Show a hint/ }).click();
-	await expect(where.locator('.hint-text')).toBeFocused();
-	await where.getByRole('button', { name: 'Lindisfarne' }).click();
-	await kid.locator('.question', { hasText: 'When was it?' }).getByRole('button', { name: 'AD 793' }).click();
-	await expect(kid.getByRole('button', { name: 'See my points' })).toBeFocused();
-	await kid.getByRole('button', { name: 'See my points' }).click();
-	await expect(kid.locator('#result-heading')).toBeFocused();
-	await shot('play-focus-result', 390);
-});
+}
 
 for (const width of [390, 820]) {
 	test(`at ${width}px, topics that fail to load say so in the topics panel and load again on Try again`, async () => {
