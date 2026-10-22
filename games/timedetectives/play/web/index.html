@@ -2,13 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Time Detectives</title>
+  <meta name="theme-color" content="#2E3A6E">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="/shared/tokens.css">
   <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body aria-busy="true">
-  <main id="app" inert><h1>Time Detectives</h1></main>
+  <portal-bar></portal-bar>
+  <div id="app" inert>
+    <main id="home-screen" class="screen" aria-labelledby="home-heading">
+      <h1 id="home-heading">Time Detectives</h1>
+      <p class="lead">Read a clue from the past, then work out who, where and when.</p>
+      <button id="cover" type="button" class="cover" aria-controls="topics-panel" aria-expanded="false">
+        <img src="cover.svg" alt="" width="600" height="400">
+        <span class="cover-label">Open the door to the past</span>
+      </button>
+      <section id="topics-panel" hidden aria-labelledby="topics-heading">
+        <h2 id="topics-heading">Where shall we go?</h2>
+        <ul id="topics" class="topics"></ul>
+        <p id="topics-status" class="status" role="status" hidden></p>
+      </section>
+    </main>
+
+    <section id="sure-screen" class="screen" hidden aria-labelledby="sure-heading">
+      <p class="eyebrow" id="sure-topic"></p>
+      <h2 id="sure-heading">Do you know a lot about the subject you have chosen?</h2>
+      <div id="sure-choices" class="sure-choices"></div>
+      <p id="sure-status" class="status" role="alert" hidden></p>
+      <button id="sure-back" type="button" class="quiet">Choose another topic</button>
+    </section>
+
+    <section id="read-screen" class="screen" hidden aria-labelledby="read-heading">
+      <p class="eyebrow">Read the clue carefully</p>
+      <h2 id="read-heading">What happened here?</h2>
+      <div id="read-text" class="paragraph"></div>
+      <button id="read-done" type="button" class="primary big">I've read it</button>
+    </section>
+
+    <section id="quiz-screen" class="screen" hidden aria-labelledby="quiz-heading">
+      <h2 id="quiz-heading" class="visually-hidden">Solve the mystery</h2>
+      <figure class="picture">
+        <img id="quiz-picture" alt="">
+      </figure>
+      <button id="read-again" type="button" class="quiet">Read it again</button>
+      <ol id="questions" class="questions"></ol>
+      <p id="quiz-status" class="status" role="alert" hidden></p>
+      <button id="finish" type="button" class="primary big" hidden>See my points</button>
+    </section>
+
+    <section id="result-screen" class="screen" hidden aria-labelledby="result-heading">
+      <div class="result-hero">
+        <p class="eyebrow">Case closed!</p>
+        <h2 id="result-heading"><span id="result-points"></span> points</h2>
+        <p id="result-bonus" class="note"></p>
+      </div>
+      <ul id="result-answers" class="result-answers"></ul>
+      <p id="result-today" class="today"></p>
+      <section class="board" aria-labelledby="board-heading">
+        <h3 id="board-heading">Friends board</h3>
+        <button id="board-switch" type="button" class="switch" role="switch" aria-checked="false" hidden>
+          <span class="switch-track" aria-hidden="true"></span>
+          <span>Show my scores on the board</span>
+        </button>
+        <p id="board-explain" class="note" hidden>Turn this on to see how your friends are doing, and to show them your scores. Only children who turn it on can be seen, and you can turn it off whenever you like.</p>
+        <p id="board-status" class="status" role="status" hidden></p>
+        <table id="board-table" hidden>
+          <thead><tr><th scope="col">Name</th><th scope="col">Today</th><th scope="col">This week</th></tr></thead>
+          <tbody id="board-rows"></tbody>
+        </table>
+      </section>
+      <button id="again" type="button" class="primary big">Play another</button>
+    </section>
+  </div>
+  <dialog id="clue" class="clue" aria-labelledby="clue-heading">
+    <h2 id="clue-heading">The clue</h2>
+    <div id="clue-text" class="paragraph"></div>
+    <form method="dialog"><button type="submit" class="primary big">Back to the questions</button></form>
+  </dialog>
   <script type="module" src="app.js"></script>
 </body>
 </html>
