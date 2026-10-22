@@ -96,19 +96,26 @@ export function portalReader(tables: ReaderTables): PortalReader {
 	};
 }
 
-const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+/** A save that loses its write to another save reads the row again, so a few lost races in a row mean something is wrong. */
+const SAVE_ATTEMPTS = 3;
+
+const sameName =(a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 
 /** The portal app: the reader, plus profiles, the one table it writes. */
 export function portalStore(tables: ReaderTables & { readonly profiles: Table }): PortalStore {
 	return {
 		...portalReader(tables),
 		async setProfile(userId, profile, now) {
-			const rows = await tables.profiles.inPartition('profile');
-			const save = planSave(parseStoredProfile(rows.find((row) => row.rowKey === userId)), profile, now);
-			if (save.kind === 'refused') return 'rename_tomorrow';
-			if (rows.some((row) => row.rowKey !== userId && sameName(parseProfile(row)?.displayName ?? '', profile.displayName))) return 'name_taken';
-			await tables.profiles.put({ partitionKey: 'profile', rowKey: userId, ...profile, ...(save.renamedAt === undefined ? {} : { renamedAt: save.renamedAt }) });
-			return 'ok';
+			for (let attempt = 1; ; attempt++) {
+				const rows = await tables.profiles.inPartition('profile');
+				const stored = rows.find((row) => row.rowKey === userId);
+				const save = planSave(parseStoredProfile(stored), profile, now);
+				if (save.kind === 'refused') return 'rename_tomorrow';
+				if (rows.some((row) => row.rowKey !== userId && sameName(parseProfile(row)?.displayName ?? '', profile.displayName))) return 'name_taken';
+				const row = { partitionKey: 'profile', rowKey: userId, ...profile, ...(save.renamedAt === undefined ? {} : { renamedAt: save.renamedAt }) };
+				if (stored ? await tables.profiles.replaceIfMatch(row, stored.etag) : await tables.profiles.insertIfAbsent(row)) return 'ok';
+				if (attempt >= SAVE_ATTEMPTS) throw new Error(`the profile of ${userId} kept changing while it was being saved`);
+			}
 		},
 	};
 }
