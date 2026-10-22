@@ -45,31 +45,49 @@ const shot = (page: Page, name: string) => (SHOTS ? page.screenshot({ path: `${S
 type Box = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-test('a round the AI failed on still offers Try again and Delete, and deleting it frees its topic', async ({ browser }) => {
-	const page = await adminPage(browser);
-	const problems = collectProblems([page]);
-	const topic = await newTopic(page);
-	await draftedRound(page, topic);
-	await page.route(ROUND_API, async (route) => {
-		if (route.request().method() !== 'GET') return route.fallback();
-		const real = (await (await route.fetch()).json()) as Record<string, unknown>;
-		return route.fulfill({ json: { ...real, hasPicture: false, state: { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: 'The AI did not answer after 3 tries.' } } });
-	});
-	await page.reload();
-	await adminReady(page);
+const STUCK = [
+	{
+		name: 'a round the AI failed on',
+		fake: (real: Record<string, unknown>) => ({ ...real, hasPicture: false, state: { kind: 'failed', focus: 'Lindisfarne', source: 'ai', reason: 'The AI did not answer after 3 tries.' } }),
+		badge: 'Failed',
+		note: 'The AI did not answer after 3 tries.',
+		retry: true,
+	},
+	{
+		name: 'a round whose stored data no longer reads',
+		fake: (real: Record<string, unknown>) => ({ id: real['id'], topicId: real['topicId'], broken: ['content: questions must have exactly one who question'] }),
+		badge: 'Damaged',
+		note: "This round's stored data is damaged, so nobody can edit or play it: content: questions must have exactly one who question. Delete it and make it again.",
+		retry: false,
+	},
+];
 
-	await expect(page.locator('#round-badge')).toHaveText('Failed');
-	await expect(page.locator('#round-note')).toHaveText('The AI did not answer after 3 tries.');
-	await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
-	await page.getByRole('button', { name: 'Delete round' }).click();
-	await expect(page.locator('#rounds-empty')).toBeVisible();
-	await page.getByRole('link', { name: 'All topics' }).click();
-	const card = page.locator('#topics .card', { hasText: topic });
-	await card.getByRole('button', { name: 'Delete' }).click();
-	await expect(page.getByRole('link', { name: topic })).toHaveCount(0);
-	expect(problems).toEqual([]);
-	await page.context().close();
-});
+for (const { name, fake, badge, note, retry } of STUCK) {
+	test(`${name} can still be deleted, which frees its topic`, async ({ browser }) => {
+		const page = await adminPage(browser);
+		const problems = collectProblems([page]);
+		const topic = await newTopic(page);
+		await draftedRound(page, topic);
+		await page.route(ROUND_API, async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			return route.fulfill({ json: fake((await (await route.fetch()).json()) as Record<string, unknown>) });
+		});
+		await page.reload();
+		await adminReady(page);
+
+		await expect(page.locator('#round-badge')).toHaveText(badge);
+		await expect(page.locator('#round-note')).toHaveText(note);
+		await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible({ visible: retry });
+		await shot(page, `admin-${badge.toLowerCase()}-1280`);
+		await page.getByRole('button', { name: 'Delete round' }).click();
+		await expect(page.locator('#rounds-empty')).toBeVisible();
+		await page.getByRole('link', { name: 'All topics' }).click();
+		await page.locator('#topics .card', { hasText: topic }).getByRole('button', { name: 'Delete' }).click();
+		await expect(page.getByRole('link', { name: topic })).toHaveCount(0);
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+}
 
 for (const { name, width, options } of SIZES) {
 	test(`${name}, the status and the round's actions share one bar that covers neither each other nor the end of the page`, async ({ browser }) => {

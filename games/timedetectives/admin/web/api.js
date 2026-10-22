@@ -6,14 +6,16 @@
  *   | { kind: 'failed', focus: string, source: string, reason: string, content?: Content }
  *   | { kind: 'draft', content: Content, source: string }
  *   | { kind: 'published', content: Content, source: string, publishedAt: string }} RoundState
- * @typedef {{ id: string, topicId: string, state: RoundState, hasPicture: boolean, updatedAt: string, etag: string }} Round
+ * @typedef {{ id: string, topicId: string, state: RoundState, hasPicture: boolean, updatedAt: string, etag: string, broken?: undefined }} Round
+ * @typedef {{ id: string, topicId: string, broken: string[] }} Broken A stored round the server can no longer read; it can only be deleted.
  */
 
 const STATES = ['drafting', 'failed', 'draft', 'published'];
 
-/** @returns {Round} */
+/** @returns {Round | Broken} */
 function parseRound(raw) {
-  if (typeof raw?.id !== 'string' || !STATES.includes(raw.state?.kind) || typeof raw.hasPicture !== 'boolean') throw new Error('The server sent a round this page does not understand.');
+  const broken = Array.isArray(raw?.broken) && raw.broken.every((problem) => typeof problem === 'string');
+  if (typeof raw?.id !== 'string' || (!broken && (!STATES.includes(raw.state?.kind) || typeof raw.hasPicture !== 'boolean'))) throw new Error('The server sent a round this page does not understand.');
   return raw;
 }
 
@@ -29,7 +31,7 @@ export function createApi(client) {
     createTopic: (topic) => client.post('topics', topic),
     updateTopic: (topicId, topic) => client.put(`topics/${id(topicId)}`, topic),
     deleteTopic: (topicId) => client.delete(`topics/${id(topicId)}`),
-    /** @returns {Promise<Round[]>} newest change first */
+    /** @returns {Promise<(Round | Broken)[]>} damaged rows first, then newest change first */
     rounds: async (topicId) => (await client.get(`topics/${id(topicId)}/rounds`)).rounds.map(parseRound),
     draft: async (topicId, focus) => parseRound(await client.post(`topics/${id(topicId)}/rounds/draft`, { focus })),
     write: async (topicId, content) => parseRound(await client.post(`topics/${id(topicId)}/rounds`, { content })),

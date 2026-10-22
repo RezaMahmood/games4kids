@@ -1,8 +1,8 @@
-import type { Blob, ReadTable, StorageFor, Stored } from '@g4k/sdk';
+import type { Blob, ReadTable, Row, StorageFor, Stored } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
 import type { BoardEntry, Played } from './board.ts';
 import { parseRoundContent, type Confidence, type RoundContent } from './content.ts';
-import type { RoundId, TopicId } from './ids.ts';
+import { roundId, topicId, type RoundId, type TopicId } from './ids.ts';
 import type { Round, RoundState, Source, Topic } from './round.ts';
 import type { AnswerLog } from './score.ts';
 
@@ -11,6 +11,9 @@ type TimeDetectives = typeof manifest;
 export type ImageRead = Blob | 'not-modified' | undefined;
 export type StoredTopic = { topic: Topic; etag: string };
 export type StoredRound = { round: Round; etag: string };
+/** A stored round row that no longer parses. It keeps the raw keys, so the admin can still see it and delete it. */
+export type BrokenRound = { broken: true; id: string; topicId: string; problems: readonly string[] };
+export type RoundRows = { rounds: StoredRound[]; broken: BrokenRound[] };
 export type Attempt = Played & { id: string; topicId: TopicId; confidence: Confidence; answers: readonly AnswerLog[] };
 
 const TOPIC = 'topic';
@@ -19,7 +22,7 @@ const ROUND = 'round';
 const BOARD = 'board';
 
 type TopicRow = { partitionKey: string; rowKey: string; title: string; guidance: string; order: number };
-/** Table fields are scalars, so the content travels as JSON text and comes back through parseRoundContent. */
+/** Table fields are scalars, so the content travels as JSON text. readRound parses every field on the way back. */
 type RoundRow = {
 	partitionKey: string;
 	rowKey: string;
@@ -41,40 +44,81 @@ const toTopic = ({ rowKey, title, guidance, order }: TopicRow): Topic => ({ id: 
 const topicRow = ({ id, title, guidance, order }: Topic): TopicRow => ({ partitionKey: TOPIC, rowKey: id, title, guidance, order });
 const byOrder = (a: Topic, b: Topic) => a.order - b.order || a.title.localeCompare(b.title);
 
-function storedContent(row: RoundRow): RoundContent | undefined {
-	if (row.content === undefined) return undefined;
-	let raw: unknown;
+const STATES = ['drafting', 'failed', 'draft', 'published'] as const satisfies readonly RoundState['kind'][];
+const SOURCES = ['ai', 'human'] as const satisfies readonly Source[];
+
+function optionalText(row: Row, field: string, problems: string[]): string | undefined {
+	const value = row[field];
+	if (value === undefined || typeof value === 'string') return value;
+	problems.push(`${field} must be text`);
+	return undefined;
+}
+
+function storedContent(row: Row, problems: string[]): RoundContent | undefined {
+	const raw = row['content'];
+	if (raw === undefined) return undefined;
+	let json: unknown = null;
 	try {
-		raw = JSON.parse(row.content);
+		if (typeof raw === 'string') json = JSON.parse(raw);
 	} catch {
-		raw = null;
+		// Stays null, which parseRoundContent turns into a problem.
 	}
-	const parsed = parseRoundContent(raw);
-	if (!parsed.ok) throw new Error(`stored round ${row.rowKey} is invalid: ${parsed.problems.join('; ')}`);
-	return parsed.value;
+	const parsed = parseRoundContent(json);
+	if (parsed.ok) return parsed.value;
+	problems.push(...parsed.problems.map((problem) => `content: ${problem}`));
+	return undefined;
 }
 
-function toState(row: RoundRow): RoundState {
-	const content = storedContent(row);
+function storedState(row: Row, problems: string[]): RoundState | undefined {
+	const kind = STATES.find((state) => state === row['state']);
+	const source = SOURCES.find((one) => one === row['source']);
+	const content = storedContent(row, problems);
+	const focus = optionalText(row, 'focus', problems) ?? '';
 	const kept = content ? { content } : {};
-	const missing = (field: string) => new Error(`stored round ${row.rowKey} is ${row.state} with no ${field}`);
-	switch (row.state) {
+	if (!source) problems.push('source must be ai or human');
+	if (!kind) {
+		problems.push(`state ${JSON.stringify(row['state'])} is not one a round can be in`);
+		return undefined;
+	}
+	if (!source) return undefined;
+	switch (kind) {
 		case 'drafting':
-			return { kind: 'drafting', focus: row.focus ?? '', source: row.source, ...kept };
+			return { kind, focus, source, ...kept };
 		case 'failed':
-			return { kind: 'failed', focus: row.focus ?? '', source: row.source, reason: row.reason ?? '', ...kept };
+			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '', ...kept };
 		case 'draft':
-			if (!content) throw missing('content');
-			return { kind: 'draft', content, source: row.source };
-		case 'published':
-			if (!content || !row.publishedAt) throw missing('content or publish time');
-			return { kind: 'published', content, source: row.source, publishedAt: row.publishedAt };
+			if (content) return { kind, content, source };
+			problems.push('a draft needs content');
+			return undefined;
+		case 'published': {
+			const publishedAt = optionalText(row, 'publishedAt', problems);
+			if (content && publishedAt) return { kind, content, source, publishedAt };
+			problems.push('a published round needs content and a publish time');
+			return undefined;
+		}
+		default: {
+			const unhandled: never = kind;
+			return unhandled;
+		}
 	}
 }
 
-function toRound(row: RoundRow): Round {
-	const { rowKey, topicId, hasPicture, picturePrompt, updatedAt } = row;
-	return { id: rowKey as RoundId, topicId: topicId as TopicId, state: toState(row), hasPicture, ...(picturePrompt !== undefined && { picturePrompt }), updatedAt };
+/** Every field of a stored row is checked here, so one row a later version cannot read is set aside instead of breaking every list. */
+function readRound(row: Stored<Row>): StoredRound | BrokenRound {
+	const problems: string[] = [];
+	const id = roundId(row.rowKey);
+	const topic = topicId(row['topicId']);
+	const { hasPicture, updatedAt } = row;
+	if (!id) problems.push('rowKey must be a round id');
+	if (!topic) problems.push('topicId must be a topic id');
+	if (typeof hasPicture !== 'boolean') problems.push('hasPicture must be true or false');
+	if (typeof updatedAt !== 'string') problems.push('updatedAt must be text');
+	const picturePrompt = optionalText(row, 'picturePrompt', problems);
+	const state = storedState(row, problems);
+	if (!id || !topic || typeof hasPicture !== 'boolean' || typeof updatedAt !== 'string' || !state || problems.length > 0) {
+		return { broken: true, id: row.rowKey, topicId: typeof row['topicId'] === 'string' ? row['topicId'] : '', problems };
+	}
+	return { round: { id, topicId: topic, state, hasPicture, ...(picturePrompt !== undefined && { picturePrompt }), updatedAt }, etag: row.etag };
 }
 
 function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: Round): RoundRow {
@@ -96,8 +140,6 @@ function roundRow({ id, topicId, state, hasPicture, picturePrompt, updatedAt }: 
 	};
 }
 
-const toStoredRound = (row: Stored<RoundRow>): StoredRound => ({ round: toRound(row), etag: row.etag });
-
 const toPlayed = ({ roundId, points, completedAt }: AttemptRow): Played => ({ roundId, points, completedAt });
 
 const toBoardEntry = ({ rowKey, name, timeZone, since }: BoardRow): BoardEntry => ({ userId: rowKey, name, timeZone, since });
@@ -106,19 +148,25 @@ async function topicsOf(table: ReadTable): Promise<StoredTopic[]> {
 	return (await table.inPartition<TopicRow>(TOPIC)).map((row) => ({ topic: toTopic(row), etag: row.etag })).sort((a, b) => byOrder(a.topic, b.topic));
 }
 
-async function roundsOf(table: ReadTable): Promise<StoredRound[]> {
-	return (await table.inPartition<RoundRow>(ROUND)).map(toStoredRound);
+async function roundsOf(table: ReadTable): Promise<RoundRows> {
+	const rows: RoundRows = { rounds: [], broken: [] };
+	for (const read of (await table.inPartition(ROUND)).map(readRound)) {
+		if ('broken' in read) rows.broken.push(read);
+		else rows.rounds.push(read);
+	}
+	return rows;
 }
 
-async function roundIn(table: ReadTable, id: RoundId): Promise<StoredRound | undefined> {
-	const row = await table.get<RoundRow>(ROUND, id);
-	return row && toStoredRound(row);
+async function roundIn(table: ReadTable, id: RoundId): Promise<StoredRound | BrokenRound | undefined> {
+	const row = await table.get(ROUND, id);
+	return row && readRound(row);
 }
 
 export type PlayStore = {
 	topics(): Promise<Topic[]>;
-	rounds(): Promise<Round[]>;
-	round(id: RoundId): Promise<Round | undefined>;
+	/** The rounds, and the rows that no longer parse, which the caller logs and skips. */
+	rounds(): Promise<{ rounds: Round[]; broken: BrokenRound[] }>;
+	round(id: RoundId): Promise<Round | BrokenRound | undefined>;
 	picture(id: RoundId, ifNoneMatch: string | undefined): Promise<ImageRead>;
 	played(userId: string): Promise<Played[]>;
 	/** Saves a finished round once per attemptId. A repeat changes nothing and answers with what was saved first. */
@@ -136,8 +184,14 @@ export function playStore(storage: StorageFor<TimeDetectives, 'play'>): PlayStor
 
 	return {
 		topics: async () => (await topicsOf(topics)).map(({ topic }) => topic),
-		rounds: async () => (await roundsOf(rounds)).map(({ round }) => round),
-		round: async (id) => (await roundIn(rounds, id))?.round,
+		async rounds() {
+			const rows = await roundsOf(rounds);
+			return { rounds: rows.rounds.map(({ round }) => round), broken: rows.broken };
+		},
+		async round(id) {
+			const read = await roundIn(rounds, id);
+			return read && 'broken' in read ? read : read?.round;
+		},
 		picture: (id, ifNoneMatch) => storage.blobs.pictures.get(id, ifNoneMatch),
 		played: async (userId) => (await attempts.inPartition<AttemptRow>(userId)).map(toPlayed),
 		async saveAttempt(userId, attempt) {
@@ -171,8 +225,8 @@ export type AdminStore = {
 	/** Undefined when the topic changed or went since `etag` was read. */
 	replaceTopic(topic: Topic, etag: string): Promise<StoredTopic | undefined>;
 	deleteTopic(id: TopicId): Promise<void>;
-	rounds(): Promise<StoredRound[]>;
-	round(id: RoundId): Promise<StoredRound | undefined>;
+	rounds(): Promise<RoundRows>;
+	round(id: RoundId): Promise<StoredRound | BrokenRound | undefined>;
 	createRound(round: Round): Promise<StoredRound>;
 	/** Undefined when the round changed or went since `etag` was read. */
 	replaceRound(round: Round, etag: string): Promise<StoredRound | undefined>;
@@ -190,6 +244,12 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 		const found = await read;
 		if (!found) throw new Error(`${what} was saved and then gone`);
 		return found;
+	}
+
+	async function savedRound(id: RoundId): Promise<StoredRound> {
+		const read = await saved(roundIn(rounds, id), `round ${id}`);
+		if ('broken' in read) throw new Error(`round ${id} was saved and reads back broken: ${read.problems.join('; ')}`);
+		return read;
 	}
 
 	async function topic(id: TopicId): Promise<StoredTopic | undefined> {
@@ -212,10 +272,10 @@ export function adminStore(storage: StorageFor<TimeDetectives, 'admin'>): AdminS
 		round: (id) => roundIn(rounds, id),
 		async createRound(next) {
 			await rounds.put(roundRow(next));
-			return saved(roundIn(rounds, next.id), `round ${next.id}`);
+			return savedRound(next.id);
 		},
 		async replaceRound(next, etag) {
-			return (await rounds.replaceIfMatch(roundRow(next), etag)) ? saved(roundIn(rounds, next.id), `round ${next.id}`) : undefined;
+			return (await rounds.replaceIfMatch(roundRow(next), etag)) ? savedRound(next.id) : undefined;
 		},
 		async deleteRound(id) {
 			await rounds.remove(ROUND, id);

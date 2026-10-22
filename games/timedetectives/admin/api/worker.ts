@@ -22,6 +22,7 @@ type Ctx = { store: AdminStore; foundry: () => FoundryDeps; now: Date; log: (lin
  */
 export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 	const found = await ctx.store.round(id);
+	if (found && 'broken' in found) return ctx.log(`round ${id} does not parse, so it is left alone: ${found.problems.join('; ')}`);
 	if (!found || found.round.state.kind !== 'drafting') return;
 	let current: StoredRound = found;
 	const state: Drafting = found.round.state;

@@ -47,8 +47,10 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const apps: App[] = [];
 	const accounts = deliverQueues(w.accounts, () => apps);
 	const clock = { at: NOW };
+	const logs: string[] = [];
+	const telemetry = { ...w.telemetry, log: (_level: string, line: string) => void logs.push(line) };
 	const tokens = async (service: string) => `tok-${service}`;
-	const common = { telemetry: w.telemetry, now: () => clock.at, accounts, tokens };
+	const common = { telemetry, now: () => clock.at, accounts, tokens };
 	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, env: {} });
 	const admin = createAdminApp({
 		...common,
@@ -86,7 +88,7 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	}
 
 	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => accounts.idle(), queue: accounts.open(timedetectives).queue('drafts'), exceptions: w.telemetry.exceptions };
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, ada, topic, round, settled: () => accounts.idle(), queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -446,6 +448,39 @@ test('a queue message that names no round, or a round that is not drafting, is l
 	for (const message of ['not json', {}, { roundId: 'nope' }, { roundId: randomUUID() }, { roundId: done }]) await s.queue.send(message);
 	await s.settled();
 	assert.equal(foundry.calls.length, before);
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('a stored round that no longer parses is skipped and logged for children, and shows as broken to the admin until deleted', async () => {
+	const s = await setup();
+	const vikings = await s.topic('Vikings');
+	const greeks = await s.topic('Ancient Greeks', 1);
+	await s.round(vikings);
+	const good = await s.round(greeks);
+	const row = { partitionKey: 'round', topicId: greeks, source: 'ai', hasPicture: true, publishedAt: NOW.toISOString(), updatedAt: NOW.toISOString() };
+	const badContent = randomUUID();
+	const badState = randomUUID();
+	await s.rows.put({ ...row, rowKey: badContent, state: 'published', content: JSON.stringify({ ...ROUND, questions: [] }) });
+	await s.rows.put({ ...row, rowKey: badState, state: 'archived', content: JSON.stringify(ROUND) });
+
+	const topics = await s.asAda('GET', 'topics');
+	assert.equal(topics.status, 200);
+	assert.deepEqual((topics.data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings', 'Ancient Greeks']);
+	for (let n = 0; n < 6; n++) assert.equal(((await s.asAda('GET', `topics/${greeks}/next?confidence=bit`)).data as View).id, good);
+	assert.equal((await s.asAda('PUT', `rounds/${badContent}/attempts/${attemptId()}`, { json: { confidence: 'bit', answers: perfect } })).status, 404);
+	assert.ok(s.logs.some((line) => line.includes(badContent) && line.includes('questions')), 'the skipped round is logged with why');
+	assert.ok(s.logs.some((line) => line.includes(badState) && line.includes('archived')));
+
+	const listed = ((await s.asAdmin('GET', `topics/${greeks}/rounds`)).data as { rounds: { id: string; broken?: string[] }[] }).rounds;
+	assert.deepEqual(listed.filter((r) => r.broken).map((r) => r.id).sort(), [badContent, badState].sort());
+	const one = await s.asAdmin('GET', `rounds/${badState}`);
+	assert.equal(one.status, 200);
+	assert.deepEqual(one.data, { id: badState, topicId: greeks, broken: [`state "archived" is not one a round can be in`] });
+	assert.equal(codeOf(await s.asAdmin('POST', `rounds/${badContent}/publish`)), 'broken');
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number }[] }).topics.map(({ title, rounds }) => [title, rounds]), [['Vikings', 1], ['Ancient Greeks', 3]]);
+
+	for (const id of [good, badContent, badState]) assert.equal((await s.asAdmin('DELETE', `rounds/${id}`)).status, 204);
+	assert.equal((await s.asAdmin('DELETE', `topics/${greeks}`)).status, 204);
 	assert.deepEqual(s.exceptions, []);
 });
 

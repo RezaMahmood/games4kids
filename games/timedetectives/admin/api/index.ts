@@ -8,7 +8,9 @@ import {
 	parseTopicInput,
 	roundId,
 	topicId,
+	type BrokenRound,
 	type Round,
+	type RoundRows,
 	type RoundState,
 	type StoredRound,
 	type StoredTopic,
@@ -32,12 +34,15 @@ function etagOf(body: unknown, what: string): string {
 	return etag;
 }
 
-const topicView = ({ topic, etag }: StoredTopic, rounds: readonly StoredRound[]) => {
+const topicView = ({ topic, etag }: StoredTopic, { rounds, broken }: RoundRows) => {
 	const mine = rounds.filter(({ round }) => round.topicId === topic.id);
-	return { ...topic, etag, rounds: mine.length, published: mine.filter(({ round }) => round.state.kind === 'published').length };
+	const damaged = broken.filter((round) => round.topicId === topic.id).length;
+	return { ...topic, etag, rounds: mine.length + damaged, published: mine.filter(({ round }) => round.state.kind === 'published').length };
 };
 
 const roundView = ({ round: { picturePrompt: _prompt, ...round }, etag }: StoredRound) => ({ ...round, etag });
+const brokenView = ({ id, topicId, problems }: BrokenRound) => ({ id, topicId, broken: problems });
+const isBroken = (read: StoredRound | BrokenRound): read is BrokenRound => 'broken' in read;
 
 function foundryFor(platform: AdminPlatform<typeof manifest>): FoundryDeps {
 	const endpoint = platform.settings.FOUNDRY_ENDPOINT;
@@ -61,10 +66,17 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		return found;
 	}
 
-	async function existingRound(raw: string | undefined): Promise<StoredRound> {
+	async function readRound(raw: string | undefined): Promise<StoredRound | BrokenRound> {
 		const id = roundId(raw);
 		const found = id && (await store.round(id));
 		if (!found) throw nothingHere();
+		return found;
+	}
+
+	/** A round that can be changed. A stored row that no longer parses can only be deleted. */
+	async function existingRound(raw: string | undefined): Promise<StoredRound> {
+		const found = await readRound(raw);
+		if (isBroken(found)) throw new HttpError(409, 'broken', 'This round\'s stored data is damaged. Delete it and make it again.');
 		return found;
 	}
 
@@ -77,7 +89,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	/** Refuses AI work when there is no Foundry account, or when the worker already has plenty queued. */
 	async function guardDrafting(): Promise<void> {
 		if (!platform.settings.FOUNDRY_ENDPOINT) throw new HttpError(503, 'ai_unavailable', 'Drafting with AI is not set up yet.');
-		const drafting = (await store.rounds()).filter(({ round }) => round.state.kind === 'drafting').length;
+		const drafting = (await store.rounds()).rounds.filter(({ round }) => round.state.kind === 'drafting').length;
 		if (drafting >= MAX_DRAFTING) throw new HttpError(429, 'too_many_drafts', `The AI already has ${drafting} rounds to draft. Try again when some are done.`);
 	}
 
@@ -135,7 +147,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const input = parseTopicInput(body);
 					if (!input.ok) throw invalid(input.problems);
 					const order = Math.max(-1, ...(await store.topics()).map(({ topic }) => topic.order)) + 1;
-					return { status: 201, json: topicView(await store.createTopic({ id: newId(topicId), ...input.value, order }), []) };
+					return { status: 201, json: topicView(await store.createTopic({ id: newId(topicId), ...input.value, order }), { rounds: [], broken: [] }) };
 				},
 			},
 			{
@@ -160,7 +172,8 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run({ params }) {
 					const id = topicId(params['id']);
 					if (!id) return { status: 204 };
-					if ((await store.rounds()).some(({ round }) => round.topicId === id)) throw new HttpError(409, 'has_rounds', 'Delete the topic\'s rounds first.');
+					const { rounds, broken } = await store.rounds();
+					if (rounds.some(({ round }) => round.topicId === id) || broken.some((round) => round.topicId === id)) throw new HttpError(409, 'has_rounds', 'Delete the topic\'s rounds first.');
 					await store.deleteTopic(id);
 					return { status: 204 };
 				},
@@ -172,8 +185,9 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				body: 'none',
 				async run({ params }) {
 					const { topic } = await existingTopic(params['id']);
-					const rounds = (await store.rounds()).filter(({ round }) => round.topicId === topic.id).sort((a, b) => b.round.updatedAt.localeCompare(a.round.updatedAt));
-					return { status: 200, json: { rounds: rounds.map(roundView) } };
+					const { rounds, broken } = await store.rounds();
+					const mine = rounds.filter(({ round }) => round.topicId === topic.id).sort((a, b) => b.round.updatedAt.localeCompare(a.round.updatedAt));
+					return { status: 200, json: { rounds: [...broken.filter((round) => round.topicId === topic.id).map(brokenView), ...mine.map(roundView)] } };
 				},
 			},
 			{
@@ -210,7 +224,8 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				path: 'rounds/{id}',
 				body: 'none',
 				async run({ params }) {
-					return { status: 200, json: roundView(await existingRound(params['id'])) };
+					const found = await readRound(params['id']);
+					return { status: 200, json: isBroken(found) ? brokenView(found) : roundView(found) };
 				},
 			},
 			{

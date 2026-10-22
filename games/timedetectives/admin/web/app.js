@@ -3,7 +3,7 @@ import { CONFIDENCE, QUESTION_KINDS, offeredChoices } from './rules.js';
 import { enterAdmin, ready, whileLoading } from '/shell/v1/index.js';
 
 const STARTERS = ['Ancient Greeks', 'Saxons', 'Vikings', 'Stone Age people', 'Bronze Age people', 'Iron Age people', 'Egyptians'];
-const BADGES = { drafting: 'Drafting…', failed: 'Failed', draft: 'Draft', published: 'Published' };
+const BADGES = { drafting: 'Drafting…', failed: 'Failed', draft: 'Draft', published: 'Published', broken: 'Damaged' };
 const KINDS = Object.keys(QUESTION_KINDS);
 const POLL_MS = 3000;
 const POLL_FOR_MS = 5 * 60_000;
@@ -69,7 +69,11 @@ function pollWhile(load, waiting) {
   setTimeout(tick, POLL_MS);
 }
 
+const kindOf = (round) => (round.broken ? 'broken' : round.state.kind);
+const damage = (round) => `This round's stored data is damaged, so nobody can edit or play it: ${round.broken.join('; ')}. Delete it and make it again.`;
+
 function roundTitle(round) {
+  if (round.broken) return 'Damaged round';
   const { state } = round;
   if (state.content) return state.content.title;
   return state.focus ? `About ${state.focus}` : 'A round the AI chooses';
@@ -143,13 +147,14 @@ async function deleteTopic(t) {
 function roundCard(round) {
   const thumb = h('img', { className: 'thumb', alt: '' });
   if (round.hasPicture) api.picture(round.id).then((url) => (thumb.src = url), () => {});
-  const { state } = round;
+  const kind = kindOf(round);
+  const reason = kind === 'broken' ? damage(round) : kind === 'failed' ? round.state.reason : '';
   return h('li', { className: 'card round-card' },
     round.hasPicture ? thumb : h('span', { className: 'thumb empty', ariaHidden: 'true' }),
     h('div', { className: 'round-body' },
       h('a', { className: 'card-title', href: `#round/${round.id}`, textContent: roundTitle(round) }),
-      h('div', { className: 'badges' }, badge(state.kind), ...(state.source === 'human' ? [h('span', { className: 'badge', textContent: 'Edited by hand' })] : [])),
-      ...(state.kind === 'failed' ? [h('p', { className: 'reason', textContent: state.reason })] : [])));
+      h('div', { className: 'badges' }, badge(kind), ...(round.state?.source === 'human' ? [h('span', { className: 'badge', textContent: 'Edited by hand' })] : [])),
+      ...(reason ? [h('p', { className: 'reason', textContent: reason })] : [])));
 }
 
 async function loadRounds() {
@@ -159,7 +164,7 @@ async function loadRounds() {
   return rounds;
 }
 
-const drafting = (rounds) => rounds.some((round) => round.state.kind === 'drafting');
+const drafting = (rounds) => rounds.some((round) => round.state?.kind === 'drafting');
 
 async function openTopic(id) {
   topic = topics.find((t) => t.id === id) ?? null;
@@ -257,8 +262,8 @@ async function showPicture(round) {
 
 function renderRound(round) {
   editing.round = round;
-  const kind = round?.state.kind ?? 'new';
-  const content = round?.state.content;
+  const kind = round ? kindOf(round) : 'new';
+  const content = round?.state?.content;
   $('round-heading').textContent = round ? roundTitle(round) : 'New round';
   $('round-badge').hidden = !round;
   $('round-badge').className = `badge ${kind}`;
@@ -268,12 +273,13 @@ function renderRound(round) {
   const notes = {
     new: 'Fill in every field and save, then add a picture.',
     drafting: content ? 'The AI is drawing a new picture. This page updates when it is done.' : 'The AI is writing this round. This page updates when it is done.',
-    failed: round?.state.reason,
+    failed: round?.state?.reason,
+    broken: kind === 'broken' ? damage(round) : '',
     draft: round?.hasPicture ? 'Only admins can see this round until you publish it.' : 'Add a picture before publishing.',
   };
   $('round-note').hidden = !notes[kind];
   $('round-note').textContent = notes[kind] ?? '';
-  $('round-picture').hidden = !round || working || kind === 'failed';
+  $('round-picture').hidden = !round || working || kind === 'failed' || kind === 'broken';
   $('round-form').hidden = !editable && !content;
   for (const control of $('round-form').elements) control.disabled = !editable;
   $('r-save').hidden = !editable;
@@ -286,7 +292,7 @@ function renderRound(round) {
   fillForm(content);
   problems('round-problems', null);
   renderPreview();
-  if (round && !working && kind !== 'failed') showPicture(round).catch((err) => status(err.message, 'error'));
+  if (round && !working && kind !== 'failed' && kind !== 'broken') showPicture(round).catch((err) => status(err.message, 'error'));
 }
 
 async function openRound(id) {
@@ -295,12 +301,12 @@ async function openRound(id) {
   editing = { topicId: round.topicId, round };
   $('round-back').href = `#topic/${round.topicId}`;
   renderRound(round);
-  if (round.state.kind === 'drafting') {
+  if (round.state?.kind === 'drafting') {
     pollWhile(async () => {
       const latest = await api.round(id);
-      if (latest.state.kind !== 'drafting') renderRound(latest);
+      if (latest.state?.kind !== 'drafting') renderRound(latest);
       return latest;
-    }, (latest) => latest.state.kind === 'drafting');
+    }, (latest) => latest.state?.kind === 'drafting');
   }
 }
 

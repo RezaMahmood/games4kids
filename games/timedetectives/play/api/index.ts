@@ -17,6 +17,7 @@ import {
 	roundView,
 	scoreAttempt,
 	topicId,
+	type BrokenRound,
 	type Published,
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
@@ -26,11 +27,20 @@ const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', '
 export const createPlayApi = definePlayApi(manifest, (platform) => {
 	const store = playStore(platform);
 
-	async function published(rawId: string | undefined): Promise<Published> {
+	const skip = (log: (line: string) => void, { id, problems }: BrokenRound) => log(`skipped stored round ${id}, which does not parse: ${problems.join('; ')}`);
+
+	async function published(rawId: string | undefined, log: (line: string) => void): Promise<Published> {
 		const id = roundId(rawId);
 		const round = id && (await store.round(id));
-		if (!round || !isPublished(round)) throw nothingHere();
+		if (round && 'broken' in round) skip(log, round);
+		if (!round || 'broken' in round || !isPublished(round)) throw nothingHere();
 		return round;
+	}
+
+	async function playable(log: (line: string) => void): Promise<Published[]> {
+		const { rounds, broken } = await store.rounds();
+		for (const round of broken) skip(log, round);
+		return rounds.filter(isPublished);
 	}
 
 	return {
@@ -40,9 +50,9 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				method: 'GET',
 				path: 'topics',
 				body: 'none',
-				async run() {
-					const [topics, rounds] = await Promise.all([store.topics(), store.rounds()]);
-					const open = new Set(rounds.filter(isPublished).map((round) => round.topicId));
+				async run({ log }) {
+					const [topics, rounds] = await Promise.all([store.topics(), playable(log)]);
+					const open = new Set(rounds.map((round) => round.topicId));
 					return { status: 200, json: { topics: topics.filter((topic) => open.has(topic.id)).map(({ id, title }) => ({ id, title })) } };
 				},
 			},
@@ -52,12 +62,12 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				path: 'topics/{id}/next',
 				body: 'none',
 				/** A round from the topic the child has not played yet, at random, or any of them once they have played them all. */
-				async run({ caller, params, query }) {
+				async run({ caller, params, query, log }) {
 					const confidence = parseConfidence(query.get('confidence'));
 					if (!confidence) throw invalid(['confidence must be one of lots, bit, easy']);
 					const topic = topicId(params['id']);
-					const [rounds, played] = await Promise.all([store.rounds(), store.played(caller.userId)]);
-					const candidates = rounds.filter(isPublished).filter((round) => round.topicId === topic);
+					const [rounds, played] = await Promise.all([playable(log), store.played(caller.userId)]);
+					const candidates = rounds.filter((round) => round.topicId === topic);
 					const seen = new Set(played.map((round) => round.roundId));
 					const fresh = candidates.filter((round) => !seen.has(round.id));
 					const pool = fresh.length > 0 ? fresh : candidates;
@@ -71,8 +81,8 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				method: 'GET',
 				path: 'rounds/{id}/picture',
 				body: 'none',
-				async run({ params, ifNoneMatch }) {
-					const round = await published(params['id']);
+				async run({ params, ifNoneMatch, log }) {
+					const round = await published(params['id'], log);
 					return imageReply(await store.picture(round.id, ifNoneMatch));
 				},
 			},
@@ -82,8 +92,8 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				path: 'rounds/{id}/attempts/{attemptId}',
 				body: 'json',
 				/** Marks the whole log again, so the score rule lives here and the page's marks are only for feedback. */
-				async run({ caller, params, body, now }) {
-					const round = await published(params['id']);
+				async run({ caller, params, body, now, log }) {
+					const round = await published(params['id'], log);
 					const input = parseAttemptInput(params['attemptId'], body);
 					if (!input.ok) throw invalid(input.problems);
 					const marked = scoreAttempt(round.state.content, input.value);

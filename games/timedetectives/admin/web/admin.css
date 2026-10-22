@@ -37,7 +37,7 @@ label .note { font-weight: 400; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badge { display: inline-block; padding: 2px 12px; border-radius: var(--radius-chip); border: 2px solid var(--color-line); font-size: var(--size-caption); font-weight: 700; }
 .badge.drafting { border-color: var(--color-accent); background: #FFF3D6; }
-.badge.failed { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-tint); }
+.badge.failed, .badge.broken { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-tint); }
 .badge.draft { border-color: var(--color-primary); color: var(--color-primary); }
 .badge.published { border-color: var(--color-success); color: #fff; background: var(--color-success); }
 .reason { margin: 0; color: var(--color-danger); }
