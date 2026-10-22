@@ -37,6 +37,7 @@ function problems(listId, err) {
 
 function show(view) {
   for (const id of VIEWS) $(id).hidden = id !== view;
+  $('round-actions').hidden = view !== 'round-view';
   window.scrollTo(0, 0);
 }
 
@@ -272,14 +273,14 @@ function renderRound(round) {
   };
   $('round-note').hidden = !notes[kind];
   $('round-note').textContent = notes[kind] ?? '';
-  $('round-job').hidden = kind !== 'failed';
   $('round-picture').hidden = !round || working || kind === 'failed';
   $('round-form').hidden = !editable && !content;
-  for (const control of $('round-form').elements) control.disabled = !editable && control.id !== 'r-delete';
+  for (const control of $('round-form').elements) control.disabled = !editable;
   $('r-save').hidden = !editable;
   $('r-publish').hidden = kind !== 'draft';
   $('r-publish').disabled = !round?.hasPicture;
   $('r-unpublish').hidden = kind !== 'published';
+  $('r-retry').hidden = kind !== 'failed';
   $('r-delete').hidden = !round;
   $('preview').hidden = !editable && !content;
   fillForm(content);

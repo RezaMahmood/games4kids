@@ -61,9 +61,6 @@
           <span id="round-badge" class="badge"></span>
         </div>
         <p id="round-note" class="panel note" hidden></p>
-        <div id="round-job" class="actions" hidden>
-          <button id="r-retry" type="button" class="primary">Try again</button>
-        </div>
         <div id="round-picture" class="picture-panel" hidden>
           <img id="r-picture" alt="">
           <p id="r-no-picture" class="note" hidden>No picture yet. Draw one with AI or upload a PNG or JPEG.</p>
@@ -83,12 +80,6 @@
           <label>Picture description <input id="r-pictureAlt" type="text" maxlength="250"></label>
           <div id="r-questions"></div>
           <ul id="round-problems" class="problems" hidden></ul>
-          <div class="actions sticky-actions">
-            <button id="r-save" type="submit" class="primary">Save</button>
-            <button id="r-publish" type="button">Publish</button>
-            <button id="r-unpublish" type="button">Unpublish</button>
-            <button id="r-delete" type="button" class="danger">Delete round</button>
-          </div>
         </form>
         <section id="preview" class="panel" aria-labelledby="preview-heading" hidden>
           <h2 id="preview-heading">What a child sees</h2>
@@ -97,7 +88,16 @@
         </section>
       </section>
     </main>
-    <p id="status" role="status" hidden></p>
+    <div id="dock">
+      <p id="status" role="status" hidden></p>
+      <div id="round-actions" class="actions" hidden>
+        <button id="r-save" type="submit" form="round-form" class="primary">Save</button>
+        <button id="r-publish" type="button">Publish</button>
+        <button id="r-unpublish" type="button">Unpublish</button>
+        <button id="r-retry" type="button" class="primary">Try again</button>
+        <button id="r-delete" type="button" class="danger">Delete round</button>
+      </div>
+    </div>
   </div>
   <script type="module" src="app.js"></script>
 </body>
