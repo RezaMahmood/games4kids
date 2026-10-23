@@ -88,8 +88,10 @@ function storedState(row: Row, problems: string[]): RoundState | undefined {
 	}
 	if (!source) return undefined;
 	switch (kind) {
-		case 'drafting':
-			return { kind, focus, source, ...kept };
+		case 'drafting': {
+			const notice = optionalText(row, 'notice', problems);
+			return { kind, focus, source, ...kept, ...(notice && { notice }) };
+		}
 		case 'failed':
 			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '' };
 		case 'draft': {
@@ -142,7 +144,7 @@ function roundRow({ id, topicId, state, picture, picturePrompt, updatedAt }: Rou
 		source: state.source,
 		...job,
 		...(state.kind === 'failed' && { reason: state.reason }),
-		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
+		...((state.kind === 'draft' || state.kind === 'drafting') && state.notice && { notice: state.notice }),
 		...content,
 		...(state.kind === 'published' && { publishedAt: state.publishedAt }),
 		...(picture && { picture }),

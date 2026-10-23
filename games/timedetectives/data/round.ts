@@ -9,10 +9,10 @@ export type Source = 'ai' | 'human';
  * Where a round is in its life. The AI job lives here too, so there is no jobs table: `drafting` is queued for the
  * worker, and once it has content the words are written and only the picture is left to draw. The AI failing to
  * write the words leaves a `failed` round with nothing in it. The AI failing to draw a picture never loses the words
- * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came.
+ * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came. A `notice` on `drafting` is the automatic check's finding on the words, kept until the draft is made.
  */
 export type RoundState =
-	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent }
+	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent; notice?: string }
 	| { kind: 'failed'; focus: string; source: Source; reason: string }
 	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string }
 	| { kind: 'published'; content: RoundContent; source: Source; publishedAt: string };
