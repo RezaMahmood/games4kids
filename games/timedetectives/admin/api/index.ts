@@ -1,7 +1,8 @@
-import { defineAdminApi, HttpError, type AdminPlatform, type AdminRoute } from '@g4k/sdk';
+import { costView, defineAdminApi, HttpError, type AdminPlatform, type AdminRoute, type AiUse, type Spend, type UsageSubject } from '@g4k/sdk';
 import {
 	adminStore,
 	imageReply,
+	keptChecks,
 	nothingHere,
 	parseFocus,
 	parseRoundContent,
@@ -20,7 +21,7 @@ import {
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import type { TypeSafeDeps } from './check.ts';
-import { AiFailure, type FoundryDeps } from './foundry.ts';
+import { AiFailure, type Area, type FoundryDeps } from './foundry.ts';
 import { parseDraftMessage, runDraft, settleStale, type DraftMessage } from './worker.ts';
 
 /** About ten minutes of AI work, so a stuck page cannot fill the queue. */
@@ -30,8 +31,8 @@ const CHANGED = 'Someone else changed this since you loaded it. Reload to see th
 const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', 'The request is not valid.', problems);
 const changed = () => new HttpError(412, 'changed', CHANGED);
 const busy = () => new HttpError(409, 'busy', 'The AI is still working on this round, or could not write it.');
-/** The admin acted on the round, so a notice about the AI's last picture no longer applies. */
-const acted = (state: Settled): Settled => (state.kind === 'draft' ? { kind: 'draft', content: state.content, source: state.source } : state);
+/** The admin acted on the round, so a notice about the AI's last picture no longer applies. The check's findings stay. */
+const acted = (state: Settled): Settled => (state.kind === 'draft' ? { kind: 'draft', content: state.content, source: state.source, ...(state.checks && { checks: state.checks }) } : state);
 const field = (body: unknown, name: string): unknown => (typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined);
 
 function etagOf(body: unknown, what: string): string {
@@ -43,25 +44,37 @@ function etagOf(body: unknown, what: string): string {
 const topicView = ({ topic, etag }: StoredTopic, { rounds, broken }: RoundRows) => {
 	const mine = rounds.filter(({ round }) => round.topicId === topic.id);
 	const damaged = broken.filter((round) => round.topicId === topic.id).length;
-	return { ...topic, etag, rounds: mine.length + damaged, published: mine.filter(({ round }) => round.state.kind === 'published').length };
+	const count = (kind: RoundState['kind']) => mine.filter(({ round }) => round.state.kind === kind).length;
+	return { ...topic, etag, rounds: mine.length + damaged, published: count('published'), drafts: count('draft') };
 };
 
 const roundView = ({ round: { picturePrompt: _prompt, picture, ...round }, etag }: StoredRound) => ({ ...round, hasPicture: picture !== undefined, etag });
 const brokenView = ({ id, topicId, problems }: BrokenRound) => ({ id, topicId, broken: problems });
 const isBroken = (read: StoredRound | BrokenRound): read is BrokenRound => 'broken' in read;
 
-function foundryFor(platform: AdminPlatform<typeof manifest>): FoundryDeps {
+type Platform = AdminPlatform<typeof manifest>;
+
+const meterFor = (platform: Platform, subject: UsageSubject) => (use: AiUse<Area>) => platform.usage.record({ ...use, subject });
+
+function foundryFor(platform: Platform, subject: UsageSubject): FoundryDeps {
 	const endpoint = platform.settings.FOUNDRY_ENDPOINT;
 	if (!endpoint) throw new AiFailure(false, 'Drafting with AI is not set up.');
-	return { endpoint, token: platform.tokens.cognitiveServices };
+	return { endpoint, token: platform.tokens.cognitiveServices, meter: meterFor(platform, subject) };
 }
 
 /** Undefined turns the check off. App Service leaves a Key Vault reference's text in the setting until the secret exists, which is not a key. */
-function typesafeFor(platform: AdminPlatform<typeof manifest>): TypeSafeDeps | undefined {
+function typesafeFor(platform: Platform, subject: UsageSubject): TypeSafeDeps | undefined {
 	const apiKey = platform.settings.TYPESAFE_API_KEY;
 	if (!apiKey || apiKey.startsWith('@Microsoft.KeyVault(')) return undefined;
-	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/' };
+	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/', meter: meterFor(platform, subject) };
 }
+
+/** Only the ids still here, each with what the AI has cost it. */
+const costsOf = (spend: ReadonlyMap<string, Spend>, ids: readonly string[]) =>
+	Object.fromEntries(ids.flatMap((id) => {
+		const found = spend.get(id);
+		return found ? [[id, costView(found)]] : [];
+	}));
 
 export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	const store = adminStore(platform);
@@ -167,6 +180,18 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				},
 			},
 			{
+				name: 'costs',
+				method: 'GET',
+				path: 'costs',
+				body: 'none',
+				/** What the AI has cost so far by topic and by round, counting every ask, check, retry and redraw. A topic still counts its deleted rounds. */
+				async run() {
+					const [{ byGroup, byItem }, topics, { rounds, broken }] = await Promise.all([platform.usage.spend(), store.topics(), store.rounds()]);
+					const roundIds = [...rounds.map(({ round }) => round.id), ...broken.map(({ id }) => id)];
+					return { status: 200, json: { topics: costsOf(byGroup, topics.map(({ topic }) => topic.id)), rounds: costsOf(byItem, roundIds) } };
+				},
+			},
+			{
 				name: 'createTopic',
 				method: 'POST',
 				path: 'topics',
@@ -269,7 +294,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const state = settled(found);
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
-					const next: RoundState = { ...acted(state), content: content.value, source: 'human' };
+					const checks = state.kind === 'draft' ? keptChecks(state.checks, state.content, content.value) : undefined;
+					const next: RoundState = state.kind === 'draft'
+						? { kind: 'draft', content: content.value, source: 'human', ...(checks && { checks }) }
+						: { ...state, content: content.value, source: 'human' };
 					// Once the admin rewrites the picture description, the next redraw draws from it instead of the AI's own prompt.
 					const { picturePrompt: _prompt, ...rest } = found.round;
 					const kept = content.value.pictureAlt === state.content.pictureAlt ? found.round : rest;
@@ -322,7 +350,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const state = settled(found);
 					if (state.kind === 'published') throw new HttpError(409, 'published', 'Unpublish the round before redrawing its picture, so children only see a picture you have checked.');
 					await guardDrafting(now);
-					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content };
+					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content, ...(state.checks && { checks: state.checks }) };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},
@@ -376,7 +404,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run(message, { now, log, dequeueCount }) {
 					const draft = parseDraftMessage(message);
 					if (!draft) return log('ignored a queue message that names no round');
-					await runDraft({ store, foundry: () => foundryFor(platform), typesafe: () => typesafeFor(platform), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
+					await runDraft({ store, foundry: (subject) => foundryFor(platform, subject), typesafe: (subject) => typesafeFor(platform, subject), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
 				},
 			},
 		],

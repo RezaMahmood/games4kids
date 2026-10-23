@@ -1,0 +1,197 @@
+{
+  "good": {
+    "lindisfarne": {
+      "title": "The raid on Lindisfarne",
+      "full": "The monks of a quiet island priory were singing their morning prayers. Out at sea, long ships with striped sails cut through the grey waves. The year was AD 793, and the island was Lindisfarne, off the coast of Northumbria. The ships carried Vikings from across the North Sea. They ran up the beach and burst into the church. They grabbed silver cups, jewelled books and food. Some monks hid in the fields until the ships sailed away. News of the raid spread across England. People had never seen anything like it. Many say the Viking Age began on that cold June day.",
+      "brief": "The bells were still ringing for morning prayers when the lookout saw sails on the horizon. The wind smelled of salt and seaweed. Nobody on the little island knew who was coming, or why. By lunchtime, nothing there would ever be the same again.",
+      "pictureAlt": "Longships with striped sails land on a rocky island beach beside a small stone church.",
+      "questions": [
+        { "kind": "who", "answer": "Vikings", "decoys": ["Romans", "Normans", "Ancient Egyptians"], "hint": "Look for who the ships carried across the North Sea." },
+        { "kind": "where", "answer": "Lindisfarne", "decoys": ["Hadrian's Wall", "Stonehenge", "The Tower of London"], "hint": "The story names the island off Northumbria." },
+        { "kind": "when", "answer": "AD 793", "decoys": ["about 3000 BC", "AD 43", "AD 1066"], "hint": "Find the year in the third sentence." }
+      ]
+    },
+    "tutankhamun": {
+      "title": "Tutankhamun's tomb",
+      "full": "Sand blew across the dry hills as the workers dug. For years they had found nothing but rubble. Then, in November AD 1922, a boy uncovered a stone step. The step led down to a sealed door. Howard Carter, an English archaeologist, had searched this place for many seasons. He was digging in the Valley of the Kings, near Luxor in Egypt. Pharaohs had been buried here more than three thousand years before. Carter made a small hole in the door and held up a candle. Gold glinted everywhere in the flickering light. Lord Carnarvon, who paid for the dig, asked if he could see anything. \"Yes, wonderful things,\" Carter replied. Inside lay the tomb of the boy king Tutankhamun. It was the most complete royal tomb ever found.",
+      "brief": "A hot wind swept dust across the rocky hills. Workers with baskets had dug here for years and found only stones. Their leader was running out of money and hope. One more winter, he decided, would be the last. Then a shout rang out from a trench. Someone had found a step cut into the rock, leading down into the dark.",
+      "pictureAlt": "An archaeologist holds a candle up to a small hole in a sealed stone doorway, with gold glinting beyond.",
+      "questions": [
+        { "kind": "who", "answer": "Howard Carter", "decoys": ["Christopher Columbus", "Elizabeth I", "Julius Caesar"], "hint": "Look for the archaeologist who held up the candle." },
+        { "kind": "where", "answer": "Valley of the Kings", "decoys": ["Stonehenge", "Rome", "The Great Wall of China"], "hint": "The story names the place where pharaohs were buried." },
+        { "kind": "when", "answer": "AD 1922", "decoys": ["about 3000 BC", "AD 1066", "AD 1666"], "hint": "Find the month and year when the step was found." }
+      ]
+    },
+    "boudica": {
+      "title": "Boudica's revolt",
+      "full": "The Iceni people of eastern Britain were furious. Roman soldiers had seized their land and treated their royal family cruelly. Their queen, Boudica, would not stay quiet. In AD 60 she gathered a huge army of Britons. Tribes joined her from all around. They marched towards Camulodunum, the Roman town we now call Colchester. Most Roman soldiers were far away in Wales. The town had no strong walls to protect it. Boudica's warriors swept through the streets. The settlers hid in the great temple of Emperor Claudius. After two days, the temple fell too. The whole town was burned to the ground. Today, archaeologists still find a red layer of ash beneath Colchester's streets.",
+      "brief": "Smoke drifted over the fields as chariots rumbled along the track. Thousands of angry warriors marched behind them, banging shields and shouting. They had been insulted, and now they wanted revenge. Ahead lay a busy town full of new buildings and frightened families. Its people had no walls to hide behind. Messengers galloped away for help, but help was very far away.",
+      "pictureAlt": "A woman with long red hair rides a chariot at the front of a crowd of warriors towards a town.",
+      "questions": [
+        { "kind": "who", "answer": "Boudica", "decoys": ["Queen Victoria", "Cleopatra", "Elizabeth I"], "hint": "Look for the queen of the Iceni." },
+        { "kind": "where", "answer": "Camulodunum", "decoys": ["Bath", "Lindisfarne", "Edinburgh"], "hint": "Find the Roman town the army marched towards." },
+        { "kind": "when", "answer": "AD 60", "decoys": ["about 3000 BC", "AD 1066", "AD 1588"], "hint": "Find the year when the army gathered." }
+      ]
+    },
+    "great_fire": {
+      "title": "The Great Fire of London",
+      "full": "Early on a Sunday in September AD 1666, a fire began in a bakery on Pudding Lane. The baker, Thomas Farriner, escaped through an upstairs window. A strong east wind pushed the flames from roof to roof. The wooden houses of London burned like dry sticks. Samuel Pepys, a navy official, watched from a boat on the River Thames. That night he wrote about the fire in his famous diary. He saw people throwing their belongings into boats. He even buried his best cheese in the garden to save it. The fire burned for four days. Soldiers blew up houses to stop it spreading. Old St Paul's Cathedral was destroyed. Thousands of families lost their homes, but very few people died.",
+      "brief": "It was a hot, dry summer, and the wooden houses leaned close together. A strong wind was blowing from the east. In the dark streets, everyone was fast asleep. Then a smell of smoke crept under the doors. Somewhere nearby, an oven had not been put out properly. By morning, bells were ringing and people were running for the river with whatever they could carry.",
+      "pictureAlt": "Flames rise over crowded wooden houses at night while people row boats full of belongings across a river.",
+      "questions": [
+        { "kind": "who", "answer": "Samuel Pepys", "decoys": ["Guy Fawkes", "Henry VIII", "Florence Nightingale"], "hint": "Look for the man who wrote a famous diary." },
+        { "kind": "where", "answer": "London", "decoys": ["Edinburgh", "York", "Paris"], "hint": "Find the city whose wooden houses burned." },
+        { "kind": "when", "answer": "AD 1666", "decoys": ["AD 43", "AD 1066", "AD 1945"], "hint": "The year is in the very first sentence." }
+      ]
+    },
+    "hastings": {
+      "title": "The Battle of Hastings",
+      "full": "On 14 October AD 1066, two armies faced each other on a hill in southern England. King Harold's tired English soldiers stood at the top behind a wall of shields. They had marched all the way from a battle in the north. At the bottom waited William of Normandy and his knights on horseback. William had sailed across the Channel to claim the English crown. The fighting near Hastings lasted all day. Arrows flew and horses charged up the slope. Late in the afternoon, Harold was killed. The English army broke apart and fled. On Christmas Day, William was crowned king in Westminster Abbey. Later, people called him William the Conqueror.",
+      "brief": "Two tired armies stood facing each other as the sun came up. One waited at the top of a slope, shields locked together. The other had crossed the sea in hundreds of boats, bringing horses and archers. Both leaders believed the crown was theirs. By nightfall only one of them would still be alive, and a whole country would have a new ruler.",
+      "pictureAlt": "Knights on horseback charge up a grassy hill towards a line of soldiers holding round shields.",
+      "questions": [
+        { "kind": "who", "answer": "William of Normandy", "decoys": ["Alfred the Great", "Julius Caesar", "Henry VIII"], "hint": "Look for who sailed across the Channel." },
+        { "kind": "where", "answer": "Hastings", "decoys": ["Lindisfarne", "Bath", "Edinburgh"], "hint": "The story names the town the fighting was near." },
+        { "kind": "when", "answer": "AD 1066", "decoys": ["AD 43", "AD 793", "AD 1666"], "hint": "The date is at the very start of the story." }
+      ]
+    },
+    "skara_brae": {
+      "title": "Skara Brae",
+      "full": "A cold wind blew off the sea as a family woke in their stone house. Their home had beds, shelves and a hearth, all made from flat stones. The house sat among a few others, joined by low covered passages. This village was Skara Brae, on Orkney in the far north of Scotland. The people living there were Stone Age farmers. They kept cattle and sheep and grew barley in small fields. They fished in the sea and gathered shellfish from the beach. They had no metal tools, only stone, bone and wood. Around 3000 BC, life here was busy and safe. Thousands of years later, a great storm blew the sand away and uncovered the village.",
+      "brief": "Wind howled over the low green hills and waves crashed on the beach. Inside a snug stone home, a fire crackled in the middle of the floor. Children slept on beds piled with soft furs and heather. Outside, the cattle huddled together against the cold. Nobody here had ever travelled far from home, and nobody wanted to tonight.",
+      "pictureAlt": "A small stone house with a fire in the middle, stone beds and shelves, and a family sitting round the hearth.",
+      "questions": [
+        { "kind": "who", "answer": "Stone Age farmers", "decoys": ["Romans", "Vikings", "Victorians"], "hint": "Look for who kept cattle and grew barley." },
+        { "kind": "where", "answer": "Skara Brae", "decoys": ["Stonehenge", "Pompeii", "Hadrian's Wall"], "hint": "The story names the village on Orkney." },
+        { "kind": "when", "answer": "about 3000 BC", "decoys": ["AD 43", "AD 1066", "AD 1851"], "hint": "Find the date with BC in it." }
+      ]
+    },
+    "olympia": {
+      "title": "The first Olympic Games",
+      "full": "Crowds gathered in a green valley beside a sacred grove of olive trees. They had come to honour Zeus, king of the gods. This place was Olympia, in southern Greece. The year was 776 BC, and the very first Olympic Games were about to begin. There was only one race, a sprint along a straight track. The runners were Ancient Greeks from many different cities. They ran barefoot over the hot sand. A young cook named Koroibos crossed the line first. His prize was not a medal. Instead, he was given a crown made of olive leaves. Later Games added wrestling, chariot races and the long jump. Wars between cities stopped so athletes could travel safely.",
+      "brief": "Thousands of people crowded around a long, dusty track. The sun was blazing, and the air smelled of olive trees and smoke from the altars. At one end, a line of young men stood ready, barefoot and nervous. Nobody had seen a contest quite like this before. The crowd fell silent, waiting for the signal to run.",
+      "pictureAlt": "Barefoot runners sprint along a sandy track while a crowd watches from a grassy bank beside olive trees.",
+      "questions": [
+        { "kind": "who", "answer": "Ancient Greeks", "decoys": ["Ancient Egyptians", "Vikings", "Romans"], "hint": "Look for who the runners were." },
+        { "kind": "where", "answer": "Olympia", "decoys": ["Athens", "Rome", "Sparta"], "hint": "The story names the place in southern Greece." },
+        { "kind": "when", "answer": "776 BC", "decoys": ["about 3000 BC", "AD 43", "AD 1066"], "hint": "Find the year with BC in the story." }
+      ]
+    },
+    "hadrians_wall": {
+      "title": "Hadrian's Wall",
+      "full": "In AD 122, Emperor Hadrian visited the far edge of his empire in Britain. He was worried about raids from the tribes living further north. So he ordered his soldiers to build a great wall. It stretched seventy-three miles across northern England, from coast to coast. The soldiers cut and carried thousands of heavy stones. Every mile they built a small fort with a gate. Bigger forts, like Housesteads, held hundreds of men. Soldiers came from all over the empire, even from Syria and Spain. They kept watch through freezing winters. Traders and families settled in villages beside the forts. The wall took about six years to finish. You can still walk along parts of it today.",
+      "brief": "Icy rain blew sideways across the bare hills. A line of men in metal helmets heaved another heavy stone into place. Their hands were raw and their feet were frozen. Far from their warm homes, they grumbled about the cold and the mud. Beyond the hills lived fierce tribes who did not want them there. Every day the great line of stone grew a little longer.",
+      "pictureAlt": "Soldiers in helmets lift stones onto a long wall that winds over green hills in the rain.",
+      "questions": [
+        { "kind": "who", "answer": "Emperor Hadrian", "decoys": ["Julius Caesar", "Boudica", "King Arthur"], "hint": "Look for who ordered the soldiers to build." },
+        { "kind": "where", "answer": "Northern England", "decoys": ["Cornwall", "Wales", "London"], "hint": "Find where the wall stretched from coast to coast." },
+        { "kind": "when", "answer": "AD 122", "decoys": ["about 3000 BC", "AD 1066", "AD 1666"], "hint": "The year is in the first sentence." }
+      ]
+    }
+  },
+  "defects": [
+    { "id": "lindisfarne-brief-year", "base": "lindisfarne", "type": "brief_leak", "subtle": false, "expect": ["when_brief"],
+      "edits": [{ "path": "brief", "find": "The wind smelled of salt and seaweed.", "replace": "It was a June morning in AD 793, and the wind smelled of salt and seaweed." }] },
+    { "id": "lindisfarne-brief-raiders", "base": "lindisfarne", "type": "brief_leak", "subtle": false, "expect": ["who_brief"],
+      "edits": [{ "path": "brief", "find": "Nobody on the little island knew who was coming, or why.", "replace": "Nobody on the little island guessed that Viking raiders were coming." }] },
+    { "id": "tutankhamun-brief-century", "base": "tutankhamun", "type": "brief_leak", "subtle": true, "expect": ["when_brief"],
+      "edits": [{ "path": "brief", "find": "Their leader was running out of money and hope.", "replace": "In those early years of the twentieth century, their leader was running out of money and hope." }] },
+    { "id": "great_fire-brief-river", "base": "great_fire", "type": "brief_leak", "subtle": true, "expect": ["where_brief"],
+      "edits": [{ "path": "brief", "find": "running for the river", "replace": "running for the River Thames" }] },
+    { "id": "hastings-brief-town", "base": "hastings", "type": "brief_leak", "subtle": false, "expect": ["where_brief"],
+      "edits": [{ "path": "brief", "find": "One waited at the top of a slope, shields locked together.", "replace": "One waited at the top of a slope near Hastings, shields locked together." }] },
+    { "id": "boudica-brief-queen", "base": "boudica", "type": "brief_leak", "subtle": false, "expect": ["who_brief"],
+      "edits": [{ "path": "brief", "find": "Thousands of angry warriors marched behind them, banging shields and shouting.", "replace": "Thousands of angry warriors marched behind their queen, Boudica, banging shields and shouting." }] },
+    { "id": "skara_brae-brief-orkney", "base": "skara_brae", "type": "brief_leak", "subtle": true, "expect": ["where_brief"],
+      "note": "names the island group, not the village; a child would need to know Skara Brae is on Orkney",
+      "edits": [{ "path": "brief", "find": "Wind howled over the low green hills", "replace": "Wind howled over the low green hills of Orkney" }] },
+    { "id": "olympia-brief-zeus", "base": "olympia", "type": "brief_leak", "subtle": true, "expect": ["who_brief"],
+      "note": "Zeus tells a child the people are Ancient Greeks; it may also hint where (Greece)",
+      "edits": [{ "path": "brief", "find": "smoke from the altars.", "replace": "smoke from the altars of Zeus." }] },
+    { "id": "olympia-brief-years-ago", "base": "olympia", "type": "brief_leak", "subtle": true, "expect": ["when_brief"],
+      "note": "needs arithmetic: almost 2,800 years ago rules out every decoy",
+      "edits": [{ "path": "brief", "find": "Nobody had seen a contest quite like this before.", "replace": "Nobody had seen a contest quite like this before, almost 2,800 years ago." }] },
+    { "id": "hadrians_wall-brief-emperor", "base": "hadrians_wall", "type": "brief_leak", "subtle": false, "expect": ["who_brief"],
+      "edits": [{ "path": "brief", "find": "A line of men in metal helmets heaved", "replace": "Emperor Hadrian watched as a line of men in metal helmets heaved" }] },
+    { "id": "skara_brae-brief-stone-age", "base": "skara_brae", "type": "brief_leak", "subtle": false, "expect": ["who_brief"],
+      "note": "Stone Age also narrows when to the only BC decoy",
+      "edits": [{ "path": "brief", "find": "Nobody here had ever travelled far from home", "replace": "These Stone Age farmers had never travelled far from home" }] },
+
+    { "id": "boudica-decoy-colchester", "base": "boudica", "type": "decoy_supported", "subtle": true, "expect": ["where_decoy_1"],
+      "note": "the story gives Colchester as the modern name of the answer",
+      "edits": [{ "path": "questions.where.decoys[0]", "set": "Colchester" }] },
+    { "id": "tutankhamun-decoy-carnarvon", "base": "tutankhamun", "type": "decoy_supported", "subtle": true, "expect": ["who_decoy_2"],
+      "note": "doubtful: the story credits Carnarvon with paying for the dig, so 'Who is it?' could fairly mean him",
+      "edits": [{ "path": "questions.who.decoys[1]", "set": "Lord Carnarvon" }] },
+    { "id": "hastings-decoy-conqueror", "base": "hastings", "type": "decoy_supported", "subtle": true, "expect": ["who_decoy_1"],
+      "note": "the story's last sentence gives this as William's other name",
+      "edits": [{ "path": "questions.who.decoys[0]", "set": "William the Conqueror" }] },
+    { "id": "lindisfarne-decoy-same-year", "base": "lindisfarne", "type": "decoy_supported", "subtle": false, "expect": ["when_decoy_3"],
+      "edits": [{ "path": "questions.when.decoys[2]", "set": "793" }] },
+    { "id": "skara_brae-decoy-years-ago", "base": "skara_brae", "type": "decoy_supported", "subtle": true, "expect": ["when_decoy_3"],
+      "note": "the same date as the answer, written as years ago",
+      "edits": [{ "path": "questions.when.decoys[2]", "set": "about 5,000 years ago" }] },
+    { "id": "olympia-decoy-koroibos", "base": "olympia", "type": "decoy_supported", "subtle": true, "expect": ["who_decoy_3"],
+      "note": "doubtful: Koroibos is the one person the story names, so 'Who is it?' could fairly mean him",
+      "edits": [{ "path": "questions.who.decoys[2]", "set": "Koroibos" }] },
+    { "id": "hadrians_wall-decoy-britain", "base": "hadrians_wall", "type": "decoy_supported", "subtle": true, "expect": ["where_decoy_3"],
+      "note": "the story places the wall in Britain, a broader but true answer",
+      "edits": [{ "path": "questions.where.decoys[2]", "set": "Britain" }] },
+    { "id": "great_fire-decoy-farriner", "base": "great_fire", "type": "decoy_supported", "subtle": true, "expect": ["who_decoy_3"],
+      "note": "doubtful: the story's fire starts in Farriner's bakery, so he is a fair 'who'",
+      "edits": [{ "path": "questions.who.decoys[2]", "set": "Thomas Farriner" }] },
+    { "id": "great_fire-decoy-city", "base": "great_fire", "type": "decoy_supported", "subtle": false, "expect": ["where_decoy_3"],
+      "edits": [{ "path": "questions.where.decoys[2]", "set": "The City of London" }] },
+    { "id": "hastings-decoy-october", "base": "hastings", "type": "decoy_supported", "subtle": false, "expect": ["when_decoy_2"],
+      "edits": [{ "path": "questions.when.decoys[1]", "set": "October 1066" }] },
+    { "id": "lindisfarne-decoy-northumbria", "base": "lindisfarne", "type": "decoy_supported", "subtle": true, "expect": ["where_decoy_1"],
+      "note": "doubtful: the island is off the coast of Northumbria, so Northumbria is near-true rather than stated",
+      "edits": [{ "path": "questions.where.decoys[0]", "set": "Northumbria" }] },
+
+    { "id": "lindisfarne-missing-year", "base": "lindisfarne", "type": "answer_missing", "subtle": false, "expect": ["when_answer"],
+      "edits": [{ "path": "full", "find": "The year was AD 793, and the island was Lindisfarne,", "replace": "This island was Lindisfarne," }] },
+    { "id": "tutankhamun-missing-carter", "base": "tutankhamun", "type": "answer_missing", "subtle": false, "expect": ["who_answer"],
+      "edits": [
+        { "path": "full", "find": "Howard Carter, an English archaeologist, had searched", "replace": "An English archaeologist had searched" },
+        { "path": "full", "find": "Carter made a small hole", "replace": "He made a small hole" },
+        { "path": "full", "find": "\"Yes, wonderful things,\" Carter replied.", "replace": "\"Yes, wonderful things,\" came the reply." }
+      ] },
+    { "id": "boudica-missing-town", "base": "boudica", "type": "answer_missing", "subtle": false, "expect": ["where_answer"],
+      "edits": [
+        { "path": "full", "find": "They marched towards Camulodunum, the Roman town we now call Colchester.", "replace": "They marched towards a new Roman town nearby." },
+        { "path": "full", "find": "beneath Colchester's streets", "replace": "beneath the modern streets" }
+      ] },
+    { "id": "great_fire-missing-year", "base": "great_fire", "type": "answer_missing", "subtle": false, "expect": ["when_answer"],
+      "edits": [{ "path": "full", "find": "Early on a Sunday in September AD 1666,", "replace": "Early one Sunday in September," }] },
+    { "id": "hastings-missing-town", "base": "hastings", "type": "answer_missing", "subtle": false, "expect": ["where_answer"],
+      "edits": [{ "path": "full", "find": "The fighting near Hastings lasted all day.", "replace": "The fighting lasted all day." }] },
+    { "id": "olympia-missing-year", "base": "olympia", "type": "answer_missing", "subtle": false, "expect": ["when_answer"],
+      "edits": [{ "path": "full", "find": "The year was 776 BC, and the very first Olympic Games were about to begin.", "replace": "The very first Olympic Games were about to begin." }] },
+    { "id": "hadrians_wall-missing-year", "base": "hadrians_wall", "type": "answer_missing", "subtle": false, "expect": ["when_answer"],
+      "edits": [{ "path": "full", "find": "In AD 122, Emperor Hadrian visited", "replace": "One spring, Emperor Hadrian visited" }] },
+    { "id": "hadrians_wall-missing-emperor", "base": "hadrians_wall", "type": "answer_missing", "subtle": true, "expect": ["who_answer"],
+      "note": "the hint still says 'who ordered the soldiers'; a reader who knows the wall's name could still infer Hadrian",
+      "edits": [{ "path": "full", "find": "In AD 122, Emperor Hadrian visited", "replace": "In AD 122, a Roman emperor visited" }] },
+
+    { "id": "lindisfarne-hint-who", "base": "lindisfarne", "type": "hint_leak", "subtle": false, "expect": ["who_hint"],
+      "edits": [{ "path": "questions.who.hint", "set": "The ships carried Vikings across the North Sea." }] },
+    { "id": "tutankhamun-hint-where", "base": "tutankhamun", "type": "hint_leak", "subtle": false, "expect": ["where_hint"],
+      "edits": [{ "path": "questions.where.hint", "set": "Carter was digging in the Valley of the Kings." }] },
+    { "id": "boudica-hint-when", "base": "boudica", "type": "hint_leak", "subtle": false, "expect": ["when_hint"],
+      "edits": [{ "path": "questions.when.hint", "set": "The army gathered in AD 60." }] },
+    { "id": "great_fire-hint-who", "base": "great_fire", "type": "hint_leak", "subtle": false, "expect": ["who_hint"],
+      "edits": [{ "path": "questions.who.hint", "set": "Samuel Pepys wrote about the fire in his diary." }] },
+    { "id": "hastings-hint-where", "base": "hastings", "type": "hint_leak", "subtle": false, "expect": ["where_hint"],
+      "edits": [{ "path": "questions.where.hint", "set": "The battle was fought near Hastings." }] },
+    { "id": "skara_brae-hint-who", "base": "skara_brae", "type": "hint_leak", "subtle": false, "expect": ["who_hint"],
+      "edits": [{ "path": "questions.who.hint", "set": "They were Stone Age farmers who kept cattle." }] },
+    { "id": "skara_brae-hint-when", "base": "skara_brae", "type": "hint_leak", "subtle": true, "expect": ["when_hint"],
+      "note": "needs arithmetic: about 5,000 years ago is about 3000 BC",
+      "edits": [{ "path": "questions.when.hint", "set": "It was about five thousand years ago." }] },
+    { "id": "olympia-hint-where", "base": "olympia", "type": "hint_leak", "subtle": true, "expect": ["where_hint"],
+      "edits": [{ "path": "questions.where.hint", "set": "The place gave its name to the Olympic Games." }] },
+    { "id": "hadrians_wall-hint-who", "base": "hadrians_wall", "type": "hint_leak", "subtle": true, "expect": ["who_hint"],
+      "note": "gives it away only to a child who knows the wall's name",
+      "edits": [{ "path": "questions.who.hint", "set": "The wall is still named after him today." }] }
+  ]
+}

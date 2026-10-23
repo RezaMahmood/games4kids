@@ -80,6 +80,24 @@ const SCENE_PROMPTS = [
 
 const TITLES = ['Sleepy Fox', 'Fox On A Hill', 'Little Red House'];
 
+/**
+ * The usage each reply reports, fixed so a test can work out the exact cost. A chat reply bills 800 input, 200 cached
+ * and 500 output tokens; a generated picture 50 text and 1000 output tokens, and an edit 300 image tokens more.
+ */
+export const CHAT_USAGE = {
+	prompt_tokens: 1000,
+	completion_tokens: 500,
+	total_tokens: 1500,
+	prompt_tokens_details: { cached_tokens: 200 },
+	completion_tokens_details: { reasoning_tokens: 100 },
+};
+const imageUsage = (imageTokens: number) => ({
+	input_tokens: 50 + imageTokens,
+	input_tokens_details: { text_tokens: 50, image_tokens: imageTokens },
+	output_tokens: 1000,
+	total_tokens: 1050 + imageTokens,
+});
+
 /** What the model answers for a Time Detectives round: Vikings at Lindisfarne in AD 793. */
 export const VIKING_ROUND = {
 	title: 'The raid on Lindisfarne',
@@ -105,7 +123,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const roundReplies: unknown[] = [];
-	const png = (bytes: Uint8Array) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }] });
+	const png = (bytes: Uint8Array, imageTokens: number) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }], usage: imageUsage(imageTokens) });
 
 	const server = createServer(async (req, res) => {
 		const chunks: Buffer[] = [];
@@ -124,7 +142,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		const fault = (): boolean => {
 			if (refusing[kind].count > 0) {
 				refusing[kind].count -= 1;
-				if (refusing[kind].as === 'finish') json(200, { choices: [{ finish_reason: 'content_filter', message: { content: null } }] });
+				if (refusing[kind].as === 'finish') json(200, { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'content_filter', message: { content: null } }], usage: CHAT_USAGE });
 				else json(400, { error: { code: kind === 'chat' ? 'content_filter' : 'content_policy_violation', message: 'The request was refused.' } });
 				return true;
 			}
@@ -140,7 +158,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			if (fault()) return;
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
 			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
-			return json(200, { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }] });
+			return json(200, { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }], usage: CHAT_USAGE });
 		}
 		if (held) {
 			const hold = held;
@@ -154,8 +172,8 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			return;
 		}
 		if (fault()) return;
-		if (path.endsWith('/images/edits')) return json(200, png(lineArt()));
-		if (path.endsWith('/images/generations')) return json(200, png(scene()));
+		if (path.endsWith('/images/edits')) return json(200, png(lineArt(), 300));
+		if (path.endsWith('/images/generations')) return json(200, png(scene(), 0));
 		return json(404, { error: 'not found' });
 	});
 	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));

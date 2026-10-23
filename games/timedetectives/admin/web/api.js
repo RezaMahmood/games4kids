@@ -1,12 +1,18 @@
 /**
- * @typedef {{ id: string, title: string, guidance: string, order: number, etag: string, rounds: number, published: number }} Topic
+ * @typedef {{ id: string, title: string, guidance: string, order: number, etag: string, rounds: number, published: number, drafts: number }} Topic
  * @typedef {{ kind: string, answer: string, decoys: string[], hint: string }} Question
  * @typedef {{ title: string, full: string, brief: string, pictureAlt: string, questions: Question[] }} Content
- * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content, notice?: string }
+ * @typedef {{ field: string, problem: string, sure: boolean }} Finding One thing the automatic check thinks might spoil the
+ *   quiz. `field` names a form input: `full`, `brief`, or `<kind>-answer`, `<kind>-hint`, `<kind>-decoy-<0 to 2>`.
+ *   `problem` follows "seems to" when `sure`, else "might".
+ * @typedef {Finding[] | 'not-run'} Checks The check's findings, or `not-run` when it could not give a verdict.
+ * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content, checks?: Checks }
  *   | { kind: 'failed', focus: string, source: string, reason: string }
- *   | { kind: 'draft', content: Content, source: string, notice?: string }
+ *   | { kind: 'draft', content: Content, source: string, notice?: string, checks?: Checks }
  *   | { kind: 'published', content: Content, source: string, publishedAt: string }} RoundState
  * @typedef {{ id: string, topicId: string, state: RoundState, hasPicture: boolean, updatedAt: string, etag: string, broken?: undefined }} Round
+ * @typedef {{ microUsd: number, calls: number, text: string }} Cost What the AI has cost, estimated; `text` reads like "est. $0.04".
+ * @typedef {{ topics: Record<string, Cost>, rounds: Record<string, Cost> }} Costs
  * @typedef {{ id: string, topicId: string, broken: string[] }} Broken A stored round the server can no longer read; it can only be deleted.
  */
 
@@ -28,6 +34,11 @@ export function createApi(client) {
   return {
     /** @returns {Promise<Topic[]>} */
     topics: async () => (await client.get('topics')).topics,
+    /** @returns {Promise<Costs>} Ids the AI has not been asked about are absent. */
+    costs: async () => {
+      const { topics, rounds } = await client.get('costs');
+      return { topics: topics ?? {}, rounds: rounds ?? {} };
+    },
     createTopic: (topic) => client.post('topics', topic),
     updateTopic: (topicId, topic) => client.put(`topics/${id(topicId)}`, topic),
     deleteTopic: (topicId) => client.delete(`topics/${id(topicId)}`),

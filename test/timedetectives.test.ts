@@ -49,8 +49,8 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const w = world();
 	const apps: App[] = [];
 	const delivering = deliverQueues(w.accounts, () => apps);
-	/** Storage faults a test switches on: each says whether the next queue send, or round write, throws. */
-	const faults = { send: () => false, replace: () => false };
+	/** Storage faults a test switches on: each says whether the next queue send, round write, or AI cost ledger write throws. */
+	const faults = { send: () => false, replace: () => false, ledger: () => false };
 	const down = () => Promise.reject(new Error('storage is down'));
 	const accounts: Accounts = {
 		open(owner) {
@@ -59,6 +59,7 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 				...account,
 				table(name) {
 					const table = account.table(name);
+					if (owner === 'portal' && name === 'aiusage') return { ...table, insertIfAbsent: (row) => (faults.ledger() ? down() : table.insertIfAbsent(row)) };
 					return name === 'rounds' ? { ...table, replaceIfMatch: (row, etag) => (faults.replace() ? down() : table.replaceIfMatch(row, etag)) } : table;
 				},
 				queue(name) {
@@ -114,7 +115,11 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
 	/** Publishes the round as the admin page would, with the etag of the round as it last loaded it. */
 	const publish = async (id: string, etag?: string) => asAdmin('POST', `rounds/${id}/publish`, { json: { etag: etag ?? (await adminRound(id)).etag } });
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
+	type Cost = { microUsd: number; calls: number; text: string };
+	const costs = async () => (await asAdmin('GET', 'costs')).data as { topics: Record<string, Cost>; rounds: Record<string, Cost> };
+	/** The areas of every ledger row, sorted, since rows written in the same instant sort by their random id. */
+	const ledgerAreas = async () => (await w.accounts.open('portal').table('aiusage').list()).map((row) => `${String(row['area'])} ${String(row['item'])}`).sort();
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, costs, ledgerAreas, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -330,11 +335,12 @@ test('an admin drafts a round with AI through the worker, with the platform toke
 	const picture = await s.asAdmin('GET', `rounds/${round.id}/picture`);
 	assert.equal(picture.headers['content-type'], 'image/png');
 	assert.deepEqual([...(picture.body as Uint8Array).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
-	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number; published: number }[] }).topics.map(({ title, rounds, published }) => [title, rounds, published]), [['Vikings', 1, 0]]);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number; published: number; drafts: number }[] }).topics.map(({ title, rounds, published, drafts }) => [title, rounds, published, drafts]), [['Vikings', 1, 0, 1]]);
 
 	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
 	assert.equal((await s.publish(round.id)).status, 200);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { published: number; drafts: number }[] }).topics.map(({ published, drafts }) => [published, drafts]), [[1, 0]]);
 	assert.deepEqual(((await s.asAda('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings']);
 	assert.equal(((await s.asAda('GET', `topics/${topic}/next?confidence=easy`)).data as View).id, round.id);
 	assert.deepEqual(s.exceptions, []);
@@ -443,8 +449,7 @@ test('an answer that is not a usable round is asked for once more, then fails th
 });
 
 const checked = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin, TIMEDETECTIVES_TYPESAFE_API_KEY: 'ts-key', TIMEDETECTIVES_TYPESAFE_ENDPOINT: typesafe.origin };
-const BRIEF_GIVEAWAY = 'the brief gives away the who answer "Vikings"';
-const checkDown = 'The automatic check could not run, so read this round carefully before publishing.';
+const BRIEF_GIVEAWAY = { field: 'brief', problem: 'give away the answer to "Who is it?"', sure: true };
 
 test('a clean round is checked once with the key and is a draft with no notice, and without a key nothing is checked', async () => {
 	const s = await setup(checked);
@@ -473,37 +478,60 @@ test('a brief that gives the answer away is sent back to the chat model, and the
 	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
 });
 
-test('a failure that outlasts the second ask leaves a draft whose notice names it, and the notice survives the picture step', async () => {
+test('a failure that outlasts the second ask leaves a draft with a sure finding on its field, kept apart from a picture notice', async () => {
 	const s = await setup(checked);
 	const topic = await adminTopic(s);
 	const before = foundry.calls.length;
 	typesafe.setBad({ who_brief: 0.9 }, 2);
 	const round = await drafted(s, topic);
 	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
-	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: `Check this round before publishing: ${BRIEF_GIVEAWAY}.` });
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [BRIEF_GIVEAWAY] });
 
 	typesafe.setBad({ who_brief: 0.9 }, 2);
 	foundry.refuseNext(1);
 	const unpictured = await drafted(s, topic);
-	assert.deepEqual([unpictured.state.kind, unpictured.hasPicture], ['draft', false]);
-	assert.equal((unpictured.state as { notice: string }).notice, `Check this round before publishing: ${BRIEF_GIVEAWAY}. ${PICTURE_REFUSED}`);
+	assert.deepEqual([unpictured.state, unpictured.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai', notice: PICTURE_REFUSED, checks: [BRIEF_GIVEAWAY] }, false]);
 
-	const published = await s.asAdmin('PUT', `rounds/${unpictured.id}`, { json: { content: ROUND, etag: unpictured.etag } });
-	assert.equal((published.data as { state: { notice?: string } }).state.notice, undefined, 'an admin edit clears the notice');
+	const saved = await s.asAdmin('PUT', `rounds/${unpictured.id}`, { json: { content: VIKING_ROUND, etag: unpictured.etag } });
+	assert.deepEqual((saved.data as AdminRound).state, { kind: 'draft', content: ROUND, source: 'human', checks: [BRIEF_GIVEAWAY] }, 'an admin edit clears the notice and keeps the finding');
 });
 
-test('an uncertain decoy gives a draft with a notice and no new ask', async () => {
+test('a finding goes when the admin changes its field, the others stay through edits, uploads and redraws, and publishing ends them', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	typesafe.setBad({ who_hint: 0.9, where_hint: 0.5 }, 2);
+	const round = await drafted(s, topic);
+	const whereHint = { field: 'where-hint', problem: 'give the answer away', sure: false };
+	assert.deepEqual((round.state as { checks: unknown }).checks, [{ field: 'who-hint', problem: 'give the answer away', sure: true }, whereHint]);
+
+	const content = { ...VIKING_ROUND, questions: VIKING_ROUND.questions.map((q) => (q.kind === 'who' ? { ...q, hint: 'Who came over the sea?' } : q)) };
+	const edited = (await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content, etag: round.etag } })).data as AdminRound;
+	assert.deepEqual((edited.state as { checks: unknown }).checks, [whereHint]);
+	const uploaded = (await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { png: PNG })).data as AdminRound;
+	assert.deepEqual((uploaded.state as { checks: unknown }).checks, [whereHint], 'an upload keeps the findings');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	const redrawn = await s.adminRound(round.id);
+	assert.deepEqual((redrawn.state as { checks: unknown }).checks, [whereHint], 'a redraw keeps the findings');
+
+	const live = (await s.publish(round.id)).data as AdminRound;
+	assert.equal(live.state.kind, 'published');
+	assert.equal('checks' in live.state, false);
+	const back = (await s.asAdmin('POST', `rounds/${round.id}/unpublish`)).data as AdminRound;
+	assert.deepEqual(back.state, { kind: 'draft', content: (live.state as { content: RoundContent }).content, source: 'human' }, 'unpublishing does not bring them back');
+});
+
+test('an uncertain decoy gives a draft with an unsure finding and no new ask', async () => {
 	const s = await setup(checked);
 	const topic = await adminTopic(s);
 	const before = foundry.calls.length;
 	typesafe.setBad({ where_decoy_2: 0.5 });
 	const round = await drafted(s, topic);
 	assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
-	assert.equal(round.state.kind, 'draft');
-	assert.equal((round.state as { notice: string }).notice, 'Check this round before publishing: the story supports the where decoy "Stonehenge", so it is not clearly wrong.');
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [{ field: 'where-decoy-1', problem: 'be true in the story too, so it is not clearly wrong', sure: false }] });
 });
 
-test('a check that cannot run leaves a draft with a notice and neither retries nor fails the round', async () => {
+test('a check that cannot run leaves a draft marked not-run with no notice, and neither retries nor fails the round', async () => {
 	for (const status of [500, 401]) {
 		const s = await setup(checked);
 		const topic = await adminTopic(s);
@@ -513,7 +541,7 @@ test('a check that cannot run leaves a draft with a notice and neither retries n
 		const round = await drafted(s, topic);
 		assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
 		assert.equal(typesafe.calls.length - calls, 1);
-		assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: checkDown });
+		assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: 'not-run' });
 		assert.ok(s.logs.some((line) => line.includes('could not be checked') && line.includes(String(status))));
 	}
 });
@@ -848,4 +876,77 @@ test('the admin app gives up on a message after the attempts the worker settles 
 	const between = (Number(minutes) * 60 + Number(seconds)) * 1000;
 	assert.ok(between > 0);
 	assert.ok(MAX_ATTEMPTS * attempt + (MAX_ATTEMPTS - 1) * between < STALE_AFTER_MS, 'every attempt is over before a drafting round reads as stale');
+});
+
+/** What the fakes bill, in micro-USD at list prices: one chat reply, one generated picture, and one check. */
+const COST = { words: 800 * 0.75 + 200 * 0.075 + 500 * 4.5, picture: 50 * 2 + 1000 * 8, check: 2000 * 0.042 };
+const cost = (microUsd: number, calls: number, text: string) => ({ microUsd: Math.round(microUsd), calls, text });
+
+test('a draft whose first check fails bills both asks, both checks and the picture to its round and its topic', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	typesafe.setBad({ who_brief: 0.9 });
+	const round = await drafted(s, topic);
+	assert.equal(round.state.kind, 'draft');
+	const total = cost(2 * COST.words + 2 * COST.check + COST.picture, 5, 'est. $0.014');
+	assert.deepEqual(await s.costs(), { topics: { [topic]: total }, rounds: { [round.id]: total } });
+	assert.deepEqual(await s.ledgerAreas(), [`check ${round.id}`, `check ${round.id}`, `picture ${round.id}`, `words ${round.id}`, `words ${round.id}`]);
+});
+
+test('a failed request bills nothing, the queue\'s retry bills only the step it repeats, and an unusable answer is still billed', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	foundry.failNext(1);
+	const retried = await drafted(s, topic);
+	assert.equal(retried.hasPicture, true);
+	assert.deepEqual((await s.costs()).rounds[retried.id], cost(COST.words + COST.picture, 2, 'est. $0.011'), 'the 500 bills nothing, and the words are not asked for again');
+
+	foundry.refuseNext(1, 'chat', 'finish');
+	const filtered = await drafted(s, topic);
+	assert.equal(filtered.state.kind, 'failed');
+	assert.deepEqual((await s.costs()).rounds[filtered.id], cost(COST.words, 1, 'est. $0.003'), 'a 200 the content filter stopped is billed');
+	assert.equal((await s.asAdmin('POST', `rounds/${filtered.id}/retry`, { json: { focus: 'Jorvik' } })).status, 202);
+	await s.settled();
+	assert.deepEqual((await s.costs()).rounds[filtered.id], cost(2 * COST.words + COST.picture, 3, 'est. $0.014'), 'the admin\'s retry sums into the same round');
+
+	foundry.refuseNext(1, 'chat');
+	const refused = await drafted(s, topic);
+	assert.equal(refused.state.kind, 'failed');
+	assert.equal((await s.costs()).rounds[refused.id], undefined, 'a 400 refusal reports no usage, so nothing is billed');
+});
+
+test('a redraw bills one more picture to the same round', async () => {
+	const s = await setup();
+	const round = await drafted(s, await adminTopic(s));
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	assert.deepEqual((await s.costs()).rounds[round.id], cost(COST.words + 2 * COST.picture, 3, 'est. $0.019'));
+});
+
+test('a deleted round leaves the costs by round, and its spend stays in its topic', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const kept = await drafted(s, topic);
+	const gone = await drafted(s, topic);
+	const before = await s.costs();
+	assert.equal((await s.asAdmin('DELETE', `rounds/${gone.id}`)).status, 204);
+	const after = await s.costs();
+	assert.deepEqual(Object.keys(after.rounds), [kept.id]);
+	assert.deepEqual(after.topics[topic], before.topics[topic]);
+	assert.deepEqual(after.topics[topic], cost(2 * (COST.words + COST.picture), 4, 'est. $0.022'));
+	assert.deepEqual(await s.adminRound(kept.id).then((round) => round.state.kind), 'draft');
+});
+
+test('a ledger that cannot be written neither fails nor retries a draft, and logs each lost entry whole', async () => {
+	const s = await setup();
+	s.faults.ledger = () => true;
+	const before = foundry.calls.length;
+	const round = await drafted(s, await adminTopic(s));
+	assert.deepEqual([round.state, round.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai' }, true]);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE], 'nothing was asked for twice');
+	const lost = s.logs.filter((line) => line.startsWith('usage entry lost'));
+	assert.equal(lost.length, 2);
+	assert.ok(lost.every((line) => line.includes(`"item":"${round.id}"`) && line.includes('"microUsd":')));
+	assert.equal(s.exceptions.length, 2);
+	assert.deepEqual(await s.costs(), { topics: {}, rounds: {} });
 });

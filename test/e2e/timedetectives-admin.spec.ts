@@ -23,20 +23,21 @@ async function adminPage(browser: Browser, options: Parameters<Browser['newConte
 	return page;
 }
 
+/** Saves a new topic, which opens that topic's page. */
 async function newTopic(page: Page, title = unique('Vikings')): Promise<string> {
 	await page.getByRole('button', { name: 'New topic' }).click();
 	await page.getByLabel('Title', { exact: true }).fill(title);
 	await page.getByRole('button', { name: 'Save topic' }).click();
-	await expect(page.getByRole('link', { name: title })).toBeVisible();
+	await expect(page.locator('#topic-heading')).toHaveText(title);
 	return title;
 }
 
-/** Opens the topic, has the fake AI draft a round in it, and opens that round. */
-async function draftedRound(page: Page, topic: string): Promise<void> {
-	await page.getByRole('link', { name: topic }).click();
+/** On a topic's page, has the fake AI draft a round, and opens it with the card's Review and publish. */
+async function draftedRound(page: Page): Promise<void> {
 	await page.getByRole('button', { name: 'Draft with AI' }).click();
 	await expect(page.locator('#rounds .badge.draft')).toBeVisible();
-	await page.getByRole('link', { name: 'The raid on Lindisfarne' }).click();
+	await page.getByRole('link', { name: 'Review and publish' }).click();
+	await expect(page.locator('#round-heading')).toHaveText('The raid on Lindisfarne');
 	await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
 }
 
@@ -67,7 +68,7 @@ for (const { name, fake, badge, note, retry } of STUCK) {
 		const page = await adminPage(browser);
 		const problems = collectProblems([page]);
 		const topic = await newTopic(page);
-		await draftedRound(page, topic);
+		await draftedRound(page);
 		await page.route(ROUND_API, async (route) => {
 			if (route.request().method() !== 'GET') return route.fallback();
 			return route.fulfill({ json: fake((await (await route.fetch()).json()) as Record<string, unknown>) });
@@ -91,7 +92,8 @@ for (const { name, fake, badge, note, retry } of STUCK) {
 
 test('a round whose new picture was refused says why and stays editable with Upload and Redraw, and a published round is not redrawn', async ({ browser }) => {
 	const page = await adminPage(browser);
-	await draftedRound(page, await newTopic(page));
+	await newTopic(page);
+	await draftedRound(page);
 	const notice = 'The AI could not draw a picture. The AI safety filter turned it down. Upload a picture, or change the picture description and redraw.';
 	await page.route(ROUND_API, async (route) => {
 		if (route.request().method() !== 'GET') return route.fallback();
@@ -119,7 +121,8 @@ test('a round whose new picture was refused says why and stays editable with Upl
 for (const { name, width, options } of SIZES) {
 	test(`${name}, the status and the round's actions share one bar that covers neither each other nor the end of the page`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
-		await draftedRound(page, await newTopic(page));
+		await newTopic(page);
+		await draftedRound(page);
 		await page.getByRole('button', { name: 'Save', exact: true }).click();
 		const status = page.getByRole('status').filter({ hasText: 'Saved.' });
 		await expect(status).toBeVisible();
@@ -147,6 +150,7 @@ for (const { name, width, options } of SIZES) {
 	test(`${name}, a topic title another topic has is refused with a clear message by the title`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
 		const title = await newTopic(page);
+		await page.getByRole('link', { name: 'All topics' }).click();
 		await page.getByRole('button', { name: 'New topic' }).click();
 		await page.getByLabel('Title', { exact: true }).fill(title.toUpperCase());
 		await page.getByRole('button', { name: 'Save topic' }).click();
@@ -164,7 +168,8 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 for (const { name, width, options } of SIZES) {
 	test(`${name}, Publish publishes what is on screen, and Upload and Unpublish keep edits that were never saved`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
-		await draftedRound(page, await newTopic(page));
+		await newTopic(page);
+		await draftedRound(page);
 		const hint = page.locator('#q-where-hint');
 		await hint.fill('Look for the holy island.');
 		await page.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -195,7 +200,8 @@ const WORDS_REFUSED = 'The AI safety filter turned this round down. Change what 
 for (const { name, width, options } of SIZES) {
 	test(`${name}, Try again on a round the AI refused asks about the focus the admin changes it to`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
-		await draftedRound(page, await newTopic(page));
+		await newTopic(page);
+		await draftedRound(page);
 		let refused = true;
 		let real: Record<string, unknown> = {};
 		await page.route(ROUND_API, async (route) => {
@@ -230,7 +236,8 @@ const UNPUBLISH_API = /\/api\/admin\/g\/timedetectives\/rounds\/[0-9a-f-]{36}\/u
 for (const { name, width, options } of SIZES) {
 	test(`${name}, Unpublish takes the round down before saving edits, so an Unpublish that fails puts no unchecked words live`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
-		await draftedRound(page, await newTopic(page));
+		await newTopic(page);
+		await draftedRound(page);
 		const original = await page.locator('#r-brief').inputValue();
 		await page.getByRole('button', { name: 'Publish', exact: true }).click();
 		await expect(page.locator('#round-badge')).toHaveText('Published');
@@ -260,7 +267,8 @@ for (const { name, width, options } of SIZES) {
 for (const { name, width, options } of SIZES) {
 	test(`${name}, Publish refuses a round another admin changed since the page loaded it, and shows their change`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
-		await draftedRound(page, await newTopic(page));
+		await newTopic(page);
+		await draftedRound(page);
 		const other = await page.context().newPage();
 		await other.goto(page.url());
 		await adminReady(other);
@@ -283,13 +291,11 @@ for (const { name, width, options } of SIZES) {
 		await page.getByRole('button', { name: 'New topic' }).click();
 		await page.getByRole('button', { name: 'Cancel' }).click();
 		await expect(page.getByRole('button', { name: 'New topic' })).toBeFocused();
-		const topic = await newTopic(page);
-		await expect(page.getByRole('button', { name: 'New topic' })).toBeFocused();
-		await page.getByRole('link', { name: topic }).click();
+		await newTopic(page);
 		await expect(page.locator('#topic-heading')).toBeFocused();
 		await page.getByRole('button', { name: 'Draft with AI' }).click();
 		await expect(page.locator('#rounds .badge.draft')).toBeVisible();
-		await page.getByRole('link', { name: 'The raid on Lindisfarne' }).click();
+		await page.getByRole('link', { name: 'The raid on Lindisfarne', exact: true }).click();
 		await expect(page.locator('#round-heading')).toBeFocused();
 		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
 
@@ -303,3 +309,150 @@ for (const { name, width, options } of SIZES) {
 		await page.context().close();
 	});
 }
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, a new topic opens its own page, each card says what to press next, and editing a topic goes back to the list`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const problems = collectProblems([page]);
+		const topic = await newTopic(page);
+		await expect(page.locator('.steps li')).toHaveText(['Draft a round with AI or write one.', 'Check it and give it a picture.', 'Publish it so children can play it.']);
+
+		await page.getByRole('button', { name: 'Draft with AI' }).click();
+		await page.getByRole('button', { name: 'Draft with AI' }).click();
+		await expect(page.locator('#rounds .badge.draft')).toHaveCount(2);
+		await page.getByRole('link', { name: 'Review and publish' }).first().click();
+		await expect(page.locator('#round-note')).toHaveText('Draft: only you can see this. When you are happy, press Publish at the bottom.');
+		await expect(page.locator('#round-checks')).toBeHidden();
+		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+		await shot(page, `admin-clean-draft-${width}`);
+		await page.getByRole('button', { name: 'Publish', exact: true }).click();
+		await expect(page.locator('#round-badge')).toHaveText('Published');
+
+		await page.getByRole('link', { name: 'Back to the topic' }).click();
+		await expect(page.locator('#rounds .badge.published')).toHaveText('Published, children can play it');
+		await expect(page.locator('#rounds .badge.draft')).toHaveText('Draft, only you can see it');
+		await expect(page.getByRole('link', { name: /^View: / })).toBeVisible();
+		await shot(page, `admin-topic-rounds-${width}`);
+
+		await page.getByRole('link', { name: 'All topics' }).click();
+		const card = page.locator('#topics .card', { hasText: topic });
+		await expect(card.locator('.meta')).toHaveText('2 rounds, 1 published, 1 draft to review');
+		await expect(card.getByRole('link', { name: `Open ${topic}` })).toBeVisible();
+		await shot(page, `admin-topics-${width}`);
+
+		await card.getByRole('button', { name: 'Edit title and guidance' }).click();
+		await page.getByLabel('Guidance for the AI (optional)').fill('Everyday life on the island.');
+		await page.getByRole('button', { name: 'Save topic' }).click();
+		await expect(page.getByRole('status')).toHaveText('Saved.');
+		await expect(page.locator('#topics-heading')).toBeVisible();
+		await expect(card.locator('.note')).toHaveText('Everyday life on the island.');
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+}
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, the check's findings say what might spoil the quiz, quote the field, and Go to it moves there`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await newTopic(page);
+		await draftedRound(page);
+		let checks: unknown = [
+			{ field: 'where-hint', problem: 'give the answer away', sure: false },
+			{ field: 'brief', problem: 'give away the answer to "Who is it?"', sure: true },
+		];
+		await page.route(ROUND_API, async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			const real = (await (await route.fetch()).json()) as { state: Record<string, unknown> };
+			return route.fulfill({ json: { ...real, state: { ...real.state, checks } } });
+		});
+		await page.reload();
+		await adminReady(page);
+
+		const panel = page.locator('#round-checks');
+		await expect(panel.getByRole('heading')).toHaveText('Worth a second look');
+		await expect(panel.locator('#checks-intent')).toHaveText('An automatic check read this round and thinks these might spoil the quiz. Fix them, or publish as it is if you disagree.');
+		const hint = page.locator('#q-where-hint');
+		const items = panel.locator('li');
+		await expect(items.nth(0)).toContainText(`The "Where is it?" hint might give the answer away: "${await hint.inputValue()}"`);
+		await expect(items.nth(1)).toContainText('The short clue seems to give away the answer to "Who is it?": "');
+		await expect(page.locator('#round-note')).toHaveText('Draft: only you can see this. When you are happy, press Publish at the bottom.');
+		await shot(page, `admin-checks-${width}`);
+
+		await items.nth(0).getByRole('button', { name: 'Go to it' }).click();
+		await expect(hint).toBeFocused();
+		await expect(hint).toBeInViewport();
+		await hint.fill('Look for the island in the story.');
+		await expect(items.nth(0)).toContainText('"Look for the island in the story."');
+
+		checks = 'not-run';
+		await page.reload();
+		await adminReady(page);
+		await expect(panel.locator('#checks-intent')).toHaveText('The automatic check could not read this round this time. Read it through before you publish it.');
+		await expect(panel.locator('li')).toHaveCount(0);
+		await page.context().close();
+	});
+}
+
+const COSTS_API = /\/api\/admin\/g\/timedetectives\/costs$/;
+const ESTIMATE_NOTE = 'Estimated from token counts and Azure list prices; your Azure bill is the final word.';
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, the AI cost shows on the topic list, the topic page and the round, and a redraw raises the round's`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const problems = collectProblems([page]);
+		const topic = await newTopic(page);
+		await expect(page.locator('#topic-cost')).toBeHidden();
+		await draftedRound(page);
+		const roundCost = page.locator('#round-cost');
+		// One chat reply (800 input, 200 cached, 500 output at 0.75, 0.075, 4.5) is 2865 micro-USD; one picture (50 text, 1000 output at 2, 8) is 8100.
+		await expect(roundCost).toHaveText('AI cost so far: est. $0.011 (2 AI calls)');
+		await shot(page, `costs-round-${width}`);
+		const before = 'AI cost so far: est. $0.011 (2 AI calls)';
+
+		await page.getByRole('button', { name: 'Redraw with AI' }).click();
+		await expect(roundCost).not.toHaveText(before);
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+		const after = 'AI cost so far: est. $0.019 (3 AI calls)';
+		await expect(roundCost).toHaveText(after);
+
+		await page.getByRole('link', { name: 'Back to the topic' }).click();
+		await expect(page.locator('#topic-cost-total')).toHaveText(after.replace(/ \(.*/, ''));
+		await expect(page.locator('#topic-cost')).toContainText(ESTIMATE_NOTE);
+		await expect(page.locator('#topic-cost-deleted')).toBeHidden();
+		await expect(page.locator('#rounds .card')).toContainText(after);
+		await shot(page, `costs-topic-${width}`);
+
+		await page.getByRole('link', { name: 'All topics' }).click();
+		await expect(page.locator('#topics .card', { hasText: topic })).toContainText(`AI cost: ${after.replace(/^AI cost so far: | \(.*/g, '')}`);
+		await shot(page, `costs-topics-${width}`);
+
+		await page.getByRole('link', { name: topic, exact: true }).click();
+		await page.getByRole('link', { name: 'Review and publish' }).click();
+		await page.getByRole('button', { name: 'Delete round' }).click();
+		await expect(page.locator('#rounds-empty')).toBeVisible();
+		await expect(page.locator('#topic-cost-total')).toHaveText('AI cost so far: est. $0.019');
+		await shot(page, `costs-topic-deleted-${width}`);
+		await expect(page.locator('#topic-cost-deleted')).toHaveText('Includes est. $0.019 spent on rounds since deleted.');
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+}
+
+test('a costs request that fails leaves every page working, with no cost text', async ({ browser }) => {
+	const page = await adminPage(browser);
+	await page.route(COSTS_API, (route) => route.fulfill({ status: 500, json: { error: { message: 'no costs today' } } }));
+	await page.reload();
+	await adminReady(page);
+	await newTopic(page);
+	await draftedRound(page);
+	await expect(page.locator('#round-cost')).toBeHidden();
+	await page.getByRole('link', { name: 'Back to the topic' }).click();
+	await expect(page.locator('#rounds .card')).toHaveCount(1);
+	await expect(page.locator('#topic-cost')).toBeHidden();
+	await expect(page.locator('#rounds .card')).not.toContainText('AI cost');
+	await page.getByRole('link', { name: 'All topics' }).click();
+	await expect(page.locator('#topics .card').first()).toBeVisible();
+	await expect(page.locator('#topics')).not.toContainText('AI cost');
+	await page.context().close();
+});

@@ -34,3 +34,5 @@ playwright/.cache/
 *.log
 .claude/settings.local.json
 out/
+
+test/timedetectives/eval/.cache/

@@ -293,7 +293,7 @@ export function runAdminConformance<M extends GameManifest>(manifest: M, create:
 			const { seen } = setup();
 			const platform = seen.platform;
 			assert.ok(platform);
-			assert.deepEqual(Object.keys(platform).sort(), [...PLATFORM_KEYS, 'roster'].sort());
+			assert.deepEqual(Object.keys(platform).sort(), [...PLATFORM_KEYS, 'roster', 'usage'].sort());
 			assertHandles(platform.tables, manifest.storage.tables, ['admin', 'admin-private'], ['play']);
 			assertHandles(platform.blobs, manifest.storage.containers, ['admin', 'admin-private'], ['play']);
 			assertHandles(platform.queues, manifest.storage.queues, ['admin', 'admin-private'], []);

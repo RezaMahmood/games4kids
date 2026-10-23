@@ -1,3 +1,4 @@
+import type { UsageSubject } from '@g4k/sdk';
 import { isRecord, roundId, type AdminStore, type PictureId, type Round, type RoundId, type RoundState, type StoredRound } from '../../data/index.ts';
 import { drawPicture, writeRound, type Written } from './draft.ts';
 import type { TypeSafeDeps } from './check.ts';
@@ -16,7 +17,6 @@ export const parseDraftMessage = (raw: unknown): DraftMessage | undefined => {
 /** Why a round the AI refused to write is failed. Asking about the same thing gets the same answer, so it asks for a new focus. */
 export const WORDS_REFUSED = 'The AI safety filter turned this round down. Change what it should be about and try again, or delete it.';
 /** What a round whose new picture never came says. The words and any picture it had are still there. */
-const joinNotices = (...notices: (string | undefined)[]) => notices.filter(Boolean).join(' ');
 const pictureNotice = (why: string) => `The AI could not draw a picture. ${why} Upload a picture, or change the picture description and redraw.`;
 export const PICTURE_REFUSED = pictureNotice('The AI safety filter turned it down.');
 
@@ -41,12 +41,13 @@ export function settleStale({ round, etag }: StoredRound, now: Date): StoredRoun
 	const { state } = round;
 	if (state.kind !== 'drafting' || now.getTime() - Date.parse(round.updatedAt) < STALE_AFTER_MS) return { round, etag };
 	const settled: RoundState = state.content
-		? { kind: 'draft', content: state.content, source: state.source, notice: joinNotices(state.notice, pictureNotice(STOPPED)) }
+		? { kind: 'draft', content: state.content, source: state.source, notice: pictureNotice(STOPPED), ...(state.checks && { checks: state.checks }) }
 		: { kind: 'failed', focus: state.focus, source: state.source, reason: `${STOPPED} Try again, or delete it.` };
 	return { round: { ...round, state: settled }, etag };
 }
 
-type Ctx = { store: AdminStore; foundry: () => FoundryDeps; typesafe: () => TypeSafeDeps | undefined; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
+/** The AI clients for one round. Each bills what it uses to `subject`, so every ask, check, retry and redraw sums into the round and its topic. */
+type Ctx = { store: AdminStore; foundry: (subject: UsageSubject) => FoundryDeps; typesafe: (subject: UsageSubject) => TypeSafeDeps | undefined; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
 
 /**
  * Takes a drafting round as far as it can: the words, then the picture, then a draft for the admin to review. Each step
@@ -59,6 +60,7 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 	if (!found || found.round.state.kind !== 'drafting') return;
 	let current: StoredRound = found;
 	const state = found.round.state;
+	const subject: UsageSubject = { item: id, group: found.round.topicId };
 	const updatedAt = ctx.now.toISOString();
 	const save = async (round: Round) => {
 		const saved = await ctx.store.replaceRound(round, current.etag);
@@ -74,31 +76,30 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 		return { refused: error instanceof Refusal, why: retryable ? `The AI did not answer after ${MAX_ATTEMPTS} tries. ${reason}` : reason };
 	};
 
-	let { content } = state;
-	let wordsNotice = state.notice;
+	let { content, checks } = state;
 	if (!content) {
 		let written: Written;
 		try {
 			const topic = await ctx.store.topic(found.round.topicId);
 			if (!topic) throw new AiFailure(false, 'The topic was deleted.');
-			written = await writeRound(ctx.foundry(), topic.topic, state.focus, ctx.typesafe(), (error) => ctx.log(`round ${id} could not be checked: ${error instanceof Error ? error.message : String(error)}`));
+			written = await writeRound(ctx.foundry(subject), topic.topic, state.focus, ctx.typesafe(subject), (error) => ctx.log(`round ${id} could not be checked: ${error instanceof Error ? error.message : String(error)}`));
 		} catch (error) {
 			const { refused, why } = settle(error);
 			await save({ ...current.round, state: { kind: 'failed', focus: state.focus, source: state.source, reason: refused ? WORDS_REFUSED : why }, updatedAt });
 			return;
 		}
 		content = written.content;
-		wordsNotice = written.notice;
-		if (!(await save({ ...current.round, state: { ...state, content, ...(written.notice && { notice: written.notice }) }, picturePrompt: written.picturePrompt, updatedAt }))) return;
+		checks = written.checks;
+		if (!(await save({ ...current.round, state: { ...state, content, ...(checks && { checks }) }, picturePrompt: written.picturePrompt, updatedAt }))) return;
 	}
 	let picture: Uint8Array;
 	try {
-		picture = await drawPicture(ctx.foundry(), current.round.picturePrompt ?? content.pictureAlt);
+		picture = await drawPicture(ctx.foundry(subject), current.round.picturePrompt ?? content.pictureAlt);
 	} catch (error) {
 		const { refused, why } = settle(error);
-		await save({ ...current.round, state: { kind: 'draft', content, source: state.source, notice: joinNotices(wordsNotice, refused ? PICTURE_REFUSED : pictureNotice(why)) }, updatedAt });
+		await save({ ...current.round, state: { kind: 'draft', content, source: state.source, notice: refused ? PICTURE_REFUSED : pictureNotice(why), ...(checks && { checks }) }, updatedAt });
 		return;
 	}
-	const next: Round = { ...current.round, state: { kind: 'draft', content, source: state.source, ...(wordsNotice && { notice: wordsNotice }) }, updatedAt };
+	const next: Round = { ...current.round, state: { kind: 'draft', content, source: state.source, ...(checks && { checks }) }, updatedAt };
 	await ctx.store.replaceWithPicture(next, current.etag, { id: ctx.newPicture(), bytes: picture, contentType: 'image/png' });
 }

@@ -51,6 +51,18 @@ function refocus(...targets) {
 
 /** @type {import('./api.js').Topic[]} */
 let topics = [];
+/** @type {import('./api.js').Costs} */
+let costs = { topics: {}, rounds: {} };
+
+/** Asks what the AI has cost. A reply that fails leaves the figures as they were, so the page never waits on it or breaks. */
+const loadCosts = () => api.costs().then((latest) => { costs = latest; }, () => {});
+
+/** Mirrors the server's estimate wording, for the deleted-rounds part that only the page can work out. */
+function estimateText(microUsd) {
+  if (microUsd < 1_000) return 'est. <$0.001';
+  const usd = microUsd / 1_000_000;
+  return `est. $${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`;
+}
 /** The topic being added or edited, or null for a new one. */
 let editingTopic = null;
 /** @type {import('./api.js').Topic | null} */
@@ -87,18 +99,34 @@ function roundTitle(round) {
   return state.focus ? `About ${state.focus}` : 'A round the AI chooses';
 }
 
-const badge = (kind) => h('span', { className: `badge ${kind}`, textContent: BADGES[kind] });
 
 /* Topics */
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** What the topic holds, put as what is left to do. */
+function counts(t) {
+  if (t.rounds === 0) return 'No rounds yet';
+  return [
+    plural(t.rounds, 'round', 'rounds'),
+    t.published ? `${t.published} published` : 'none published yet',
+    ...(t.drafts ? [`${plural(t.drafts, 'draft', 'drafts')} to review`] : []),
+  ].join(', ');
+}
+
+/** The topic's AI cost so far, or nothing when the AI has not been asked yet. */
+const topicCost = (id) => (costs.topics[id]?.calls ? [`AI cost: ${costs.topics[id].text}`] : []);
+
 function topicCard(t) {
-  const counts = `${t.rounds} ${t.rounds === 1 ? 'round' : 'rounds'}, ${t.published} published`;
+  const href = `#topic/${t.id}`;
   return h('li', { className: 'card' },
-    h('a', { className: 'card-title', href: `#topic/${t.id}`, textContent: t.title }),
-    h('span', { className: 'meta', textContent: counts }),
+    h('a', { className: 'card-title', href, textContent: t.title }),
+    h('span', { className: 'meta', textContent: counts(t) }),
+    ...topicCost(t.id).map((textContent) => h('span', { className: 'cost', textContent })),
     ...(t.guidance ? [h('p', { className: 'note', textContent: t.guidance })] : []),
     h('div', { className: 'actions' },
-      h('button', { type: 'button', textContent: 'Edit', onclick: () => openTopicForm(t) }),
+      h('a', { className: 'button primary', href, textContent: t.rounds === 0 ? 'Add rounds' : 'Open', ariaLabel: `${t.rounds === 0 ? 'Add rounds to' : 'Open'} ${t.title}` }),
+      h('button', { type: 'button', textContent: 'Edit title and guidance', onclick: () => openTopicForm(t) }),
       ...(t.rounds === 0 ? [h('button', { type: 'button', className: 'danger', textContent: 'Delete', onclick: () => deleteTopic(t) })] : [])));
 }
 
@@ -108,7 +136,7 @@ function renderTopics() {
 }
 
 async function loadTopics() {
-  topics = await api.topics();
+  [topics] = await Promise.all([api.topics(), loadCosts()]);
   renderTopics();
 }
 
@@ -128,17 +156,24 @@ async function saveTopic(event) {
   const body = { title: $('t-title').value, guidance: $('t-guidance').value };
   $('t-save').disabled = true;
   try {
-    if (editingTopic) await api.updateTopic(editingTopic.id, { ...body, etag: editingTopic.etag });
-    else await api.createTopic(body);
-    $('topic-form').hidden = true;
-    refocus($('new-topic'));
-    status('Saved.');
+    if (editingTopic) {
+      await api.updateTopic(editingTopic.id, { ...body, etag: editingTopic.etag });
+      $('topic-form').hidden = true;
+      refocus($('new-topic'));
+      status('Saved.');
+      await loadTopics();
+    } else {
+      const made = await api.createTopic(body);
+      $('topic-form').hidden = true;
+      location.hash = `#topic/${made.id}`;
+      status('Topic saved. Now add its first round.');
+    }
   } catch (err) {
     problems('topic-problems', err);
     $('t-title').focus();
+    await loadTopics().catch((error) => status(error.message, 'error'));
   } finally {
     $('t-save').disabled = false;
-    await loadTopics().catch((err) => status(err.message, 'error'));
   }
 }
 
@@ -155,22 +190,65 @@ async function deleteTopic(t) {
 
 /* One topic and its rounds */
 
+const findings = (state) => (Array.isArray(state?.checks) ? state.checks : []);
+
+/** Where the round is, in plain words, for its card. */
+function roundStatus(round) {
+  const kind = kindOf(round);
+  if (kind === 'broken') return damage(round);
+  const { state } = round;
+  if (kind === 'failed') return state.reason;
+  if (kind === 'drafting') return state.content ? 'The AI is drawing a new picture…' : 'The AI is writing it…';
+  if (kind === 'published') return 'Published, children can play it';
+  const flagged = findings(state).length;
+  return [
+    'Draft, only you can see it',
+    ...(round.hasPicture ? [] : ['Needs a picture']),
+    ...(flagged ? [`${plural(flagged, 'thing', 'things')} worth a second look`] : []),
+  ].join('. ');
+}
+
+/** What to press on a round's card to move it along. */
+const ROUND_ACTIONS = { draft: 'Review and publish', published: 'View', failed: 'Try again', broken: 'Open' };
+
+const roundCost = (id) => {
+  const cost = costs.rounds[id];
+  return cost?.calls ? `AI cost so far: ${cost.text} (${plural(cost.calls, 'AI call', 'AI calls')})` : '';
+};
+
 function roundCard(round) {
   const thumb = h('img', { className: 'thumb', alt: '' });
   if (round.hasPicture) api.picture(round.id).then((url) => (thumb.src = url), () => {});
   const kind = kindOf(round);
-  const reason = kind === 'broken' ? damage(round) : kind === 'failed' ? round.state.reason : '';
+  const href = `#round/${round.id}`;
+  const action = ROUND_ACTIONS[kind];
   return h('li', { className: 'card round-card' },
     round.hasPicture ? thumb : h('span', { className: 'thumb empty', ariaHidden: 'true' }),
     h('div', { className: 'round-body' },
-      h('a', { className: 'card-title', href: `#round/${round.id}`, textContent: roundTitle(round) }),
-      h('div', { className: 'badges' }, badge(kind), ...(round.state?.source === 'human' ? [h('span', { className: 'badge', textContent: 'Edited by hand' })] : [])),
-      ...(reason ? [h('p', { className: 'reason', textContent: reason })] : [])));
+      h('a', { className: 'card-title', href, textContent: roundTitle(round) }),
+      h('p', { className: `badge ${kind}`, textContent: roundStatus(round) }),
+      ...(roundCost(round.id) ? [h('p', { className: 'cost', textContent: roundCost(round.id) })] : []),
+      ...(round.state?.source === 'human' ? [h('p', { className: 'meta', textContent: 'Edited by hand' })] : [])),
+    ...(action ? [h('a', { className: `button${kind === 'published' ? '' : ' primary'}`, href, textContent: action, ariaLabel: `${action}: ${roundTitle(round)}` })] : []));
+}
+
+/** The topic's total in its header, with what part of it went on rounds that are gone. */
+function renderTopicCost(rounds) {
+  const total = costs.topics[topic.id];
+  const shown = Boolean(total?.calls);
+  $('topic-cost').hidden = !shown;
+  if (!shown) return;
+  const live = rounds.reduce((sum, round) => sum + (costs.rounds[round.id]?.microUsd ?? 0), 0);
+  const deleted = total.microUsd - live;
+  $('topic-cost-total').textContent = `AI cost so far: ${total.text}`;
+  $('topic-cost-deleted').hidden = deleted <= 0;
+  $('topic-cost-deleted').textContent = `Includes ${estimateText(deleted)} spent on rounds since deleted.`;
 }
 
 async function loadRounds() {
-  const rounds = await api.rounds(topic.id);
+  const [rounds] = await Promise.all([api.rounds(topic.id), loadCosts()]);
   $('rounds').replaceChildren(...rounds.map(roundCard));
+  renderTopicCost(rounds);
   $('rounds-empty').hidden = rounds.length > 0;
   return rounds;
 }
@@ -185,6 +263,7 @@ async function openTopic(id) {
   }
   $('topic-heading').textContent = topic.title;
   $('topic-guidance').textContent = topic.guidance;
+  $('topic-cost').hidden = true;
   show('topic-view');
   const rounds = await whileLoading(loadRounds());
   if (drafting(rounds)) pollWhile(loadRounds, drafting);
@@ -268,11 +347,54 @@ function renderPreview() {
     h('p', { className: 'note', textContent: `Points times ${rule.bonus}.` }));
 }
 
+/** The form input a finding is about. */
+const inputFor = (field) => $(field === 'full' || field === 'brief' ? `r-${field}` : `q-${field}`);
+
+/** The field in the words the form labels it with. */
+function fieldName(field) {
+  if (field === 'full') return 'The whole story';
+  if (field === 'brief') return 'The short clue';
+  const [kind, part, index] = field.split('-');
+  const label = QUESTION_KINDS[kind].label;
+  return part === 'decoy' ? `Wrong answer ${Number(index) + 1} for "${label}"` : `The "${label}" ${part}`;
+}
+
+const QUOTE_MAX = 90;
+const quoted = (text) => `"${text.length > QUOTE_MAX ? `${text.slice(0, QUOTE_MAX).trimEnd()}…` : text}"`;
+
+function goTo(field) {
+  const input = inputFor(field);
+  input.scrollIntoView({ block: 'center' });
+  input.focus({ preventScroll: true });
+}
+
+/** The check's findings, each quoting what the field says now, so an edit shows at once. */
+function renderChecks() {
+  const checks = editing.round?.state?.kind === 'draft' ? editing.round.state.checks : undefined;
+  $('round-checks').hidden = !checks || checks.length === 0;
+  if ($('round-checks').hidden) return;
+  if (checks === 'not-run') {
+    $('checks-intent').textContent = 'The automatic check could not read this round this time. Read it through before you publish it.';
+    $('checks-list').replaceChildren();
+    return;
+  }
+  $('checks-intent').textContent = 'An automatic check read this round and thinks these might spoil the quiz. Fix them, or publish as it is if you disagree.';
+  $('checks-list').replaceChildren(...checks.map(({ field, problem, sure }) => h('li', {},
+    h('span', { textContent: `${fieldName(field)} ${sure ? 'seems to' : 'might'} ${problem}: ${quoted(inputFor(field).value.trim() || '(empty)')}` }),
+    ' ',
+    h('button', { type: 'button', className: 'link', textContent: 'Go to it', ariaLabel: `Go to it: ${fieldName(field)}`, onclick: () => goTo(field) }))));
+}
+
 async function showPicture(round) {
   $('r-picture').hidden = !round.hasPicture;
   $('r-no-picture').hidden = round.hasPicture;
   if (round.hasPicture) $('r-picture').src = await api.picture(round.id);
   $('r-picture').alt = round.state.content?.pictureAlt ?? '';
+}
+
+function renderRoundCost(round) {
+  $('round-cost').textContent = round ? roundCost(round.id) : '';
+  $('round-cost').hidden = !$('round-cost').textContent;
 }
 
 function renderRound(round) {
@@ -290,8 +412,9 @@ function renderRound(round) {
     drafting: content ? 'The AI is drawing a new picture. This page updates when it is done.' : 'The AI is writing this round. This page updates when it is done.',
     failed: round?.state?.reason,
     broken: kind === 'broken' ? damage(round) : '',
-    draft: round?.state?.notice ?? (round?.hasPicture ? 'Only admins can see this round until you publish it.' : 'Add a picture before publishing.'),
+    draft: round?.state?.notice ?? (round?.hasPicture ? 'Draft: only you can see this. When you are happy, press Publish at the bottom.' : 'Add a picture, then press Publish at the bottom.'),
   };
+  renderRoundCost(round);
   $('round-note').hidden = !notes[kind];
   $('round-note').textContent = notes[kind] ?? '';
   $('round-note').dataset.tone = kind === 'failed' || kind === 'broken' || round?.state?.notice ? 'error' : '';
@@ -301,6 +424,7 @@ function renderRound(round) {
   $('round-form').hidden = !editable && !content;
   for (const control of $('round-form').elements) control.disabled = !editable;
   $('r-save').hidden = !editable;
+  $('r-save').classList.toggle('primary', kind !== 'draft');
   $('r-publish').hidden = kind !== 'draft';
   $('r-publish').disabled = !round?.hasPicture;
   $('r-unpublish').hidden = kind !== 'published';
@@ -313,19 +437,21 @@ function renderRound(round) {
   pristine = JSON.stringify(readForm());
   problems('round-problems', null);
   renderPreview();
+  renderChecks();
   if (round && !working && kind !== 'failed' && kind !== 'broken') showPicture(round).catch((err) => status(err.message, 'error'));
 }
 
 async function openRound(id) {
   show('round-view');
-  const round = await whileLoading(api.round(id));
+  const [round] = await whileLoading(Promise.all([api.round(id), loadCosts()]));
   editing = { topicId: round.topicId, round };
   $('round-back').href = `#topic/${round.topicId}`;
   renderRound(round);
   if (round.state?.kind === 'drafting') {
     pollWhile(async () => {
-      const latest = await api.round(id);
+      const [latest] = await Promise.all([api.round(id), loadCosts()]);
       if (latest.state?.kind !== 'drafting') renderRound(latest);
+      else renderRoundCost(latest);
       return latest;
     }, (latest) => latest.state?.kind === 'drafting');
   }
@@ -451,7 +577,10 @@ $('topic-form').addEventListener('submit', saveTopic);
 $('draft-form').addEventListener('submit', draftRound);
 $('write').addEventListener('click', () => (location.hash = `#new/${topic.id}`));
 $('round-form').addEventListener('submit', saveRound);
-$('round-form').addEventListener('input', renderPreview);
+$('round-form').addEventListener('input', () => {
+  renderPreview();
+  renderChecks();
+});
 $('r-publish').addEventListener('click', publish);
 $('r-unpublish').addEventListener('click', unpublish);
 $('r-delete').addEventListener('click', deleteRound);

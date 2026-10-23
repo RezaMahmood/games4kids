@@ -1,21 +1,30 @@
-import { isRecord, KINDS, QUESTION_KINDS, type QuestionKind, type RoundContent } from '../../data/index.ts';
+import type { AiUse, JudgeTokens } from '@g4k/sdk';
+import type { Area } from './foundry.ts';
+import { fieldText, isRecord, KINDS, QUESTION_KINDS, type FieldRef, type Finding, type QuestionKind, type RoundContent } from '../../data/index.ts';
 
 /** A check at or above this chance of being bad is sent back to the writer. */
 export const FAIL_AT = 0.7;
 /** Between this and FAIL_AT the check is unsure, so the admin is told and the writer is not asked again. */
 export const UNSURE_AT = 0.3;
+/** The thresholds and question wording were measured on this version. Move it only after `npm run eval:jev` says the new one is no worse. */
+export const MODEL = 'jev-1.14.0';
 const TIMEOUT_MS = 60_000;
 const DETAIL_MAX = 300;
 
-export type TypeSafeDeps = { endpoint: string; apiKey: string; timeoutMs?: number };
+export type TypeSafeDeps = {
+	endpoint: string;
+	apiKey: string;
+	timeoutMs?: number;
+	/** Hears the tokens of every 2xx reply that reported them, billed whether or not its answers are usable. */
+	meter?: (use: AiUse<Area>) => Promise<void>;
+};
 
 /** The check could not give a verdict: the service was down, refused the key, or answered something unreadable. */
 export class CheckFailure extends Error {}
 
 export type Answer = { type: 'noul'; noul: number } | { type: 'choice'; probabilities: Record<string, number> };
-/** One check: the question sent, how to read a "this is bad" probability out of its answer, and the words for the problem. */
-export type Check = { id: string; question: object; bad: (answer: Answer) => number; problem: string };
-export type Verdicts = { fails: string[]; unsure: string[] };
+/** One check: the field it reads, the question sent, how to read a "this is bad" probability out of its answer, and the problem in words that follow "seems to" or "might". */
+export type Check = { id: string; field: FieldRef; question: object; bad: (answer: Answer) => number; problem: string };
 
 const RELATION = { supports: 'the story says it is true', contradicts: 'the story says it is false', says_nothing: 'the story does not mention it' };
 /** Without these, Jev reads a hint that points at the story ("the story names the island") as giving the answer away. */
@@ -55,45 +64,67 @@ function checksOfKind(kind: QuestionKind, content: RoundContent): Check[] {
 	const path = `questions.${kind}`;
 	const claim = (at: string) => `the answer to "${label}" is \`${at}\``;
 	return [
-		{ id: `${kind}_answer`, question: relation(claim(`${path}.answer`)), bad: (a) => 1 - supports(a), problem: `the story never says the ${kind} answer "${question.answer}"` },
-		...question.decoys.map((decoy, i): Check => ({
+		{ id: `${kind}_answer`, field: `${kind}-answer`, question: relation(claim(`${path}.answer`)), bad: (a) => 1 - supports(a), problem: 'be missing from the story' },
+		...([0, 1, 2] as const).map((i): Check => ({
 			id: `${kind}_decoy_${i + 1}`,
+			field: `${kind}-decoy-${i}`,
 			question: relation(claim(`${path}.decoys[${i}]`)),
 			bad: supports,
-			problem: `the story supports the ${kind} decoy "${decoy}", so it is not clearly wrong`,
+			problem: 'be true in the story too, so it is not clearly wrong',
 		})),
 		{
 			id: `${kind}_brief`,
+			field: 'brief',
 			question: { type: 'noul', instructions: `Does \`brief\` name or directly reveal \`${path}.answer\`, the answer to "${label}"?` },
 			bad: gives,
-			problem: `the brief gives away the ${kind} answer "${question.answer}"`,
+			problem: `give away the answer to "${label}"`,
 		},
 		{
 			id: `${kind}_hint`,
+			field: `${kind}-hint`,
 			question: { type: 'noul', instructions: `Does \`${path}.hint\` give away \`${path}.answer\`, the answer to "${label}"?`, criteria: HINT },
 			bad: gives,
-			problem: `the ${kind} hint gives away the answer "${question.answer}"`,
+			problem: 'give the answer away',
 		},
 	];
 }
 
 export const checksFor = (content: RoundContent): Check[] => KINDS.flatMap((kind) => checksOfKind(kind, content));
 
-/** Reads each check's answer by its id. A missing or malformed answer is a failed check run, never a pass. */
-export function judge(checks: Check[], answers: unknown): Verdicts {
-	const verdicts: Verdicts = { fails: [], unsure: [] };
+/**
+ * Reads each check's answer by its id, and gives a Finding for each check at or above UNSURE_AT, `sure` from FAIL_AT. A
+ * missing or malformed answer is a failed check run, never a pass.
+ */
+export function judge(checks: Check[], answers: unknown): Finding[] {
+	const findings: Finding[] = [];
 	for (const check of checks) {
 		const answer = isRecord(answers) ? parseAnswer(answers[check.id]) : undefined;
 		if (!answer) throw new CheckFailure(`the reply had no usable answer for ${check.id}`);
 		const bad = check.bad(answer);
-		if (bad >= FAIL_AT) verdicts.fails.push(check.problem);
-		else if (bad >= UNSURE_AT) verdicts.unsure.push(check.problem);
+		if (bad >= UNSURE_AT) findings.push({ field: check.field, problem: check.problem, sure: bad >= FAIL_AT });
 	}
-	return verdicts;
+	return findings;
+}
+
+/** A sure finding in words the chat model can act on, naming the field as its JSON names it. */
+export function forWriter({ field, problem }: Finding, content: RoundContent): string {
+	if (field === 'full' || field === 'brief') return `the ${field} seems to ${problem}`;
+	const [kind, part] = field.split('-');
+	return `the ${kind} ${part} "${fieldText(content, field)}" seems to ${problem}`;
+}
+
+const count = (value: unknown): number | undefined => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined);
+
+/** TypeSafe's usage: billable input tokens, and output tokens that are free for now. */
+export function parseJudgeUsage(reply: unknown): JudgeTokens | undefined {
+	const usage = isRecord(reply) ? reply['usage'] : undefined;
+	const input = isRecord(usage) ? count(usage['input_tokens']) : undefined;
+	const output = isRecord(usage) ? count(usage['output_tokens']) : undefined;
+	return input === undefined || output === undefined ? undefined : { input, output };
 }
 
 /** Asks Jev all the checks of a round in one request. */
-export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Promise<Verdicts> {
+export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Promise<Finding[]> {
 	const checks = checksFor(content);
 	const state = {
 		full: content.full,
@@ -107,7 +138,7 @@ export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Pro
 		const res = await fetch(new URL('v1/systemone', deps.endpoint), {
 			method: 'POST',
 			headers: { authorization: `Bearer ${deps.apiKey}`, 'content-type': 'application/json' },
-			body: JSON.stringify({ model: 'jev-latest', state, questions }),
+			body: JSON.stringify({ model: MODEL, state, questions }),
 			signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
 		});
 		status = res.status;
@@ -122,5 +153,8 @@ export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Pro
 	} catch {
 		throw new CheckFailure('the reply was not JSON');
 	}
+	const tokens = parseJudgeUsage(reply);
+	const replyModel = isRecord(reply) && typeof reply['model'] === 'string' ? { replyModel: reply['model'] } : {};
+	if (tokens) await deps.meter?.({ area: 'check', model: MODEL, tokens, ...replyModel });
 	return judge(checks, isRecord(reply) ? reply['answers'] : undefined);
 }

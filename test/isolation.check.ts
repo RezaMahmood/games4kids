@@ -4,7 +4,7 @@
  * `tsc -b` passes only if every @ts-expect-error line really is an error. The shell and migration negatives arrive
  * with phases 2 and 9.
  */
-import { defineGame, definePlayApi, type AdminPlatform, type Caller, type Email, type PlayPlatform, type PlayRoute, type PortalUserId } from '@g4k/sdk';
+import { defineGame, definePlayApi, type AdminPlatform, type ImageTokens, type Caller, type Email, type PlayPlatform, type PlayRoute, type PortalUserId } from '@g4k/sdk';
 import {
 	openAdminSession,
 	type AdminSession,
@@ -16,6 +16,7 @@ import {
 	type Member,
 	type PlayerAppDeps,
 	type PortalStore,
+	type Rates,
 	type Telemetry,
 } from '@g4k/host';
 import { adminStore, playStore } from './fixtures/games/fixture/data/index.ts';
@@ -108,6 +109,43 @@ defineGame({
 	exports: { scoreboard: 'v1' },
 });
 
+const billed = defineGame({
+	id: 'billed',
+	title: 'Billed',
+	summary: '',
+	icon: 'icon.svg',
+	storage: { tables: {}, containers: {}, queues: {} },
+	play: { web: { kind: 'static' }, settings: {}, services: [] },
+	admin: { web: { kind: 'static' }, settings: {}, services: ['cognitiveServices'], ai: { words: 'Story words', picture: 'Pictures' } },
+});
+declare const billedAdmin: AdminPlatform<typeof billed>;
+declare const billedPlay: PlayPlatform<typeof billed>;
+declare const pictureTokens: ImageTokens;
+const subject = { item: 'round-1', group: 'topic-1' };
+const chat = { input: 800, cachedInput: 200, output: 500 };
+
+void billedAdmin.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: chat, subject });
+void billedAdmin.usage.record({ area: 'picture', model: 'gpt-image-2', tokens: pictureTokens, subject });
+void billedAdmin.usage.spend();
+// @ts-expect-error a player app calls no AI model, so its platform has no ledger.
+void billedPlay.usage;
+// @ts-expect-error the ledger is a portal table, which no game reaches by name.
+void billedAdmin.tables['aiusage'];
+// @ts-expect-error an area must be one the manifest's admin.ai declares.
+void billedAdmin.usage.record({ area: 'nope', model: 'gpt-5.4-mini', tokens: chat, subject });
+// @ts-expect-error another game's area, such as drawpad's titles, is not this game's.
+void billedAdmin.usage.record({ area: 'titles', model: 'gpt-5.4-mini', tokens: chat, subject });
+// @ts-expect-error a game reports tokens and never a price; the host prices every call.
+void billedAdmin.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: chat, subject, microUsd: 1 });
+// @ts-expect-error a chat model bills on chat tokens, never image tokens.
+void billedAdmin.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: pictureTokens, subject });
+// @ts-expect-error a model with no price in the host's table cannot be recorded.
+void billedAdmin.usage.record({ area: 'words', model: 'gpt-99', tokens: chat, subject });
+// @ts-expect-error every model needs a price, so a model added to AiModel without one does not compile.
+const unpriced: Rates = { 'gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, output: 4.5 } };
+// @ts-expect-error a game that declares no AI areas cannot record any usage.
+void admin.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: chat, subject });
+
 declare const caller: Caller;
 // @ts-expect-error a games caller is a player; there is no role to check.
 void caller.role;
@@ -163,4 +201,4 @@ telemetry.setUser(someUser);
 // @ts-expect-error an email is never the telemetry user.
 telemetry.setUser(someEmail);
 
-export { forgedElevation, forgedSession, hints, maxLevels, other, playQueue, promote };
+export { billed, forgedElevation, forgedSession, hints, maxLevels, other, playQueue, promote, unpriced };

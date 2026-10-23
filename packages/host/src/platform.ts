@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
 	parseGameId,
 	type AdminPlatform,
+	type AreaOf,
 	type AzureService,
 	type GameId,
 	type GameManifest,
+	type GameUsage,
 	type PlayPlatform,
 	type Roster,
 	type SettingSpec,
@@ -70,7 +72,7 @@ export function playPlatform<M extends GameManifest>(manifest: M, game: GameId, 
 
 const NO_ADMIN_PART = { web: { kind: 'static' }, settings: {}, services: [] } as const;
 
-export function adminPlatform<M extends GameManifest>(manifest: M, game: GameId, host: PlatformHost, roster: Roster): AdminPlatform<M> {
+export function adminPlatform<M extends GameManifest>(manifest: M, game: GameId, host: PlatformHost, roster: Roster, usage: GameUsage<AreaOf<M>>): AdminPlatform<M> {
 	const part = manifest.admin ?? NO_ADMIN_PART;
 	return {
 		...storageFor(manifest, 'admin', host.account),
@@ -80,5 +82,9 @@ export function adminPlatform<M extends GameManifest>(manifest: M, game: GameId,
 		settings: parseSettings(part.settings, host.env, `${game.toUpperCase()}_`) as AdminPlatform<M>['settings'],
 		tokens: tokensFor(part.services, host.tokens) as AdminPlatform<M>['tokens'],
 		roster,
+		usage,
 	};
 }
+
+/** The AI areas an admin part declares, which are all `platform.usage.record` takes. */
+export const areasOf = <M extends GameManifest>(manifest: M): readonly AreaOf<M>[] => Object.keys(manifest.admin?.ai ?? {}) as AreaOf<M>[];
