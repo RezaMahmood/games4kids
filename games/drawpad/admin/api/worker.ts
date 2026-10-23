@@ -1,3 +1,4 @@
+import type { UsageSubject } from '@g4k/sdk';
 import { jobPhotoPath, jobStepPngPath } from '../../data/job-event.ts';
 import { jobSteps, type DescriptionJobRow, type JobRow, type Photo, type PhotoJobRow } from '../../data/model.ts';
 import type { JobStore } from '../../data/stores.ts';
@@ -10,7 +11,8 @@ import { suggestTitles } from './titles.ts';
 /** Equal to extensions.queues.maxDequeueCount in host.json, so the last attempt settles the job instead of poisoning it. */
 export const MAX_ATTEMPTS = 3;
 
-export type JobDeps = { foundry: () => FoundryDeps; log: (message: string) => void };
+/** `foundry` makes the AI clients for one job, billed to `subject`. */
+export type JobDeps = { foundry: (subject: UsageSubject) => FoundryDeps; log: (message: string) => void };
 
 type Ctx = { id: string; foundry: () => FoundryDeps; files: JobStore };
 
@@ -86,7 +88,7 @@ async function runSteps<R extends JobRow, K extends JobStepKey, I>(
 		return;
 	}
 
-	const ctx: Ctx = { id: row.rowKey, foundry: deps.foundry, files: store };
+	const ctx: Ctx = { id: row.rowKey, foundry: () => deps.foundry({ item: row.rowKey }), files: store };
 	if (!(await save('processing'))) return;
 	for (const step of pending) {
 		if (step.state !== 'pending') continue;

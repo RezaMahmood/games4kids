@@ -13,6 +13,8 @@ export type FakeTypeSafe = {
 	setBad(bad: Readonly<Record<string, number>>, count?: number): void;
 	/** The next `count` calls answer with this HTTP status. */
 	failNext(count: number, status?: number): void;
+	/** The next `count` calls answer 200 with good answers and no `usage`. */
+	omitUsageNext(count: number): void;
 	close(): Promise<void>;
 };
 
@@ -35,6 +37,7 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 	const calls: TypeSafeCall[] = [];
 	let bad: { values: Readonly<Record<string, number>>; count: number } = { values: {}, count: 0 };
 	const failing = { count: 0, status: 500 };
+	let omitting = 0;
 
 	const server = createServer(async (req, res) => {
 		const chunks: Buffer[] = [];
@@ -50,7 +53,12 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		}
 		const values = bad.count > 0 ? bad.values : {};
 		if (bad.count > 0) bad.count -= 1;
-		return json(200, { model: 'jev-latest', answers: Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id])])), usage: { input_tokens: 2000, output_tokens: 40 } });
+		const answers = Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id])]));
+		if (omitting > 0) {
+			omitting -= 1;
+			return json(200, { model: 'jev-latest', answers });
+		}
+		return json(200, { model: 'jev-latest', answers, usage: { input_tokens: 2000, output_tokens: 40 } });
 	});
 	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));
 	const { port } = server.address() as { port: number };
@@ -63,6 +71,9 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		failNext(count, status = 500) {
 			failing.count = count;
 			failing.status = status;
+		},
+		omitUsageNext(count) {
+			omitting = count;
 		},
 		close: () => new Promise<void>((resolve) => (server.close(() => resolve()), server.closeAllConnections())),
 	};

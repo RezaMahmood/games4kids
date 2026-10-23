@@ -22,5 +22,6 @@ export default defineGame({
 			LOCAL_JOB_EVENTS: { kind: 'int', min: 0, max: 1, default: 0 },
 		},
 		services: ['cognitiveServices'],
+		ai: { titles: 'Photo titles', redraw: 'Photo redraws', 'scene-prompts': 'Scene prompts', scene: 'Scene pictures' },
 	},
 });
