@@ -22,7 +22,8 @@
 		"build:web": "node tools/build-web.mjs",
 		"pretest": "npm run gen && npm run build:web",
 		"test": "node --conditions=source --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\" && vitest run",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"eval:jev": "node --conditions=source test/timedetectives/eval/eval.ts"
 	},
 	"devDependencies": {
 		"@azure/functions": "4.16.5",

@@ -4,6 +4,8 @@ import { fieldText, isRecord, KINDS, QUESTION_KINDS, type FieldRef, type Finding
 export const FAIL_AT = 0.7;
 /** Between this and FAIL_AT the check is unsure, so the admin is told and the writer is not asked again. */
 export const UNSURE_AT = 0.3;
+/** The thresholds and question wording were measured on this version. Move it only after `npm run eval:jev` says the new one is no worse. */
+export const MODEL = 'jev-1.14.0';
 const TIMEOUT_MS = 60_000;
 const DETAIL_MAX = 300;
 
@@ -118,7 +120,7 @@ export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Pro
 		const res = await fetch(new URL('v1/systemone', deps.endpoint), {
 			method: 'POST',
 			headers: { authorization: `Bearer ${deps.apiKey}`, 'content-type': 'application/json' },
-			body: JSON.stringify({ model: 'jev-latest', state, questions }),
+			body: JSON.stringify({ model: MODEL, state, questions }),
 			signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
 		});
 		status = res.status;
