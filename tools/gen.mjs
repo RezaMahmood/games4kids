@@ -29,6 +29,8 @@ const NAME_RULES = {
 	queues: { pattern: /^(?=.{3,63}$)[a-z0-9]+(-[a-z0-9]+)*$/, rule: 'a queue name is 3 to 63 lowercase letters, digits and single hyphens' },
 };
 const ADMIN_OWNED = ['admin', 'admin-private'];
+/** An area id is stored in every ledger row, and the Costs page shows its label. */
+const AI_AREA = /^[a-z][a-z0-9-]{1,23}$/;
 const DEFAULT_HOSTING = { memoryMb: 2048, maxInstances: 10 };
 
 const { values } = parseArgs({ options: { root: { type: 'string', default: '.' } } });
@@ -85,6 +87,10 @@ async function scanFolder(folder) {
 	const adminOwned = Object.values(storage).flatMap((names) => Object.entries(names ?? {}).filter(([, owner]) => ADMIN_OWNED.includes(owner)).map(([name]) => name));
 	if (!hasAdmin && adminOwned.length > 0) problems.push(`no-admin-writer: ${id}: ${adminOwned.join(', ')} need an admin part to write them`);
 	if (manifest.scoreboard !== undefined && manifest.scoreboard !== true) problems.push(`bad-manifest: ${id}: scoreboard must be true or left out`);
+	for (const [area, label] of Object.entries(manifest.admin?.ai ?? {})) {
+		if (!AI_AREA.test(area)) problems.push(`ai-area: ${id}: "${area}" must match ${AI_AREA.source}`);
+		if (typeof label !== 'string' || label.trim() === '') problems.push(`ai-area: ${id}: "${area}" needs a label`);
+	}
 	const exportNames = Object.keys(manifest.exports ?? {});
 	if (exportNames.length > 0) problems.push(`exports-reserved: ${id}: ${exportNames.join(', ')}; exports must stay empty`);
 	const hosting = { ...DEFAULT_HOSTING, ...manifest.play?.hosting };

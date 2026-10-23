@@ -156,3 +156,14 @@ test('gen refuses a scoreboard that is not true, and writes nothing', () => {
 	assert.deepEqual(problems, ['gen: bad-manifest: loose: scoreboard must be true or left out']);
 	assert.equal(existsSync(join(root, 'apps/games/.gen/catalog.json')), false);
 });
+
+test('gen refuses an AI area id that is not lowercase with hyphens, or one with no label, and writes nothing', () => {
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	const files = ['data/index.ts', 'play/api/index.ts', 'admin/api/index.ts'];
+	game(root, 'good', { id: 'good', admin: { ...part, ai: { 'story-words': 'Story words' } } }, files);
+	game(root, 'loose', { id: 'loose', admin: { ...part, ai: { Words: 'Words', picture: ' ' } } }, files);
+	const { status, problems } = gen(root);
+	assert.equal(status, 1);
+	assert.deepEqual(problems, ['gen: ai-area: loose: "Words" must match ^[a-z][a-z0-9-]{1,23}$', 'gen: ai-area: loose: "picture" needs a label']);
+	assert.equal(existsSync(join(root, 'apps/games/.gen/catalog.json')), false);
+});

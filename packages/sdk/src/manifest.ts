@@ -37,6 +37,12 @@ export type Part = {
 	readonly csp?: CspExtension;
 };
 
+/** Area id (`^[a-z][a-z0-9-]{1,23}$`, checked by gen) to the label the Costs page shows. */
+export type AiAreas = Readonly<Record<string, string>>;
+
+/** An admin part may call AI models. `ai` names each area it bills, and `platform.usage.record` takes only those. */
+export type AdminPartSpec = Part & { readonly ai?: AiAreas };
+
 export type Hosting = { readonly maxInstances?: number; readonly memoryMb?: 512 | 2048 | 4096 };
 
 /** No cross-game hub exists yet, so only an empty object type-checks. */
@@ -55,7 +61,7 @@ export type GameManifest = {
 		readonly queues: StorageDeclaration;
 	};
 	readonly play: Part & { readonly hosting?: Hosting };
-	readonly admin?: Part;
+	readonly admin?: AdminPartSpec;
 	/**
 	 * The play API answers GET and PUT `board/me` for a child's own switch: `{ optedIn }`, and `{ on }` to change it.
 	 * The profile page shows a switch for each granted game that sets this, and reads `board/me` after a rename, so the
@@ -64,6 +70,9 @@ export type GameManifest = {
 	readonly scoreboard?: true;
 	readonly exports?: ReservedExports;
 };
+
+/** The areas a game's admin part declares. `never` when it declares none, so it cannot record any usage. */
+export type AreaOf<M extends GameManifest> = M['admin'] extends { readonly ai: infer A } ? keyof A & string : never;
 
 /** Keeps every literal, so storage names, ownership, settings and services become unions downstream. */
 export function defineGame<const M extends GameManifest>(manifest: M): M {
