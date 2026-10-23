@@ -1,0 +1,22 @@
+name: pr-base
+
+# A PR stacked on another PR's branch merges into that branch, not main, and ships nothing once its parent has merged
+# (#73 and #74 were lost this way). Every PR targets main, so any set of open PRs can merge in any order.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  targets-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$BASE" != "main" ]; then
+            echo "::error::This PR targets '$BASE'. Point it at main: gh pr edit ${{ github.event.number }} --base main"
+            exit 1
+          fi
