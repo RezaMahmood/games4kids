@@ -80,6 +80,15 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		await expectNoSideways(admin);
 	});
 
+	await test.step('the admin bar keeps its height when a machine draws the words wider', async () => {
+		const bar = admin.locator('admin-bar .g4k-bar');
+		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = '0.12em'));
+		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
+		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(160);
+		await expectNoSideways(admin);
+		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = ''));
+	});
+
 	const playerContext = await browser.newContext(PHONE);
 	const player = await playerContext.newPage();
 

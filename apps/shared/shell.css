@@ -208,7 +208,10 @@ body[aria-busy="true"]::after {
 	}
 }
 
-/* On a phone the brand takes its own row and the links wrap below it, so every game stays in view; the email goes. */
+/*
+ * On a phone the brand takes its own row and the links sit in three columns below it, so every game stays in view; the email goes.
+ * A grid rather than wrapped text, so the bar's height follows the number of links and not the width of each machine's fonts.
+ */
 @media (max-width: 600px) {
 	.g4k-bar.admin {
 		padding-block: var(--space-xs);
@@ -220,17 +223,21 @@ body[aria-busy="true"]::after {
 	}
 
 	.g4k-bar.admin nav {
-		column-gap: var(--space-md);
-		row-gap: var(--space-xs);
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		flex: 1 0 100%;
+		align-items: center;
+		gap: 0 var(--space-sm);
 	}
 
-	/* Smaller words keep a third game's link from taking a row of its own. */
 	.g4k-bar.admin nav a {
 		font-size: var(--size-caption);
+		overflow-wrap: anywhere;
 	}
 
 	.g4k-bar.admin .g4k-button {
-		margin-left: auto;
+		justify-self: end;
+		white-space: nowrap;
 	}
 
 	.g4k-bar.admin .who {
