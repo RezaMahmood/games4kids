@@ -1,22 +1,27 @@
-import { costView, HttpError, type CostView, type GameId, type Spend } from '@g4k/sdk';
-import { LEDGER_START, londonDay, periodOf, type Period, type UsageEntry, type UsageLedger } from './usage.ts';
+import { costView, HttpError, type AiAreas, type CostView, type GameId, type Side, type Spend } from '@g4k/sdk';
+import { LEDGER_START, londonDay, periodOf, type LedgerReader, type Period, type UsageEntry } from './usage.ts';
 
 /** The widest range one report covers, in days. */
 export const MAX_RANGE_DAYS = 1096;
 
-export type CostGame = { readonly id: GameId; readonly title: string; readonly areas: Readonly<Record<string, string>> };
+/** A game and the AI areas each of its apps bills, from its manifest's `admin.ai` and `play.ai`. */
+export type CostGame = { readonly id: GameId; readonly title: string; readonly ai: { readonly [S in Side]: AiAreas } };
 export type CostQuery = { readonly by: Period; readonly from: string; readonly to: string };
 
-type AreaCost = CostView & { readonly game: GameId; readonly area: string; readonly label: string };
-type GameCost = CostView & { readonly game: GameId; readonly title: string };
+/** The admin app's ledger, and each player app's, which the admin app may only read. */
+export type CostLedgers = { readonly admin: LedgerReader; readonly play: (game: GameId) => LedgerReader };
 
-export type CostReport = CostQuery & {
-	readonly total: CostView;
-	readonly games: readonly GameCost[];
-	readonly areas: readonly AreaCost[];
-	readonly periods: readonly { readonly period: string; readonly total: CostView; readonly games: readonly GameCost[]; readonly areas: readonly AreaCost[] }[];
-	readonly priceVersions: readonly string[];
-};
+type AppCost = CostView & { readonly side: Side };
+type AreaCost = CostView & { readonly side: Side; readonly game: GameId; readonly area: string; readonly label: string };
+type GameCost = CostView & { readonly game: GameId; readonly title: string };
+type Breakdown = { readonly apps: readonly AppCost[]; readonly games: readonly GameCost[]; readonly areas: readonly AreaCost[] };
+
+export type CostReport = CostQuery &
+	Breakdown & {
+		readonly total: CostView;
+		readonly periods: readonly (Breakdown & { readonly period: string; readonly total: CostView })[];
+		readonly priceVersions: readonly string[];
+	};
 
 const PERIODS: readonly Period[] = ['day', 'month', 'year'];
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -72,14 +77,22 @@ const addTo = (sums: Sums, key: string, microUsd: number) => {
 const sumOf = (entries: readonly UsageEntry[]): Spend => ({ microUsd: entries.reduce((sum, one) => sum + one.microUsd, 0), calls: entries.length });
 const largestFirst = <T extends Spend>(rows: readonly T[]): T[] => [...rows].sort((a, b) => b.microUsd - a.microUsd || b.calls - a.calls);
 
-function breakdown(entries: readonly UsageEntry[], games: readonly CostGame[]): { games: GameCost[]; areas: AreaCost[] } {
+const SIDES: readonly Side[] = ['admin', 'play'];
+
+function breakdown(entries: readonly UsageEntry[], games: readonly CostGame[]): Breakdown {
+	const byApp: Sums = new Map();
 	const byGame: Sums = new Map();
 	const byArea: Sums = new Map();
 	for (const one of entries) {
+		addTo(byApp, one.side, one.microUsd);
 		addTo(byGame, one.game, one.microUsd);
-		addTo(byArea, `${one.game}\n${one.area}`, one.microUsd);
+		addTo(byArea, `${one.side}\n${one.game}\n${one.area}`, one.microUsd);
 	}
 	return {
+		apps: largestFirst(SIDES.flatMap((side) => {
+			const spend = byApp.get(side);
+			return spend ? [{ side, ...costView(spend) }] : [];
+		})),
 		games: largestFirst(
 			[...byGame].flatMap(([game, spend]) => {
 				const found = games.find((one) => one.id === game);
@@ -88,20 +101,24 @@ function breakdown(entries: readonly UsageEntry[], games: readonly CostGame[]): 
 		),
 		areas: largestFirst(
 			[...byArea].flatMap(([key, spend]) => {
-				const [game, area = ''] = key.split('\n');
+				const [rawSide, game, area = ''] = key.split('\n');
+				const side = SIDES.find((one) => one === rawSide);
 				const found = games.find((one) => one.id === game);
-				return found ? [{ game: found.id, area, label: found.areas[area] ?? area, ...costView(spend) }] : [];
+				return found && side ? [{ side, game: found.id, area, label: found.ai[side][area] ?? area, ...costView(spend) }] : [];
 			}),
 		),
 	};
 }
 
-/** The ledger rows of every game that bills AI, summed by London period, game and area. Periods run newest first. */
-export async function costReport(ledger: UsageLedger, games: readonly CostGame[], query: CostQuery): Promise<CostReport> {
-	const entries = await ledger.read(
-		games.map((one) => one.id),
-		query,
-	);
+const bills = (game: CostGame, side: Side) => Object.keys(game.ai[side]).length > 0;
+
+/**
+ * The rows of the admin app's ledger and of each player app's, for every game whose manifest bills AI there, summed by
+ * London period, app, game and area. Periods run newest first.
+ */
+export async function costReport(ledgers: CostLedgers, games: readonly CostGame[], query: CostQuery): Promise<CostReport> {
+	const reads = [ledgers.admin.read(games.filter((one) => bills(one, 'admin')).map((one) => one.id), query), ...games.filter((one) => bills(one, 'play')).map((one) => ledgers.play(one.id).read([one.id], query))];
+	const entries = (await Promise.all(reads)).flat();
 	const inPeriod = new Map<string, UsageEntry[]>();
 	for (const one of entries) {
 		const period = periodOf(new Date(one.at), query.by);

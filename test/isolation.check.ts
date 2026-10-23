@@ -127,8 +127,53 @@ const chat = { input: 800, cachedInput: 200, output: 500 };
 void billedAdmin.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: chat, subject });
 void billedAdmin.usage.record({ area: 'picture', model: 'gpt-image-2', tokens: pictureTokens, subject });
 void billedAdmin.usage.spend();
-// @ts-expect-error a player app calls no AI model, so its platform has no ledger.
+// @ts-expect-error a player app whose manifest declares no play.ai has no ledger.
 void billedPlay.usage;
+
+const reads = defineGame({
+	id: 'reads',
+	title: 'Reads',
+	summary: '',
+	icon: 'icon.svg',
+	storage: { tables: { scores: 'play' }, containers: {}, queues: {} },
+	play: { web: { kind: 'static' }, settings: { TIER: { kind: 'choice', values: ['F0', 'S1'] } }, services: ['cognitiveServices'], ai: { handwriting: 'Handwriting reading' } },
+	admin: { web: { kind: 'static' }, settings: {}, services: [], ai: { words: 'Story words' } },
+});
+declare const readsPlay: PlayPlatform<typeof reads>;
+declare const readsAdmin: AdminPlatform<typeof reads>;
+const oneRead = { transactions: 1 };
+const tier: 'F0' | 'S1' = readsPlay.settings.TIER;
+
+void readsPlay.usage.record({ area: 'handwriting', model: 'azure-vision-read', tokens: oneRead, subject });
+void readsPlay.usage.record({ area: 'handwriting', model: 'azure-vision-read-free', tokens: oneRead, subject });
+// @ts-expect-error the player app's ledger is the host's, in its own account, and never a table handle a game can write.
+void readsPlay.tables['aiusage'];
+// @ts-expect-error nor can the player app reach the portal ledger the admin app writes.
+void readsPlay.tables['aiusage'].put(row);
+// @ts-expect-error a player app records only areas its play.ai declares, never the admin part's.
+void readsPlay.usage.record({ area: 'words', model: 'gpt-5.4-mini', tokens: chat, subject });
+// @ts-expect-error the admin part records only its admin.ai areas, never the player app's.
+void readsAdmin.usage.record({ area: 'handwriting', model: 'azure-vision-read', tokens: oneRead, subject });
+// @ts-expect-error a player app reports a count and never a price.
+void readsPlay.usage.record({ area: 'handwriting', model: 'azure-vision-read', tokens: oneRead, subject, microUsd: 0 });
+// @ts-expect-error a per-transaction model bills on transactions, never tokens.
+void readsPlay.usage.record({ area: 'handwriting', model: 'azure-vision-read', tokens: chat, subject });
+// @ts-expect-error a player app's ledger names no game, so it cannot write as, or read, another game's.
+void readsPlay.usage.record({ area: 'handwriting', model: 'azure-vision-read', tokens: oneRead, subject, game: 'drawpad' });
+// @ts-expect-error spend reads this game's ledger only, and takes no other game to read.
+void readsPlay.usage.spend('drawpad');
+// @ts-expect-error a choice setting is one of its values.
+const wrongTier: 'F0' = readsPlay.settings.TIER;
+
+defineGame({
+	id: 'squatter',
+	title: 'Squatter',
+	summary: '',
+	icon: 'icon.svg',
+	// @ts-expect-error the host's ledger table name is reserved, so no manifest can declare it or own it.
+	storage: { tables: { aiusage: 'admin' }, containers: {}, queues: {} },
+	play: { web: { kind: 'static' }, settings: {}, services: [] },
+});
 // @ts-expect-error the ledger is a portal table, which no game reaches by name.
 void billedAdmin.tables['aiusage'];
 // @ts-expect-error an area must be one the manifest's admin.ai declares.
@@ -201,4 +246,4 @@ telemetry.setUser(someUser);
 // @ts-expect-error an email is never the telemetry user.
 telemetry.setUser(someEmail);
 
-export { billed, forgedElevation, forgedSession, hints, maxLevels, other, playQueue, promote, unpriced };
+export { billed, forgedElevation, forgedSession, hints, maxLevels, other, playQueue, promote, reads, tier, unpriced, wrongTier };

@@ -5,7 +5,8 @@
 //
 // Writes (gitignored, rewritten on predev, prebuild and pretest). Each registry writes the same outputs:
 //   games/<id>/.gen/play-app.ts   the player app entry: playerAppFromEnv + registerWithFunctions
-//   games/<id>/.gen/params.json   the ARM parameters for infra/game.bicep: id, storage with owners, memoryMb, maxInstances
+//   games/<id>/.gen/params.json   the ARM parameters for infra/game.bicep: id, storage with owners (and the play ledger
+//                                 table where play.ai bills), memoryMb, maxInstances
 //   catalog.json                  the games site's home cards, minus apiBaseUrl, which the site deploy job fills in, with scoreboard where a game sets it
 //   admin-catalog.json            the admin site's game list, with whether each game has an admin part
 //   apps/<site>/.gen/csp.json     each game's CSP widening for that site's pages, which the site's staticwebapp.config.json applies
@@ -21,7 +22,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { GAME_ID, RESERVED_IDS } from '@g4k/sdk';
+import { GAME_ID, PLAY_LEDGER_TABLE, RESERVED_IDS } from '@g4k/sdk';
 
 const NAME_RULES = {
 	tables: { pattern: /^[A-Za-z][A-Za-z0-9]{2,62}$/, rule: 'a table name is 3 to 63 letters or digits, starting with a letter' },
@@ -87,15 +88,23 @@ async function scanFolder(folder) {
 	const adminOwned = Object.values(storage).flatMap((names) => Object.entries(names ?? {}).filter(([, owner]) => ADMIN_OWNED.includes(owner)).map(([name]) => name));
 	if (!hasAdmin && adminOwned.length > 0) problems.push(`no-admin-writer: ${id}: ${adminOwned.join(', ')} need an admin part to write them`);
 	if (manifest.scoreboard !== undefined && manifest.scoreboard !== true) problems.push(`bad-manifest: ${id}: scoreboard must be true or left out`);
-	for (const [area, label] of Object.entries(manifest.admin?.ai ?? {})) {
-		if (!AI_AREA.test(area)) problems.push(`ai-area: ${id}: "${area}" must match ${AI_AREA.source}`);
-		if (typeof label !== 'string' || label.trim() === '') problems.push(`ai-area: ${id}: "${area}" needs a label`);
+	for (const side of ['admin', 'play']) {
+		for (const [area, label] of Object.entries(manifest[side]?.ai ?? {})) {
+			if (!AI_AREA.test(area)) problems.push(`ai-area: ${id}: ${side}.ai "${area}" must match ${AI_AREA.source}`);
+			if (typeof label !== 'string' || label.trim() === '') problems.push(`ai-area: ${id}: ${side}.ai "${area}" needs a label`);
+		}
 	}
+	const playAi = manifest.play?.ai;
+	if (playAi !== undefined && Object.keys(playAi).length === 0) problems.push(`ai-area: ${id}: play.ai needs an area, or leave it out`);
+	if (playAi !== undefined && !hasAdmin) problems.push(`no-admin-reader: ${id}: play.ai needs an admin part, whose console reports what the player app's AI costs`);
+	if (Object.hasOwn(storage.tables ?? {}, PLAY_LEDGER_TABLE)) problems.push(`reserved-name: ${id}: tables "${PLAY_LEDGER_TABLE}" is the host's AI cost ledger`);
+	// The player app's ledger is a 'play' table like any other, so infra/game.bicep creates it and grants its roles.
+	const tables = { ...storage.tables, ...(playAi !== undefined && { [PLAY_LEDGER_TABLE]: 'play' }) };
 	const exportNames = Object.keys(manifest.exports ?? {});
 	if (exportNames.length > 0) problems.push(`exports-reserved: ${id}: ${exportNames.join(', ')}; exports must stay empty`);
 	const hosting = { ...DEFAULT_HOSTING, ...manifest.play?.hosting };
 	const csp = { games: manifest.play?.csp ?? {}, admin: manifest.admin?.csp ?? {} };
-	return { problems, game: { id, folder, hasAdmin, csp, scoreboard: manifest.scoreboard === true, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables: storage.tables ?? {}, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
+	return { problems, game: { id, folder, hasAdmin, csp, scoreboard: manifest.scoreboard === true, title: manifest.title, summary: manifest.summary, icon: manifest.icon, storage: { tables, containers: storage.containers ?? {}, queues: storage.queues ?? {} }, hosting } };
 }
 
 async function scan(gamesDir) {

@@ -22,7 +22,8 @@ const ACCESS: { readonly [S in Side]: { readonly [O in Ownership]: 'write' | 're
 	admin: { play: 'read', admin: 'write', 'admin-private': 'write' },
 };
 
-function readTable(table: Table): ReadTable {
+/** A table handle with no write method at all, so a reader cannot write even past the types. */
+export function readTable(table: Table): ReadTable {
 	return {
 		get: <R extends Row>(partitionKey: string, rowKey: string) => table.get<R>(partitionKey, rowKey),
 		inPartition: <R extends Row>(partitionKey: string) => table.inPartition<R>(partitionKey),

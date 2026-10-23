@@ -1,12 +1,14 @@
-import { HttpError, type CreatePlayApi, type GameId, type GameManifest, type Method, type PlayRoute, type Profile } from '@g4k/sdk';
+import { randomUUID } from 'node:crypto';
+import { HttpError, PLAY_LEDGER_TABLE, type CreatePlayApi, type GameId, type GameManifest, type Method, type PlayRoute, type Profile } from '@g4k/sdk';
 import { failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type HostReply, type HostRequest } from './http.ts';
 import { decide, meFor, verifyGamesToken, type Authentication, type PortalAdmission, type PortalReader, type PortalStore } from './identity.ts';
 import { isKindName } from './names.ts';
 import { renamedToday } from './rename.ts';
-import { playPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
+import { areasOf, playPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
 import type { Accounts } from './storage.ts';
 import type { Telemetry } from './telemetry.ts';
 import type { TrustedIssuer } from './token.ts';
+import { usageLedger } from './usage.ts';
 
 export type AppEnv = {
 	readonly issuers: readonly TrustedIssuer[];
@@ -36,7 +38,9 @@ type PlayTarget = { readonly kind: 'health' } | { readonly kind: 'session' } | {
 export function createPlayerApp<M extends GameManifest>(deps: PlayerAppDeps<M>): App {
 	const id = requireGameId(deps.manifest);
 	const prefix = `/api/g/${id}/` as const;
-	const api = deps.create(playPlatform(deps.manifest, id, { account: deps.accounts.open(id), env: deps.env, tokens: deps.tokens, now: deps.now }));
+	const account = deps.accounts.open(id);
+	const ledger = deps.manifest.play.ai ? usageLedger(account.table(PLAY_LEDGER_TABLE), { side: 'play', now: deps.now, newId: randomUUID, telemetry: deps.telemetry }) : null;
+	const api = deps.create(playPlatform(deps.manifest, id, { account, env: deps.env, tokens: deps.tokens, now: deps.now }, ledger && ledger.forGame(id, areasOf(deps.manifest, 'play'))));
 	const builtIn = [
 		{ name: 'health', method: 'GET', path: 'health', target: { kind: 'health' } },
 		{ name: 'session', method: 'GET', path: 'session', target: { kind: 'session' } },

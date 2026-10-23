@@ -1,6 +1,6 @@
 import type { GameUsage } from './usage.ts';
 import type { AdminCaller, Caller, PortalUserId, Profile } from './identity.ts';
-import type { AreaOf, AzureService, GameId, GameManifest, Ownership, SettingSpec, Side, StorageDeclaration } from './manifest.ts';
+import type { AiAreas, AreaOf, AzureService, GameId, GameManifest, Ownership, SettingSpec, Side, StorageDeclaration } from './manifest.ts';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -118,7 +118,9 @@ export type StorageFor<M extends GameManifest, S extends Side> = {
 };
 
 export type Settings<S extends Readonly<Record<string, SettingSpec>>> = {
-	readonly [K in keyof S]: S[K] extends { readonly kind: 'int' } ? number : S[K] extends { readonly optional: true } ? string | undefined : string;
+	readonly [K in keyof S]: S[K] extends { readonly kind: 'int' }
+		? number
+		: (S[K] extends { readonly kind: 'choice'; readonly values: readonly (infer V)[] } ? V : string) | (S[K] extends { readonly optional: true } ? undefined : never);
 };
 
 /** Only the declared services. AzureService has no storage member, so no game holds a storage token. */
@@ -130,7 +132,7 @@ export type PlayPlatform<M extends GameManifest> = StorageFor<M, 'play'> &
 	Common & {
 		readonly settings: Settings<M['play']['settings']>;
 		readonly tokens: Tokens<M['play']['services'][number]>;
-	};
+	} & (M['play'] extends { readonly ai: AiAreas } ? { /** The player app's AI cost ledger, in this game's own account. */ readonly usage: GameUsage<AreaOf<M, 'play'>> } : unknown);
 
 type AdminPart<M extends GameManifest> = NonNullable<M['admin']>;
 
@@ -142,7 +144,7 @@ export type AdminPlatform<M extends GameManifest> = StorageFor<M, 'admin'> &
 		readonly settings: Settings<AdminPart<M>['settings']>;
 		readonly tokens: Tokens<AdminPart<M>['services'][number]>;
 		readonly roster: Roster;
-		/** The AI cost ledger. Only the admin part calls AI models, so a player platform has no usage. */
+		/** The admin app's AI cost ledger, a portal table. */
 		readonly usage: GameUsage<AreaOf<M>>;
 	};
 

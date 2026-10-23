@@ -1,4 +1,4 @@
-import { parseGameId, type AiCall, type AiModel, type GameId, type GameUsage, type Row, type Spend, type Table, type TokensOf } from '@g4k/sdk';
+import { parseGameId, type AiCall, type AiModel, type GameId, type GameUsage, type ReadTable, type Row, type Side, type Spend, type Table, type TokensOf } from '@g4k/sdk';
 import { costMicroUsd, PRICE_VERSION, PRICES } from './prices.ts';
 import type { Telemetry } from './telemetry.ts';
 
@@ -8,6 +8,8 @@ export const RECORD_TIMEOUT_MS = 5_000;
 export const LEDGER_START = '2026-10';
 
 export type UsageEntry = {
+	/** The app that made the call: the admin app's ledger is a portal table, and each player app's is in its game's account. */
+	readonly side: Side;
 	readonly id: string;
 	readonly at: string;
 	readonly game: GameId;
@@ -24,11 +26,22 @@ export type UsageEntry = {
 /** Days, months and years are the admin's, in the UK, so a day is a calendar day in Europe/London. */
 export type Period = 'day' | 'month' | 'year';
 
-export type UsageLedger = {
-	/** One game's view: it records only as this game, only in `areas`, and reads only this game's partitions. */
-	forGame<Area extends string>(game: GameId, areas: readonly Area[]): GameUsage<Area>;
+export type LedgerReader = {
 	/** Every row of these games on these Europe/London days, `from` to `to` inclusive, as YYYY-MM-DD. */
 	read(games: readonly GameId[], days: { readonly from: string; readonly to: string }): Promise<readonly UsageEntry[]>;
+};
+
+export type UsageLedger = LedgerReader & {
+	/** One game's view: it records only as this game, only in `areas`, and reads only this game's partitions. */
+	forGame<Area extends string>(game: GameId, areas: readonly Area[]): GameUsage<Area>;
+};
+
+export type LedgerDeps = {
+	/** Whose ledger this is, which names the manifest's `ai` it checks areas against. */
+	readonly side: Side;
+	readonly now: () => Date;
+	readonly newId: () => string;
+	readonly telemetry: Pick<Telemetry, 'log' | 'exception'>;
 };
 
 const LONDON = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -84,10 +97,10 @@ function parseTokens(model: AiModel, raw: unknown): TokensOf[AiModel] | undefine
 }
 
 /** A game's call checked as it crosses into the host, since a game could cast its way past the types. */
-function parseCall(call: AiCall<string>, areas: ReadonlySet<string>): { readonly tokens: TokensOf[AiModel] } | { readonly problems: readonly string[] } {
+function parseCall(call: AiCall<string>, areas: ReadonlySet<string>, side: Side): { readonly tokens: TokensOf[AiModel] } | { readonly problems: readonly string[] } {
 	const problems: string[] = [];
 	const tokens = isModel(call.model) ? parseTokens(call.model, call.tokens) : undefined;
-	if (!areas.has(call.area)) problems.push(`area "${call.area}" is not in the manifest's admin.ai`);
+	if (!areas.has(call.area)) problems.push(`area "${call.area}" is not in the manifest's ${side}.ai`);
 	if (!isModel(call.model)) problems.push(`model "${call.model}" has no price`);
 	else if (!tokens) problems.push(`tokens must be whole counts of ${Object.keys(PRICES[call.model]).join(', ')}`);
 	if (typeof call.subject?.item !== 'string' || call.subject.item === '') problems.push('subject.item must be an id');
@@ -96,11 +109,11 @@ function parseCall(call: AiCall<string>, areas: ReadonlySet<string>): { readonly
 }
 
 function entryRow(entry: UsageEntry): Row {
-	const { id, at, game, tokens, ...rest } = entry;
+	const { side: _side, id, at, game, tokens, ...rest } = entry;
 	return { partitionKey: partitionOf(game, utcMonth(new Date(at))), rowKey: `${at}|${id}`, ...rest, at, tokens: JSON.stringify(tokens) };
 }
 
-function parseEntry(row: Row): UsageEntry | undefined {
+function parseEntry(row: Row, side: Side): UsageEntry | undefined {
 	const [rawGame, month] = row.partitionKey.split('|');
 	const game = parseGameId(rawGame ?? '');
 	const [at, id] = row.rowKey.split('|');
@@ -114,6 +127,7 @@ function parseEntry(row: Row): UsageEntry | undefined {
 	}
 	if (!tokens) return undefined;
 	return {
+		side,
 		id,
 		at,
 		game,
@@ -150,28 +164,45 @@ const add = (totals: Map<string, Spend>, key: string, microUsd: number) => {
 	totals.set(key, { microUsd: before.microUsd + microUsd, calls: before.calls + 1 });
 };
 
-/**
- * The `aiusage` portal table, which only the admin app writes: one row per AI request that reported usage, in the
- * partition `<game>|<UTC month>`. Rows are never updated, so every total is a sum over them.
- */
-export function usageLedger(table: Table, deps: { readonly now: () => Date; readonly newId: () => string; readonly telemetry: Pick<Telemetry, 'log' | 'exception'> }): UsageLedger {
-	const rowsOf = async (game: GameId, months: readonly string[]) => (await Promise.all(months.map((month) => table.inPartition(partitionOf(game, month))))).flat();
-	const entries = (rows: readonly Row[]) => rows.flatMap((row) => parseEntry(row) ?? []);
+const rowsOf = async (table: ReadTable, game: GameId, months: readonly string[]) => (await Promise.all(months.map((month) => table.inPartition(partitionOf(game, month))))).flat();
 
+/** Reads a ledger without the right to write it, as the admin app reads each player app's. */
+export function ledgerReader(table: ReadTable, side: Side): LedgerReader {
 	return {
+		async read(games, { from, to }) {
+			const months = monthsForDays(from, to);
+			const rows = (await Promise.all(games.map((game) => rowsOf(table, game, months)))).flat();
+			return rows.flatMap((row) => parseEntry(row, side) ?? []).filter((entry) => {
+				const day = londonDay(new Date(entry.at));
+				return day >= from && day <= to;
+			});
+		},
+	};
+}
+
+/**
+ * One app's AI cost ledger: one row per AI request that reported usage, in the partition `<game>|<UTC month>`. The
+ * admin app's is the `aiusage` portal table, and a player app's is the PLAY_LEDGER_TABLE in its game's own account.
+ * Each has that app as its only writer. Rows are never updated, so every total is a sum over them.
+ */
+export function usageLedger(table: Table, deps: LedgerDeps): UsageLedger {
+	const { side } = deps;
+	return {
+		...ledgerReader(table, side),
 		forGame<Area extends string>(game: GameId, areas: readonly Area[]): GameUsage<Area> {
 			const declared = new Set<string>(areas);
 			return {
 				async record(call) {
-					const parsed = parseCall(call, declared);
+					const parsed = parseCall(call, declared, side);
 					if ('problems' in parsed) {
 						const problems = parsed.problems.join('; ');
-						deps.telemetry.log('error', `usage entry refused, ${problems}: ${JSON.stringify({ game, ...call })}`);
+						deps.telemetry.log('error', `usage entry refused, ${problems}: ${JSON.stringify({ game, side, ...call })}`);
 						deps.telemetry.exception(new Error(`${game} recorded AI usage the ledger refused: ${problems}`));
 						return;
 					}
 					const { area, model, replyModel, subject } = call;
 					const entry: UsageEntry = {
+						side,
 						id: deps.newId(),
 						at: deps.now().toISOString(),
 						game,
@@ -190,29 +221,22 @@ export function usageLedger(table: Table, deps: { readonly now: () => Date; read
 					deps.telemetry.exception(lost);
 				},
 				async unmetered({ area, model, subject, reason }) {
-					const undeclared = declared.has(area) ? '' : `, and area "${area}" is not in the manifest's admin.ai`;
-					const what = JSON.stringify({ game, area, model, ...subject, reason });
+					const undeclared = declared.has(area) ? '' : `, and area "${area}" is not in the manifest's ${side}.ai`;
+					const what = JSON.stringify({ game, side, area, model, ...subject, reason });
 					deps.telemetry.log('error', `usage unmetered, a billed call is missing from the ledger${undeclared}: ${what}`);
 					deps.telemetry.exception(new Error(`${game} ${area} call to ${model} for ${subject?.item} was billed but reported no usage: ${reason}`));
 				},
 				async spend() {
 					const byGroup = new Map<string, Spend>();
 					const byItem = new Map<string, Spend>();
-					for (const entry of entries(await rowsOf(game, monthsBetween(LEDGER_START, utcMonth(deps.now()))))) {
+					const rows = await rowsOf(table, game, monthsBetween(LEDGER_START, utcMonth(deps.now())));
+					for (const entry of rows.flatMap((row) => parseEntry(row, side) ?? [])) {
 						add(byItem, entry.item, entry.microUsd);
 						if (entry.group !== undefined) add(byGroup, entry.group, entry.microUsd);
 					}
 					return { byGroup, byItem };
 				},
 			};
-		},
-		async read(games, { from, to }) {
-			const months = monthsForDays(from, to);
-			const rows = (await Promise.all(games.map((game) => rowsOf(game, months)))).flat();
-			return entries(rows).filter((entry) => {
-				const day = londonDay(new Date(entry.at));
-				return day >= from && day <= to;
-			});
 		},
 	};
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { HttpError, parsePortalUserId, type AdminApi, type AdminRoute, type CreateAdminApi, type GameId, type GameManifest, type Method, type Reply, type Roster, type Worker } from '@g4k/sdk';
+import { HttpError, parsePortalUserId, PLAY_LEDGER_TABLE, type AdminApi, type AdminRoute, type CreateAdminApi, type GameId, type GameManifest, type Method, type Reply, type Roster, type Worker } from '@g4k/sdk';
 import {
 	ELEVATION_MAX_AGE_SECONDS,
 	elevate,
@@ -14,15 +14,15 @@ import {
 	type AdminStore,
 	type GameState,
 } from './admin.ts';
-import { costReport, parseCostQuery } from './costs.ts';
+import { costReport, parseCostQuery, type CostGame, type CostLedgers } from './costs.ts';
 import { checkEntra, EntraRefused, syncEntra, type GraphFor, type OboGraph } from './entra.ts';
 import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type AppWorker, type HostReply, type HostRequest } from './http.ts';
 import { adminPlatform, areasOf, requireGameId, type Env, type TokenSource } from './platform.ts';
 import { rosterOf } from './portal-tables.ts';
-import type { Accounts } from './storage.ts';
+import { readTable, type Accounts } from './storage.ts';
 import { adminFunctionName, type Telemetry } from './telemetry.ts';
 import type { TrustedIssuer } from './token.ts';
-import { usageLedger, type UsageLedger } from './usage.ts';
+import { ledgerReader, usageLedger, type UsageLedger } from './usage.ts';
 
 /** What the admin app lends a game's admin module: that game's account, its settings, tokens, roster and AI cost ledger. */
 export type ModuleHost = {
@@ -37,18 +37,21 @@ export type ModuleHost = {
 /** What a mounted module hands the app: its routes, and its queue workers with the queue names widened so a list can hold them. */
 export type MountedModule = { readonly routes: readonly AdminRoute[]; readonly workers: readonly { readonly queue: string; readonly run: Worker }[] };
 
-/** One game's admin part. The manifest's literal types stay inside `mount`, so the app can hold a list of them. */
-export type AdminModule = { readonly id: GameId; readonly title: string; readonly areas: Readonly<Record<string, string>>; mount(host: ModuleHost): MountedModule };
+/**
+ * One game's admin part. The manifest's literal types stay inside `mount`, so the app can hold a list of them. `ai`
+ * holds the areas each app bills, with their labels, for the Costs page.
+ */
+export type AdminModule = { readonly id: GameId; readonly title: string; readonly ai: CostGame['ai']; mount(host: ModuleHost): MountedModule };
 
 export function adminModule<M extends GameManifest>(manifest: M, create: CreateAdminApi<M>): AdminModule {
 	const id = requireGameId(manifest);
 	return {
 		id,
 		title: manifest.title,
-		areas: manifest.admin?.ai ?? {},
+		ai: { admin: manifest.admin?.ai ?? {}, play: manifest.play.ai ?? {} },
 		mount(host) {
 			const platformHost = { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now };
-			const api: AdminApi<M> = create(adminPlatform(manifest, id, platformHost, host.roster(id), host.usage.forGame(id, areasOf(manifest))));
+			const api: AdminApi<M> = create(adminPlatform(manifest, id, platformHost, host.roster(id), host.usage.forGame(id, areasOf(manifest, 'admin'))));
 			return { routes: api.routes, workers: api.workers ?? [] };
 		},
 	};
@@ -106,7 +109,8 @@ function entraRefusal(error: EntraRefused): HostReply {
 export function createAdminApp(deps: AdminAppDeps): App {
 	const prefix = '/api/admin/' as const;
 	const known = deps.games;
-	const usage = usageLedger(deps.accounts.open('portal').table('aiusage'), { now: deps.now, newId: randomUUID, telemetry: deps.telemetry });
+	const usage = usageLedger(deps.accounts.open('portal').table('aiusage'), { side: 'admin', now: deps.now, newId: randomUUID, telemetry: deps.telemetry });
+	const ledgers: CostLedgers = { admin: usage, play: (game) => ledgerReader(readTable(deps.accounts.open(game).table(PLAY_LEDGER_TABLE)), 'play') };
 	const portal: readonly Entry[] = [
 		{ owner: 'portal', name: 'health', method: 'GET', path: 'portal/health', target: { kind: 'health' } },
 		{
@@ -192,8 +196,7 @@ export function createAdminApp(deps: AdminAppDeps): App {
 				kind: 'console',
 				async run({ request }) {
 					const query = parseCostQuery(request.query, deps.now());
-					const billing = deps.modules.filter((module) => Object.keys(module.areas).length > 0);
-					return { status: 200, json: await costReport(usage, billing, query) };
+					return { status: 200, json: await costReport(ledgers, deps.modules, query) };
 				},
 			},
 		},

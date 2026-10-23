@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
-import { estimateText, type AiCall, type Table } from '@g4k/sdk';
-import { costMicroUsd, LEDGER_START, memoryAccounts, monthsForDays, periodOf, PRICE_VERSION, RECORD_TIMEOUT_MS, usageLedger, type UsageEntry } from '@g4k/host';
+import { estimateText, PLAY_LEDGER_TABLE, type AiCall, type Side, type Table } from '@g4k/sdk';
+import { costMicroUsd, ledgerReader, LEDGER_START, memoryAccounts, monthsForDays, periodOf, PRICE_VERSION, readTable, RECORD_TIMEOUT_MS, usageLedger, type UsageEntry } from '@g4k/host';
 import { gameId } from './support/ids.ts';
 
 const timedetectives = gameId('timedetectives');
 const drawpad = gameId('drawpad');
 const words: AiCall<'words'> = { area: 'words', model: 'gpt-5.4-mini', tokens: { input: 800, cachedInput: 200, output: 500 }, subject: { item: 'round-1', group: 'topic-1' } };
 
-function ledger(at: { now: Date }, table: Table = memoryAccounts().open('portal').table('aiusage')) {
+function ledger(at: { now: Date }, table: Table = memoryAccounts().open('portal').table('aiusage'), side: Side = 'admin') {
 	const lines: string[] = [];
 	const exceptions: unknown[] = [];
 	let id = 0;
-	const usage = usageLedger(table, { now: () => at.now, newId: () => `id-${++id}`, telemetry: { log: (_level, line) => void lines.push(line), exception: (error) => void exceptions.push(error) } });
+	const usage = usageLedger(table, { side, now: () => at.now, newId: () => `id-${++id}`, telemetry: { log: (_level, line) => void lines.push(line), exception: (error) => void exceptions.push(error) } });
 	return { usage, table, lines, exceptions };
 }
 
@@ -77,7 +77,7 @@ test('a billed call with no usage adds no row, logs an exception naming the call
 	await mine.unmetered({ area: 'words', model: 'gpt-5.4-mini', subject: { item: 'round-1', group: 'topic-1' }, reason: 'the reply carried no readable usage' });
 	assert.deepEqual(await table.list(), []);
 	assert.equal(lines.length, 1);
-	assert.match(lines[0] ?? '', /^usage unmetered, a billed call is missing from the ledger: \{"game":"timedetectives","area":"words","model":"gpt-5.4-mini","item":"round-1","group":"topic-1","reason":"the reply carried no readable usage"\}$/);
+	assert.match(lines[0] ?? '', /^usage unmetered, a billed call is missing from the ledger: \{"game":"timedetectives","side":"admin","area":"words","model":"gpt-5.4-mini","item":"round-1","group":"topic-1","reason":"the reply carried no readable usage"\}$/);
 	assert.equal(exceptions.length, 1);
 	assert.match(String(exceptions[0]), /timedetectives words call to gpt-5.4-mini for round-1 was billed but reported no usage/);
 	await (mine.unmetered as (call: unknown) => Promise<void>)({ area: 'nope', model: 'gpt-5.4-mini', subject: { item: 'round-1' }, reason: 'r' });
@@ -155,4 +155,49 @@ test('days are Europe/London days: across the clocks going back, and on the 1st 
 	assert.deepEqual(await items('2026-10-01', '2026-10-01'), ['2026-09-30T23:30:00Z']);
 	assert.deepEqual(await items('2026-10-25', '2026-10-25'), ['2026-10-24T23:30:00Z', '2026-10-25T23:30:00Z']);
 	assert.deepEqual(await items('2026-09-30', '2026-10-26'), times);
+});
+
+const read: AiCall<'handwriting'> = { area: 'handwriting', model: 'azure-vision-read', tokens: { transactions: 1 }, subject: { item: 'activity-1', group: 'child-1' } };
+
+test('a read billed per transaction costs its list price, and on a free account nothing', () => {
+	assert.equal(costMicroUsd(read), 1500, '$1.50 per 1,000 transactions');
+	assert.equal(costMicroUsd({ ...read, model: 'azure-vision-read-free' }), 0);
+	assert.equal(costMicroUsd({ ...read, tokens: { transactions: 3 } }), 4500);
+});
+
+test("a player app's ledger writes the same row to its own game's table, checks areas against play.ai, and reads back as the Games app", async () => {
+	const accounts = memoryAccounts();
+	const table = accounts.open(gameId('letterjoin')).table(PLAY_LEDGER_TABLE);
+	const { usage, lines } = ledger({ now: new Date('2026-10-23T14:05:09.123Z') }, table, 'play');
+	const reads = usage.forGame(gameId('letterjoin'), ['handwriting']);
+	await reads.record(read);
+	await (reads.record as (call: unknown) => Promise<void>)({ ...read, area: 'words' });
+	await (reads.record as (call: unknown) => Promise<void>)({ ...read, microUsd: 0, priceVersion: 'mine', game: 'drawpad', side: 'admin' });
+	const rows = await table.list();
+	assert.equal(rows.length, 2);
+	for (const one of rows) {
+		const { etag: _etag, rowKey: _rowKey, ...row } = one;
+		assert.deepEqual(
+			row,
+			{
+				partitionKey: 'letterjoin|2026-10',
+				area: 'handwriting',
+				model: 'azure-vision-read',
+				item: 'activity-1',
+				group: 'child-1',
+				at: '2026-10-23T14:05:09.123Z',
+				tokens: '{"transactions":1}',
+				microUsd: 1500,
+				priceVersion: PRICE_VERSION,
+			},
+			'a game cannot send a price, a game or an app of its own',
+		);
+	}
+	assert.match(lines[0] ?? '', /area "words" is not in the manifest's play\.ai/);
+	assert.deepEqual(accounts.ops.filter((op) => op.account !== 'letterjoin'), [], 'nothing reaches the portal account');
+
+	const reader = ledgerReader(readTable(table), 'play');
+	const entries = await reader.read([gameId('letterjoin')], { from: '2026-10-23', to: '2026-10-23' });
+	assert.deepEqual(entries.map((entry) => [entry.side, entry.area, entry.microUsd]), [['play', 'handwriting', 1500], ['play', 'handwriting', 1500]]);
+	assert.deepEqual(Object.keys(readTable(table)).sort(), ['get', 'inPartition', 'list'], "the admin app's handle has no write method");
 });
