@@ -6,7 +6,7 @@ import { enter, ready, whileLoading } from '/shell/v1/index.js';
 const session = await enter({ game: 'timedetectives' });
 const api = createApi(session.api);
 const $ = (id) => document.getElementById(id);
-const SCREENS = ['home-screen', 'sure-screen', 'read-screen', 'quiz-screen', 'result-screen'];
+const SCREENS = ['home-screen', 'sure-screen', 'read-screen', 'quiz-screen', 'result-screen', 'board-screen'];
 
 function h(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
@@ -247,7 +247,15 @@ function showResult(saved) {
       h('span', { className: 'visually-hidden', textContent: right ? ' You got it.' : ' Not this time.' }));
   }));
   $('result-today').textContent = `You have ${saved.total} points today.`;
+  $('result-screen').insertBefore($('board'), $('again'));
   show('result-screen');
+  loadBoard();
+}
+
+/** The one board section lives in whichever screen is showing it. */
+function openBoard() {
+  $('board-screen').insertBefore($('board'), $('board-back'));
+  show('board-screen', $('board-heading'));
   loadBoard();
 }
 
@@ -269,7 +277,7 @@ async function loadBoard() {
         h('th', { scope: 'row', textContent: line.me ? `${line.name} (you)` : line.name }),
         h('td', { textContent: String(line.points.at(-1) ?? 0) }),
         h('td', { textContent: String(line.total) }))));
-      if (board.children.length === 0) say('board-status', 'Your points count from now on. Play another round to get on the board!');
+      if (board.children.length === 0) say('board-status', 'Your points count from now on. Play a round to get on the board!');
     }
   } catch (err) {
     if (run === boardRun) say('board-status', err.message);
@@ -305,6 +313,8 @@ $('read-done').addEventListener('click', showQuiz);
 $('read-again').addEventListener('click', () => $('clue').showModal());
 $('finish').addEventListener('click', finish);
 $('board-switch').addEventListener('click', toggleBoard);
+$('board-open').addEventListener('click', openBoard);
+$('board-back').addEventListener('click', showTopics);
 function playAnother() {
   showTopics();
   loadTopics();
