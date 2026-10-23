@@ -12,12 +12,12 @@ param adminPrincipalId string
 #disable-next-line no-unused-params
 param queues array
 
-@description('Foundry image models are offered in a few regions only, and not in West Europe or North Europe.')
+@description('An account deploys only the models its region lists, and West Europe and North Europe list no image model.')
 param foundryLocation string = 'swedencentral'
 @description('The admin app runtime identity. Bootstrap makes it, and its client id is what the queue trigger signs in as.')
 param adminIdentityName string = 'id-g4k-admin'
 
-@description('The model deployments the drafting worker calls by name: the chat model for the words, the image model for the picture. Global Standard, so the account region only decides where the resource lives.')
+@description('The model deployments the drafting worker calls by name: the chat model for the words, the image model for the picture. Global Standard, so calls may run in any region, but the account region still decides which models it can deploy.')
 param deployments array = [
   { name: 'gpt-5.4-mini', model: 'gpt-5.4-mini', version: '2026-03-17', capacity: 50 }
   { name: 'gpt-image-1-mini', model: 'gpt-image-1-mini', version: '2025-10-06', capacity: 1 }
