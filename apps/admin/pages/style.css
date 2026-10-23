@@ -430,6 +430,11 @@ button[aria-disabled='true'] {
 	padding: 0 var(--space-sm);
 }
 
+/* A game with no admin pages has no Open admin link, so its toggle is placed in the last column to line up with the others. */
+.game > .g4k-button:last-child {
+	grid-column: -2;
+}
+
 .game .open-admin {
 	display: inline-flex;
 	align-items: center;
@@ -452,7 +457,8 @@ button[aria-disabled='true'] {
 		grid-column: 1;
 	}
 
-	.game .g4k-button {
+	.game .g4k-button,
+	.game > .g4k-button:last-child {
 		grid-column: 1 / -1;
 	}
 

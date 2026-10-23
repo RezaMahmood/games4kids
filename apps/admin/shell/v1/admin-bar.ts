@@ -27,7 +27,7 @@ function link(to: Destination): HTMLAnchorElement {
 type Menu = { readonly root: HTMLElement; close(): void };
 
 /** A button that shows a panel. Opening moves focus into the panel; Escape closes it and returns focus to the button; a click or Tab outside closes it; opening one closes the others. */
-function menu(name: string, toggleContent: readonly (Node | string)[], toggleLabel: string, panelChildren: readonly Node[], align: 'start' | 'end', menus: Menu[]): Menu {
+function menu(name: string, toggleContent: readonly (Node | string)[], toggleLabel: string, panelChildren: readonly Node[], align: 'start' | 'end', menus: Menu[], signal: AbortSignal): Menu {
 	const panelId = `bar-menu-${name}`;
 	const toggle = el('button', { type: 'button', class: 'menu-toggle', 'aria-expanded': 'false', 'aria-controls': panelId, 'aria-label': toggleLabel, 'data-menu-toggle': name }, ...toggleContent);
 	const panel = el('div', { class: `menu-panel ${align}`, id: panelId, hidden: '' }, ...panelChildren);
@@ -55,7 +55,7 @@ function menu(name: string, toggleContent: readonly (Node | string)[], toggleLab
 	});
 	document.addEventListener('pointerdown', (event) => {
 		if (event.target instanceof Node && !root.contains(event.target)) set(false);
-	});
+	}, { signal });
 	return self;
 }
 
@@ -63,7 +63,7 @@ function initial(email: string): string {
 	return (email.trim()[0] ?? '?').toUpperCase();
 }
 
-function build(state: AdminBarState): HTMLElement {
+function build(state: AdminBarState, signal: AbortSignal): HTMLElement {
 	const menus: Menu[] = [];
 	const games: Destination[] = state.games.filter((game) => game.hasAdmin).map((game) => ({ label: game.title, href: game.path }));
 	const currentGame = games.find((game) => isCurrent(game.href));
@@ -78,6 +78,7 @@ function build(state: AdminBarState): HTMLElement {
 		],
 		'start',
 		menus,
+		signal,
 	);
 	if (currentGame || isCurrent(PAUSE.href)) gamesMenu.root.classList.add('holds-current');
 	const signOut = el('button', { type: 'button', class: 'g4k-button quiet' }, 'Sign out');
@@ -89,14 +90,20 @@ function build(state: AdminBarState): HTMLElement {
 		[el('p', { class: 'menu-note' }, 'Signed in as', el('br'), el('strong', {}, state.email)), signOut],
 		'end',
 		menus,
+		signal,
 	);
 	return el('header', { class: 'g4k-bar admin' }, el('a', { class: 'brand', href: '/' }, 'Games admin'), el('nav', { 'aria-label': 'Admin' }, link(MEMBERS), link(COSTS), gamesMenu.root), accountMenu.root);
 }
 
 /** The dark strip on every admin page: members, costs, a Games menu holding every game's admin pages, and an account menu with sign out. */
 export class AdminBar extends HTMLElement {
+	/** The menus listen on the document, so a redraw drops the previous bar's listeners. */
+	#listeners = new AbortController();
+
 	show(state: AdminBarState): void {
-		this.replaceChildren(build(state));
+		this.#listeners.abort();
+		this.#listeners = new AbortController();
+		this.replaceChildren(build(state, this.#listeners.signal));
 	}
 }
 
