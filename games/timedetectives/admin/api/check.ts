@@ -18,7 +18,12 @@ export type Check = { id: string; question: object; bad: (answer: Answer) => num
 export type Verdicts = { fails: string[]; unsure: string[] };
 
 const RELATION = { supports: 'the story says it is true', contradicts: 'the story says it is false', says_nothing: 'the story does not mention it' };
-const probability = (value: unknown): value is number => typeof value === 'number' && value >= 0 && value <= 1;
+/** Without these, Jev reads a hint that points at the story ("the story names the island") as giving the answer away. */
+const HINT = {
+	true: 'The hint contains the answer itself, or words that pin it down on their own, so a child could answer from the hint without the story.',
+	false: 'The hint only says where in the story to look or what kind of thing to look for, such as "the story names the island", and the child must still read the story to find the answer.',
+};
+const probability =(value: unknown): value is number => typeof value === 'number' && value >= 0 && value <= 1;
 
 function parseAnswer(raw: unknown): Answer | undefined {
 	if (!isRecord(raw)) return undefined;
@@ -59,13 +64,13 @@ function checksOfKind(kind: QuestionKind, content: RoundContent): Check[] {
 		})),
 		{
 			id: `${kind}_brief`,
-			question: { type: 'noul', instructions: `Could a child who reads only \`brief\` work out that the answer to "${label}" is \`${path}.answer\`?` },
+			question: { type: 'noul', instructions: `Does \`brief\` name or directly reveal \`${path}.answer\`, the answer to "${label}"?` },
 			bad: gives,
 			problem: `the brief gives away the ${kind} answer "${question.answer}"`,
 		},
 		{
 			id: `${kind}_hint`,
-			question: { type: 'noul', instructions: `Does \`${path}.hint\` state or directly give away \`${path}.answer\`?` },
+			question: { type: 'noul', instructions: `Does \`${path}.hint\` give away \`${path}.answer\`, the answer to "${label}"?`, criteria: HINT },
 			bad: gives,
 			problem: `the ${kind} hint gives away the answer "${question.answer}"`,
 		},
