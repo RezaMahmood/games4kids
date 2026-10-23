@@ -3,7 +3,7 @@ import type manifest from '../manifest.ts';
 import type { BoardEntry, Played } from './board.ts';
 import { isRecord, KINDS, parseRoundContent, type Confidence, type QuestionKind, type RoundContent } from './content.ts';
 import { pictureId, roundId, topicId, type PictureId, type RoundId, type TopicId } from './ids.ts';
-import { parseChecks, type Checks, type Round, type RoundState, type Source, type Topic } from './round.ts';
+import { angle, parseChecks, type Angle, type Checks, type Round, type RoundState, type Source, type Topic } from './round.ts';
 import type { AnswerLog } from './score.ts';
 
 type TimeDetectives = typeof manifest;
@@ -35,6 +35,7 @@ type RoundRow = {
 	state: RoundState['kind'];
 	source: Source;
 	focus?: string;
+	angle?: string;
 	reason?: string;
 	notice?: string;
 	checks?: string;
@@ -90,6 +91,12 @@ function storedChecks(row: Row, problems: string[]): { checks?: Checks } {
 	return checks ? { checks } : {};
 }
 
+/** An angle a later or earlier version has dropped from the list is only a hint, so the round drafts without it. */
+function storedAngle(row: Row, problems: string[]): { angle?: Angle } {
+	const found = angle(optionalText(row, 'angle', problems));
+	return found ? { angle: found } : {};
+}
+
 function storedState(row: Row, problems: string[]): RoundState | undefined {
 	const kind = STATES.find((state) => state === row['state']);
 	const source = SOURCES.find((one) => one === row['source']);
@@ -104,7 +111,7 @@ function storedState(row: Row, problems: string[]): RoundState | undefined {
 	if (!source) return undefined;
 	switch (kind) {
 		case 'drafting':
-			return { kind, focus, source, ...kept, ...storedChecks(row, problems) };
+			return { kind, focus, ...storedAngle(row, problems), source, ...kept, ...storedChecks(row, problems) };
 		case 'revising': {
 			const { checks: findings } = storedChecks(row, problems);
 			if (content && findings !== undefined && findings !== 'not-run' && findings.length > 0) return { kind, content, findings, source };
@@ -163,6 +170,7 @@ function roundRow({ id, topicId, state, picture, picturePrompt, updatedAt }: Rou
 		state: state.kind,
 		source: state.source,
 		...job,
+		...(state.kind === 'drafting' && state.angle && { angle: state.angle }),
 		...(state.kind === 'failed' && { reason: state.reason }),
 		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
 		...((state.kind === 'draft' || state.kind === 'drafting') && state.checks && { checks: JSON.stringify(state.checks) }),
