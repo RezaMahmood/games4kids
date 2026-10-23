@@ -587,3 +587,124 @@ body:has(dialog[open]) {
 		font-size: 1.125rem;
 	}
 }
+
+.lead {
+	margin: 0 0 var(--space-sm);
+	color: var(--color-ink-soft);
+}
+
+.segmented {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 4px;
+	max-width: 24rem;
+	margin: 0 0 var(--space-sm);
+}
+
+.segmented .g4k-button {
+	border: 2px solid var(--color-line);
+}
+
+.segmented .g4k-button[aria-pressed='true'] {
+	border-color: var(--color-primary);
+	background: var(--color-primary);
+	color: #fff;
+}
+
+.total {
+	margin: 0 0 var(--space-sm);
+	font-size: 1.25em;
+	font-weight: 700;
+}
+
+.costs {
+	margin: var(--space-xs) 0 var(--space-md);
+	padding: 0;
+	list-style: none;
+	border: 2px solid var(--color-line);
+	border-radius: var(--radius-control);
+	background: var(--color-surface);
+	overflow: hidden;
+}
+
+.costs > li + li,
+details[open] > .costs {
+	border-top: 1px solid var(--color-line);
+}
+
+.cost-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-sm);
+	min-height: var(--touch-default);
+	padding: var(--space-xs) var(--space-md);
+}
+
+summary.cost-row {
+	cursor: pointer;
+}
+
+summary.cost-row:hover {
+	background: var(--color-primary-tint);
+}
+
+.cost-row .what {
+	display: grid;
+	flex: 1;
+	gap: 2px;
+	min-width: 0;
+}
+
+.cost-row .name {
+	font-weight: 700;
+}
+
+.cost-row .sub,
+.cost-row .calls {
+	color: var(--color-muted);
+	font-size: 0.9375em;
+}
+
+.cost-row .cost {
+	display: grid;
+	justify-items: end;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.quiet {
+	margin: var(--space-sm) 0 0;
+	color: var(--color-muted);
+	font-size: 0.9375em;
+}
+
+.bar {
+	display: block;
+	height: 0.6rem;
+	border-radius: var(--radius-chip);
+	background: var(--color-chip);
+}
+
+.bar .fill {
+	display: block;
+	height: 100%;
+	border-radius: var(--radius-chip);
+	background: var(--color-primary);
+}
+
+.costs.inner {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	background: var(--color-paper);
+}
+
+.costs.inner .cost-row {
+	padding-left: var(--space-lg);
+}
+
+.note {
+	color: var(--color-ink-soft);
+	font-size: 0.9375em;
+}

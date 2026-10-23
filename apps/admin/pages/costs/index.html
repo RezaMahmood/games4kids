@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>AI costs</title>
+	<link rel="stylesheet" href="/shared/tokens.css">
+	<link rel="stylesheet" href="/shared/shell.css">
+	<link rel="stylesheet" href="/style.css">
+</head>
+<body aria-busy="true">
+	<admin-bar></admin-bar>
+	<main class="page" inert>
+		<h1 id="title">AI costs</h1>
+		<p class="lead">What the games' AI calls cost, by day, month or year and by area. Days are UK days.</p>
+		<div id="by" class="segmented" role="group" aria-label="Group by">
+			<button type="button" class="g4k-button quiet" data-by="day" aria-pressed="true">Day</button>
+			<button type="button" class="g4k-button quiet" data-by="month" aria-pressed="false">Month</button>
+			<button type="button" class="g4k-button quiet" data-by="year" aria-pressed="false">Year</button>
+		</div>
+		<p id="status" role="status" aria-live="polite">Loading costs.</p>
+		<section id="report" hidden>
+			<p id="total" class="total"></p>
+			<p id="empty" class="empty" hidden>No AI spend yet in this range.</p>
+			<div id="breakdown">
+				<h2>By game</h2>
+				<ul id="games" class="costs" aria-label="Cost by game"></ul>
+				<h2>By area</h2>
+				<ul id="areas" class="costs" aria-label="Cost by area"></ul>
+			</div>
+			<h2 id="periods-title">By day</h2>
+			<ul id="periods" class="costs" aria-labelledby="periods-title"></ul>
+			<p id="quiet" class="quiet" hidden></p>
+		</section>
+		<p class="note">Estimated from token counts and Azure list prices; your Azure bill is the final word.</p>
+	</main>
+	<script type="module" src="/costs.js"></script>
+</body>
+</html>

@@ -7,12 +7,12 @@ export type AdminBarState = {
 	signOut(): void;
 };
 
-/** The dark strip on every admin page: members, games, each game's admin pages, who is signed in, and sign out. */
+/** The dark strip on every admin page: members, games, costs, each game's admin pages, who is signed in, and sign out. */
 export class AdminBar extends HTMLElement {
 	show(state: AdminBarState): void {
 		const signOut = el('button', { type: 'button', class: 'g4k-button quiet' }, 'Sign out');
 		signOut.addEventListener('click', state.signOut);
-		const links = [el('a', { href: '/' }, 'Members'), el('a', { href: '/games/' }, 'Games'), ...state.games.filter((game) => game.hasAdmin).map((game) => el('a', { href: game.path }, game.title))];
+		const links = [el('a', { href: '/' }, 'Members'), el('a', { href: '/games/' }, 'Games'), el('a', { href: '/costs/' }, 'Costs'), ...state.games.filter((game) => game.hasAdmin).map((game) => el('a', { href: game.path }, game.title))];
 		this.replaceChildren(
 			el(
 				'header',
