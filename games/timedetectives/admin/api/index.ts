@@ -1,6 +1,7 @@
 import { costView, defineAdminApi, HttpError, meterTo, type AdminPlatform, type AdminRoute, type Spend, type UsageSubject } from '@g4k/sdk';
 import {
 	adminStore,
+	atWork,
 	imageReply,
 	keptChecks,
 	nothingHere,
@@ -124,7 +125,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	/** Refuses AI work when there is no Foundry account, or when the worker already has plenty queued. */
 	async function guardDrafting(now: Date): Promise<void> {
 		if (!platform.settings.FOUNDRY_ENDPOINT) throw new HttpError(503, 'ai_unavailable', 'Drafting with AI is not set up yet.');
-		const drafting = (await allRounds(now)).rounds.filter(({ round }) => round.state.kind === 'drafting').length;
+		const drafting = (await allRounds(now)).rounds.filter(({ round }) => atWork(round.state)).length;
 		if (drafting >= MAX_DRAFTING) throw new HttpError(429, 'too_many_drafts', `The AI already has ${drafting} rounds to draft. Try again when some are done.`);
 	}
 
@@ -350,6 +351,25 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					await guardDrafting(now);
 					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content, ...(state.checks && { checks: state.checks }) };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
+					return { status: 202, json: roundView(await queue(saved, found.round)) };
+				},
+			},
+			{
+				name: 'redraftRound',
+				method: 'POST',
+				path: 'rounds/{id}/redraft',
+				body: 'json',
+				/** Asks the AI to rewrite the words to fix what the check found, as the admin last saw them. The picture stays. */
+				async run({ params, body, now }) {
+					const found = await existingRound(params['id'], now);
+					const { state } = found.round;
+					if (state.kind !== 'draft' || state.checks === undefined || state.checks === 'not-run' || state.checks.length === 0) {
+						throw new HttpError(409, 'nothing_to_redraft', 'Only a draft with notes from the automatic check can be redrafted.');
+					}
+					const etag = etagOf(body, 'round');
+					await guardDrafting(now);
+					const next: RoundState = { kind: 'revising', content: state.content, findings: state.checks, source: state.source };
+					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},
 			},

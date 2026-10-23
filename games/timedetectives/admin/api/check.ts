@@ -106,11 +106,12 @@ export function judge(checks: Check[], answers: unknown): Finding[] {
 	return findings;
 }
 
-/** A sure finding in words the chat model can act on, naming the field as its JSON names it. */
-export function forWriter({ field, problem }: Finding, content: RoundContent): string {
-	if (field === 'full' || field === 'brief') return `the ${field} seems to ${problem}`;
+/** A finding in words the chat model can act on, naming the field as its JSON names it, and saying how sure the check was. */
+export function forWriter({ field, problem, sure }: Finding, content: RoundContent): string {
+	const claim = `${sure ? 'seems to' : 'might'} ${problem}`;
+	if (field === 'full' || field === 'brief') return `the ${field} ${claim}`;
 	const [kind, part] = field.split('-');
-	return `the ${kind} ${part} "${fieldText(content, field)}" seems to ${problem}`;
+	return `the ${kind} ${part} "${fieldText(content, field)}" ${claim}`;
 }
 
 /** Asks Jev all the checks of a round in one request. */

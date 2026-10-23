@@ -11,7 +11,7 @@ import { MAX_ATTEMPTS, PICTURE_REFUSED, STALE_AFTER_MS, STOPPED, WORDS_REFUSED }
 import { REQUEST_TIMEOUT_MS, RETRY_MAX_SECONDS } from '../games/timedetectives/admin/api/foundry.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
 import { pictureId, topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
-import type { RoundState } from '../games/timedetectives/data/round.ts';
+import type { Finding, RoundState } from '../games/timedetectives/data/round.ts';
 import { adminStore } from '../games/timedetectives/data/stores.ts';
 import manifest from '../games/timedetectives/manifest.ts';
 import { createPlayApi } from '../games/timedetectives/play/api/index.ts';
@@ -119,7 +119,9 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const costs = async () => (await asAdmin('GET', 'costs')).data as { topics: Record<string, Cost>; rounds: Record<string, Cost> };
 	/** The areas of every ledger row, sorted, since rows written in the same instant sort by their random id. */
 	const ledgerAreas = async () => (await w.accounts.open('portal').table('aiusage').list()).map((row) => `${String(row['area'])} ${String(row['item'])}`).sort();
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, costs, ledgerAreas, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
+	/** The admin console's own routes, such as its Costs page's report. */
+	const asConsole = (method: string, path: string) => call(admin, method, `/api/admin/${path}`, { token: adminToken });
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, asConsole, adminRound, publish, ada, topic, round, costs, ledgerAreas, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -968,4 +970,155 @@ test('a ledger that cannot be written neither fails nor retries a draft, and log
 	assert.ok(lost.every((line) => line.includes(`"item":"${round.id}"`) && line.includes('"microUsd":')));
 	assert.equal(s.exceptions.length, 2);
 	assert.deepEqual(await s.costs(), { topics: {}, rounds: {} });
+});
+
+const WHO_HINT: Finding = { field: 'who-hint', problem: 'give the answer away', sure: true };
+const WHERE_HINT: Finding = { field: 'where-hint', problem: 'give the answer away', sure: false };
+
+/** A drafted round the check left two findings on: a sure one on the "who" hint and an unsure one on the "where" hint. */
+async function flagged(s: Awaited<ReturnType<typeof setup>>, topic: string): Promise<AdminRound> {
+	typesafe.setBad({ who_hint: 0.9, where_hint: 0.5 }, 2);
+	const round = await drafted(s, topic);
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [WHO_HINT, WHERE_HINT] });
+	return round;
+}
+
+const redraft = (s: Awaited<ReturnType<typeof setup>>, round: AdminRound, etag = round.etag) => s.asAdmin('POST', `rounds/${round.id}/redraft`, { json: { etag } });
+const redrafted = async (s: Awaited<ReturnType<typeof setup>>, round: AdminRound) => {
+	const queued = await redraft(s, round);
+	assert.equal(queued.status, 202, JSON.stringify(queued.data));
+	await s.settled();
+	return s.adminRound(round.id);
+};
+
+test('a redraft sends the words and every finding to the chat model, saves new words with the picture kept, and bills a redraft and a check', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const round = await flagged(s, topic);
+	const picture = await s.asAdmin('GET', `rounds/${round.id}/picture`);
+	const costBefore = (await s.costs()).rounds[round.id];
+	assert.ok(costBefore);
+	const before = foundry.calls.length;
+	const checksBefore = typesafe.calls.length;
+	foundry.answerNextRounds({ ...VIKING_ROUND, title: 'The raid, redrafted', pictureAlt: 'A picture the AI made up.' });
+
+	const queued = await redraft(s, round);
+	assert.equal(queued.status, 202, JSON.stringify(queued.data));
+	const revising = queued.data as AdminRound;
+	assert.deepEqual(revising.state, { kind: 'revising', content: ROUND, findings: [WHO_HINT, WHERE_HINT], source: 'ai' });
+	assert.equal(codeOf(await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: VIKING_ROUND, etag: revising.etag } })), 'busy', 'the words cannot be edited while the AI rewrites them');
+	await s.settled();
+
+	const done = await s.adminRound(round.id);
+	assert.deepEqual(done.state, { kind: 'draft', content: { ...ROUND, title: 'The raid, redrafted' }, source: 'ai' }, 'a clean redraft has no findings, and the picture keeps its description');
+	assert.deepEqual(callsSince(before), [CHAT], 'the picture is not redrawn');
+	assert.equal(typesafe.calls.length - checksBefore, 1);
+	const sent = foundry.calls[before]?.messages?.[1]?.content ?? '';
+	assert.ok(sent.includes(JSON.stringify(VIKING_ROUND.full)), 'the current words go to the model');
+	assert.ok(sent.includes(`the who hint "${VIKING_ROUND.questions[0]?.hint}" seems to give the answer away`), sent);
+	assert.ok(sent.includes(`the where hint "${VIKING_ROUND.questions[1]?.hint}" might give the answer away`), sent);
+	const kept = await s.asAdmin('GET', `rounds/${round.id}/picture`, { headers: { 'if-none-match': picture.headers['etag'] ?? '' } });
+	assert.equal(kept.status, 304, 'the picture is the one it had');
+
+	const after = await s.costs();
+	assert.deepEqual(after.rounds[round.id], cost(costBefore.microUsd + COST.words + COST.check, costBefore.calls + 2, 'est. $0.017'));
+	assert.deepEqual(after.topics[topic], after.rounds[round.id]);
+	assert.deepEqual((await s.ledgerAreas()).filter((row) => row.startsWith('redraft ')), [`redraft ${round.id}`]);
+	const report = (await s.asConsole('GET', 'portal/costs?by=day')).data as { areas: { game: string; area: string; label: string; microUsd: number; calls: number }[] };
+	assert.deepEqual(report.areas.find((one) => one.area === 'redraft'), { game: 'timedetectives', area: 'redraft', label: 'Story redrafts', microUsd: Math.round(COST.words), calls: 1, text: 'est. $0.003' }, 'the console labels the area from the manifest');
+
+	const drawn = foundry.calls.length;
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	assert.equal(foundry.calls[drawn]?.prompt?.split('\n')[0], VIKING_ROUND.picturePrompt, 'a later redraw still draws what the AI first described');
+});
+
+test('a redraft whose new words still fail the check is asked for once more, then saved with what is still wrong', async () => {
+	const s = await setup(checked);
+	const round = await flagged(s, await adminTopic(s));
+	const before = foundry.calls.length;
+	const checksBefore = typesafe.calls.length;
+	typesafe.setBad({ who_brief: 0.9 }, 2);
+	const done = await redrafted(s, round);
+	assert.deepEqual(done.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [BRIEF_GIVEAWAY] });
+	assert.deepEqual(callsSince(before), [CHAT, CHAT]);
+	assert.equal(typesafe.calls.length - checksBefore, 2);
+	assert.ok(foundry.calls[before + 1]?.messages?.at(-1)?.content.includes('the brief seems to give away the answer to "Who is it?"'));
+	assert.deepEqual((await s.ledgerAreas()).filter((row) => row.startsWith('redraft ')), [`redraft ${round.id}`, `redraft ${round.id}`], 'each ask is billed');
+});
+
+test('a redraft the AI refuses, cannot use, or never answers keeps the old words and findings and says why', async () => {
+	const s = await setup(checked);
+	const round = await flagged(s, await adminTopic(s));
+	const unchanged = (why: string) => ({ kind: 'draft', content: ROUND, source: 'ai', notice: `The AI could not redraft this round. ${why} Your round is unchanged.`, checks: [WHO_HINT, WHERE_HINT] });
+
+	let before = foundry.calls.length;
+	foundry.refuseNext(1, 'chat');
+	let done = await redrafted(s, round);
+	assert.deepEqual(done.state, unchanged('The AI safety filter turned it down.'));
+	assert.deepEqual(callsSince(before), [CHAT], 'a refusal is not retried');
+	assert.equal(done.hasPicture, true);
+
+	before = foundry.calls.length;
+	const ledger = (await s.ledgerAreas()).length;
+	const twoQuestions = { ...VIKING_ROUND, questions: VIKING_ROUND.questions.slice(0, 2) };
+	foundry.answerNextRounds(twoQuestions, twoQuestions);
+	done = await redrafted(s, done);
+	assert.deepEqual(done.state, unchanged('The AI\'s round was not usable: questions must have exactly one when question'));
+	assert.deepEqual(callsSince(before), [CHAT, CHAT]);
+	assert.equal((await s.ledgerAreas()).length - ledger, 2, 'an unusable answer is billed');
+
+	before = foundry.calls.length;
+	foundry.failNext(MAX_ATTEMPTS, 503, 'chat');
+	done = await redrafted(s, done);
+	assert.equal(done.state.kind, 'draft');
+	assert.match((done.state as { notice: string }).notice, /^The AI could not redraft this round\. The AI did not answer after 3 tries\. .* Your round is unchanged\.$/);
+	assert.deepEqual((done.state as { checks: unknown }).checks, [WHO_HINT, WHERE_HINT]);
+	assert.deepEqual(callsSince(before), [CHAT, CHAT, CHAT], 'the queue tries again before giving up');
+
+	foundry.answerNextRounds({ ...VIKING_ROUND, title: 'Third time lucky' });
+	const fixed = await redrafted(s, done);
+	assert.deepEqual(fixed.state, { kind: 'draft', content: { ...ROUND, title: 'Third time lucky' }, source: 'ai' }, 'the old draft can be redrafted again, and the notice goes');
+});
+
+test('only a draft with findings is redrafted, as the admin last saw it, and a stale etag changes nothing', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	const clean = await drafted(s, topic);
+	const notRun = await s.adminRound(await s.round(typedTopic, { kind: 'draft', content: ROUND, source: 'ai', checks: 'not-run' }));
+	const live = await s.adminRound(await s.round(typedTopic));
+	const working = await s.adminRound(await s.round(typedTopic, { kind: 'drafting', focus: '', source: 'ai' }, false));
+	for (const round of [clean, notRun, live, working]) assert.equal(codeOf(await redraft(s, round)), 'nothing_to_redraft', round.state.kind);
+
+	const round = await flagged(s, topic);
+	const queued = s.w.accounts.messages(timedetectives, 'drafts').length;
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraft`, { json: {} })).status, 400);
+	const edited = await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content: { ...VIKING_ROUND, title: 'Raid' }, etag: round.etag } });
+	assert.equal(edited.status, 200);
+	const stale = await redraft(s, round);
+	assert.equal(stale.status, 412);
+	assert.equal(codeOf(stale), 'changed');
+	assert.deepEqual((await s.adminRound(round.id)).state, (edited.data as AdminRound).state);
+	assert.equal(s.w.accounts.messages(timedetectives, 'drafts').length, queued, 'nothing was queued');
+	assert.equal((await redraft(s, edited.data as AdminRound)).status, 202);
+});
+
+test('a redraft no worker finishes settles back to the draft it started from, and revising rounds count toward the cap', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	const stuck = await s.round(typedTopic, { kind: 'revising', content: ROUND, findings: [WHO_HINT, WHERE_HINT], source: 'human' });
+	for (let n = 0; n < 9; n++) await s.round(typedTopic, { kind: 'drafting', focus: '', source: 'ai' }, false);
+	assert.equal(codeOf(await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })), 'too_many_drafts', 'nine drafting and one revising fill the queue');
+	const flaggedDraft = await s.adminRound(await s.round(typedTopic, { kind: 'draft', content: ROUND, source: 'ai', checks: [WHO_HINT] }));
+	assert.equal(codeOf(await redraft(s, flaggedDraft)), 'too_many_drafts');
+	assert.equal((await s.adminRound(stuck)).state.kind, 'revising', 'a redraft still within its attempts is left to the worker');
+
+	s.clock.at = new Date(NOW.getTime() + STALE_AFTER_MS);
+	const settled = await s.adminRound(stuck);
+	assert.deepEqual([settled.state, settled.hasPicture], [{ kind: 'draft', content: ROUND, source: 'human', notice: `The AI could not redraft this round. ${STOPPED} Your round is unchanged.`, checks: [WHO_HINT, WHERE_HINT] }, true]);
+	assert.equal((await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).status, 202);
 });

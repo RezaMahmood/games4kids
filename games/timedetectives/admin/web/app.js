@@ -3,7 +3,7 @@ import { CONFIDENCE, QUESTION_KINDS, offeredChoices } from './rules.js';
 import { enterAdmin, ready, whileLoading } from '/shell/v1/index.js';
 
 const STARTERS = ['Ancient Greeks', 'Saxons', 'Vikings', 'Stone Age people', 'Bronze Age people', 'Iron Age people', 'Egyptians'];
-const BADGES = { drafting: 'Drafting…', failed: 'Failed', draft: 'Draft', published: 'Published', broken: 'Damaged' };
+const BADGES = { drafting: 'Drafting…', revising: 'Redrafting…', failed: 'Failed', draft: 'Draft', published: 'Published', broken: 'Damaged' };
 const KINDS = Object.keys(QUESTION_KINDS);
 const POLL_MS = 3000;
 const POLL_FOR_MS = 5 * 60_000;
@@ -90,6 +90,8 @@ function pollWhile(load, waiting) {
 }
 
 const kindOf = (round) => (round.broken ? 'broken' : round.state.kind);
+/** The AI has the round queued, so the page asks again until it is done. */
+const atWork = (round) => round.state?.kind === 'drafting' || round.state?.kind === 'revising';
 const damage = (round) => `This round's stored data is damaged, so nobody can edit or play it: ${round.broken.join('; ')}. Delete it and make it again.`;
 
 function roundTitle(round) {
@@ -199,6 +201,7 @@ function roundStatus(round) {
   const { state } = round;
   if (kind === 'failed') return state.reason;
   if (kind === 'drafting') return state.content ? 'The AI is drawing a new picture…' : 'The AI is writing it…';
+  if (kind === 'revising') return 'The AI is redrafting it…';
   if (kind === 'published') return 'Published, children can play it';
   const flagged = findings(state).length;
   return [
@@ -253,7 +256,7 @@ async function loadRounds() {
   return rounds;
 }
 
-const drafting = (rounds) => rounds.some((round) => round.state?.kind === 'drafting');
+const drafting = (rounds) => rounds.some(atWork);
 
 async function openTopic(id) {
   topic = topics.find((t) => t.id === id) ?? null;
@@ -372,12 +375,16 @@ function goTo(field) {
 function renderChecks() {
   const checks = editing.round?.state?.kind === 'draft' ? editing.round.state.checks : undefined;
   $('round-checks').hidden = !checks || checks.length === 0;
+  $('redraft').hidden = !Array.isArray(checks);
   if ($('round-checks').hidden) return;
   if (checks === 'not-run') {
     $('checks-intent').textContent = 'The automatic check could not read this round this time. Read it through before you publish it.';
     $('checks-list').replaceChildren();
     return;
   }
+  // The AI rewrites the words as saved, so edits on screen would be lost or out of step with the notes.
+  $('r-redraft').disabled = edited();
+  $('redraft-hint').hidden = !edited();
   $('checks-intent').textContent = 'An automatic check read this round and thinks these might spoil the quiz. Fix them, or publish as it is if you disagree.';
   $('checks-list').replaceChildren(...checks.map(({ field, problem, sure }) => h('li', {},
     h('span', { textContent: `${fieldName(field)} ${sure ? 'seems to' : 'might'} ${problem}: ${quoted(inputFor(field).value.trim() || '(empty)')}` }),
@@ -405,11 +412,12 @@ function renderRound(round) {
   $('round-badge').hidden = !round;
   $('round-badge').className = `badge ${kind}`;
   $('round-badge').textContent = BADGES[kind] ?? '';
-  const working = kind === 'drafting';
+  const working = kind === 'drafting' || kind === 'revising';
   const editable = kind === 'new' || kind === 'draft' || kind === 'published';
   const notes = {
     new: 'Fill in every field and save, then add a picture.',
     drafting: content ? 'The AI is drawing a new picture. This page updates when it is done.' : 'The AI is writing this round. This page updates when it is done.',
+    revising: 'The AI is redrafting this round. This page updates when it is done.',
     failed: round?.state?.reason,
     broken: kind === 'broken' ? damage(round) : '',
     draft: round?.state?.notice ?? (round?.hasPicture ? 'Draft: only you can see this. When you are happy, press Publish at the bottom.' : 'Add a picture, then press Publish at the bottom.'),
@@ -447,13 +455,13 @@ async function openRound(id) {
   editing = { topicId: round.topicId, round };
   $('round-back').href = `#topic/${round.topicId}`;
   renderRound(round);
-  if (round.state?.kind === 'drafting') {
+  if (atWork(round)) {
     pollWhile(async () => {
       const [latest] = await Promise.all([api.round(id), loadCosts()]);
-      if (latest.state?.kind !== 'drafting') renderRound(latest);
+      if (!atWork(latest)) renderRound(latest);
       else renderRoundCost(latest);
       return latest;
-    }, (latest) => latest.state?.kind === 'drafting');
+    }, atWork);
   }
 }
 
@@ -505,6 +513,13 @@ async function redraw() {
   const round = await saveEdits();
   if (!round) return;
   const queued = await change(() => api.redraw(round.id), 'The AI is drawing a new picture.');
+  if (queued) openRound(queued.id);
+}
+
+/** Only offered with no unsaved edits, so the AI rewrites exactly the words the notes are about. */
+async function redraft() {
+  const { round } = editing;
+  const queued = await change(() => whileLoading(api.redraft(round.id, round.etag)), 'The AI is redrafting this round.');
   if (queued) openRound(queued.id);
 }
 
@@ -585,6 +600,7 @@ $('r-publish').addEventListener('click', publish);
 $('r-unpublish').addEventListener('click', unpublish);
 $('r-delete').addEventListener('click', deleteRound);
 $('r-redraw').addEventListener('click', redraw);
+$('r-redraft').addEventListener('click', redraft);
 $('r-retry').addEventListener('click', retry);
 $('retry-form').addEventListener('submit', retry);
 $('r-upload').addEventListener('change', upload);

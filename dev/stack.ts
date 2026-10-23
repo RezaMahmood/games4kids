@@ -29,6 +29,7 @@ import { createDirectory, type Directory } from './directory.ts';
 import { startFakeFoundry, type FakeFoundry } from './fake-foundry.ts';
 import { startFakeGraph } from './fake-graph.ts';
 import { startFakeIdp } from './fake-idp.ts';
+import { startFakeTypeSafe, type FakeTypeSafe } from './fake-typesafe.ts';
 import { startFakeVision, type FakeVision } from './fake-vision.ts';
 import { startSite } from './sites.ts';
 
@@ -43,7 +44,7 @@ const ADMIN_PRINCIPAL_ID = 'bbbbbbbb-0000-4000-8000-000000000002';
 export type StackOptions = {
 	/** Serve the fixture games under test/fixtures/games instead of games/. */
 	readonly fixtures?: boolean;
-	/** Nine consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph, Foundry, Vision. */
+	/** Ten consecutive ports from here: games site, admin site, API, telemetry, IdP https, IdP http, Graph, Foundry, Vision, TypeSafe. */
 	readonly portBase?: number;
 	/** Azurite or any storage account connection string. Without it every account is in memory. */
 	readonly azuriteConnectionString?: string;
@@ -60,6 +61,7 @@ export type DevStack = {
 	readonly graph: Awaited<ReturnType<typeof startFakeGraph>>;
 	readonly foundry: FakeFoundry;
 	readonly vision: FakeVision;
+	readonly typesafe: FakeTypeSafe;
 	readonly accounts: Accounts;
 	readonly directory: Directory;
 	/** Every event the shells sent to the fake Application Insights endpoint. */
@@ -119,6 +121,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const graphPort = await next(6);
 	const foundryPort = await next(7);
 	const visionPort = await next(8);
+	const typesafePort = await next(9);
 	const gamesOrigin = `http://localhost:${gamesPort}`;
 	const adminOrigin = `http://localhost:${adminPort}`;
 	const adminEmail = options.adminEmail ?? 'admin@example.com';
@@ -146,6 +149,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 
 	const foundry = await startFakeFoundry({ port: foundryPort });
 	const vision = await startFakeVision({ port: visionPort });
+	const typesafe = await startFakeTypeSafe({ port: typesafePort });
 	const apps: App[] = [];
 	const storage: Accounts = options.azuriteConnectionString ? azureAccounts({ kind: 'azurite', connectionString: options.azuriteConnectionString }) : memoryAccounts();
 	const accounts = deliverQueues(storage, () => apps, (worker, error, dequeueCount) => console.error(`dev stack: ${worker.name} failed attempt ${dequeueCount}`, error));
@@ -167,7 +171,7 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const common = { telemetry, now: () => new Date() };
 	const tokens = async (service: string) => `dev-${service}-token`;
 	const playEnv = { VISION_ENDPOINT: vision.origin };
-	const adminEnv = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1', TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin };
+	const adminEnv = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1', TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin, TIMEDETECTIVES_TYPESAFE_API_KEY: 'dev-typesafe-key', TIMEDETECTIVES_TYPESAFE_ENDPOINT: typesafe.origin };
 
 	const playerApps = registry.map((entry) =>
 		entry.use(({ manifest, play }) =>
@@ -256,10 +260,11 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 		graph,
 		foundry,
 		vision,
+		typesafe,
 		accounts: storage,
 		directory,
 		events,
 		exceptions,
-		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close(), foundry.close(), vision.close()])),
+		close: async () => void (await Promise.all([gamesSite.close(), adminSite.close(), api.close(), ingestion.close(), idp.close(), graph.close(), foundry.close(), vision.close(), typesafe.close()])),
 	};
 }

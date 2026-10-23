@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, collectProblems, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, collectProblems, pageReady, signInAtFakeEntra } from './support.ts';
 
 const SHOTS = process.env['G4K_SHOTS'];
 const SIZES = [
@@ -376,6 +376,7 @@ for (const { name, width, options } of SIZES) {
 		await expect(items.nth(0)).toContainText(`The "Where is it?" hint might give the answer away: "${await hint.inputValue()}"`);
 		await expect(items.nth(1)).toContainText('The short clue seems to give away the answer to "Who is it?": "');
 		await expect(page.locator('#round-note')).toHaveText('Draft: only you can see this. When you are happy, press Publish at the bottom.');
+		await expect(panel.getByRole('button', { name: 'Redraft with AI using these notes' })).toBeEnabled();
 		await shot(page, `admin-checks-${width}`);
 
 		await items.nth(0).getByRole('button', { name: 'Go to it' }).click();
@@ -389,6 +390,7 @@ for (const { name, width, options } of SIZES) {
 		await adminReady(page);
 		await expect(panel.locator('#checks-intent')).toHaveText('The automatic check could not read this round this time. Read it through before you publish it.');
 		await expect(panel.locator('li')).toHaveCount(0);
+		await expect(panel.getByRole('button', { name: 'Redraft with AI using these notes' })).toBeHidden();
 		await page.context().close();
 	});
 }
@@ -404,16 +406,16 @@ for (const { name, width, options } of SIZES) {
 		await expect(page.locator('#topic-cost')).toBeHidden();
 		await draftedRound(page);
 		const roundCost = page.locator('#round-cost');
-		// One chat reply (800 input, 200 cached, 500 output at 0.75, 0.075, 4.5) is 2865 micro-USD; one picture (50 text, 1000 output at 2, 8) is 8100.
-		await expect(roundCost).toHaveText('AI cost so far: est. $0.011 (2 AI calls)');
+		// One chat reply (800 input, 200 cached, 500 output at 0.75, 0.075, 4.5) is 2865 micro-USD; one check (2000 input at 0.042) is 84; one picture (50 text, 1000 output at 2, 8) is 8100.
+		const before = 'AI cost so far: est. $0.011 (3 AI calls)';
+		await expect(roundCost).toHaveText(before);
 		await shot(page, `costs-round-${width}`);
-		const before = 'AI cost so far: est. $0.011 (2 AI calls)';
 
 		await page.getByRole('button', { name: 'Redraw with AI' }).click();
 		await expect(roundCost).not.toHaveText(before);
 		await expect(page.locator('#round-badge')).toHaveText('Draft');
 		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
-		const after = 'AI cost so far: est. $0.019 (3 AI calls)';
+		const after = 'AI cost so far: est. $0.019 (4 AI calls)';
 		await expect(roundCost).toHaveText(after);
 
 		await page.getByRole('link', { name: 'Back to the topic' }).click();
@@ -456,3 +458,83 @@ test('a costs request that fails leaves every page working, with no cost text', 
 	await expect(page.locator('#topics')).not.toContainText('AI cost');
 	await page.context().close();
 });
+
+/** dev/fake-foundry.ts's GIVEAWAY_FOCUS: the fake AI writes a "who" hint that names the answer, which the fake check flags, until it is asked for a redraft. */
+const GIVEAWAY_FOCUS = 'a hint that gives the answer away';
+const REDRAFT_API = /\/api\/admin\/g\/timedetectives\/rounds\/[0-9a-f-]{36}\/redraft$/;
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, Redraft with AI rewrites only flagged words with no unsaved edits, keeps the picture, and raises the round's cost`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const problems = collectProblems([page]);
+		await newTopic(page);
+		await draftedRound(page);
+		const redraft = page.getByRole('button', { name: 'Redraft with AI using these notes' });
+		await expect(page.locator('#round-checks')).toBeHidden();
+		await expect(redraft).toBeHidden();
+
+		await page.getByRole('link', { name: 'Back to the topic' }).click();
+		await page.getByLabel('What should it be about? (optional)').fill(GIVEAWAY_FOCUS);
+		await page.getByRole('button', { name: 'Draft with AI' }).click();
+		const card = page.locator('#rounds .card', { hasText: 'worth a second look' });
+		await expect(card).toContainText('1 thing worth a second look');
+		await card.getByRole('link', { name: 'Review and publish' }).click();
+		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+
+		const panel = page.locator('#round-checks');
+		await expect(panel.locator('li')).toHaveText(['The "Who is it?" hint seems to give the answer away: "The Vikings sailed across the North Sea." Go to it']);
+		await expect(redraft).toBeEnabled();
+		await expect(panel.locator('#redraft-note')).toHaveText('The AI rewrites the words to fix these notes. The picture stays. This costs an AI call.');
+		// Two asks and two checks, since the first answer failed its check, then one picture.
+		const roundCost = page.locator('#round-cost');
+		await expect(roundCost).toHaveText('AI cost so far: est. $0.014 (5 AI calls)');
+		await shot(page, `redraft-panel-${width}`);
+
+		const hint = page.locator('#q-who-hint');
+		await hint.fill('Who came over the sea?');
+		await expect(redraft).toBeDisabled();
+		await expect(panel.getByText('Save or undo your changes first')).toBeVisible();
+		await shot(page, `redraft-unsaved-${width}`);
+		await hint.fill('The Vikings sailed across the North Sea.');
+		await expect(redraft).toBeEnabled();
+		await expect(panel.getByText('Save or undo your changes first')).toBeHidden();
+
+		// Hold the round as the redraft left it, so the page shows the AI at work before it shows the result.
+		let revising: unknown = null;
+		await page.route(REDRAFT_API, async (route) => {
+			const reply = await route.fetch();
+			revising = await reply.json();
+			return route.fulfill({ response: reply });
+		});
+		await page.route(ROUND_API, (route) => (route.request().method() === 'GET' && revising ? route.fulfill({ json: revising }) : route.fallback()));
+		await page.route(/\/api\/admin\/g\/timedetectives\/topics\/[0-9a-f-]{36}\/rounds$/, async (route) => {
+			if (route.request().method() !== 'GET' || !revising) return route.fallback();
+			const held = revising as { id: string };
+			const { rounds } = (await (await route.fetch()).json()) as { rounds: { id: string }[] };
+			return route.fulfill({ json: { rounds: rounds.map((round) => (round.id === held.id ? held : round)) } });
+		});
+		await redraft.click();
+		await expect(page.locator('#round-badge')).toHaveText('Redrafting…');
+		await expect(page.locator('#round-note')).toHaveText('The AI is redrafting this round. This page updates when it is done.');
+		await expect(panel).toBeHidden();
+		await expect(hint).toBeDisabled();
+		await shot(page, `redraft-working-${width}`);
+		await page.getByRole('link', { name: 'Back to the topic' }).click();
+		await expect(page.locator('#rounds .card', { hasText: 'The AI is redrafting it…' })).toBeVisible();
+		await shot(page, `redraft-card-${width}`);
+		await page.locator('#rounds .card', { hasText: 'The AI is redrafting it…' }).getByRole('link').first().click();
+		await expect(page.locator('#round-badge')).toHaveText('Redrafting…');
+
+		revising = null;
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		await pageReady(page);
+		await expect(hint).toHaveValue('Look for who the ships carried across the North Sea.');
+		await expect(panel).toBeHidden();
+		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+		// One more ask and one more check: 13998 + 2865 + 84 micro-USD.
+		await expect(roundCost).toHaveText('AI cost so far: est. $0.017 (7 AI calls)');
+		await shot(page, `redraft-done-${width}`);
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+}
