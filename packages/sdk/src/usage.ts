@@ -1,9 +1,11 @@
 /** Every AI model a game may call. A new model needs a price in @g4k/host's PRICES, which tsc enforces. */
-export type AiModel = 'gpt-5.4-mini' | 'gpt-image-1-mini' | 'gpt-image-2' | 'jev-1.14.0';
+export type AiModel = 'gpt-5.4-mini' | 'gpt-image-1-mini' | 'gpt-image-2' | 'jev-1.14.0' | 'azure-vision-read' | 'azure-vision-read-free';
 
 export type ChatTokens = { readonly input: number; readonly cachedInput: number; readonly output: number };
 export type ImageTokens = { readonly textInput: number; readonly imageInput: number; readonly output: number };
 export type JudgeTokens = { readonly input: number; readonly output: number };
+/** A service that bills per request, such as AI Vision, where one analyze call with one feature is one transaction. */
+export type Transactions = { readonly transactions: number };
 
 /** What each model bills on. A chat model can never report image tokens. */
 export type TokensOf = {
@@ -11,6 +13,10 @@ export type TokensOf = {
 	readonly 'gpt-image-1-mini': ImageTokens;
 	readonly 'gpt-image-2': ImageTokens;
 	readonly 'jev-1.14.0': JudgeTokens;
+	/** Image Analysis 4.0 Read on a standard (S1) account. */
+	readonly 'azure-vision-read': Transactions;
+	/** The same call on a free (F0) account, which bills nothing. */
+	readonly 'azure-vision-read-free': Transactions;
 };
 
 /** The thing a call was for, in the game's own ids. `item` is a round or a job. `group` is what it sums into, such as a topic. */

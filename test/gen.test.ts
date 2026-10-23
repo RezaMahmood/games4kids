@@ -164,6 +164,32 @@ test('gen refuses an AI area id that is not lowercase with hyphens, or one with 
 	game(root, 'loose', { id: 'loose', admin: { ...part, ai: { Words: 'Words', picture: ' ' } } }, files);
 	const { status, problems } = gen(root);
 	assert.equal(status, 1);
-	assert.deepEqual(problems, ['gen: ai-area: loose: "Words" must match ^[a-z][a-z0-9-]{1,23}$', 'gen: ai-area: loose: "picture" needs a label']);
+	assert.deepEqual(problems, ['gen: ai-area: loose: admin.ai "Words" must match ^[a-z][a-z0-9-]{1,23}$', 'gen: ai-area: loose: admin.ai "picture" needs a label']);
 	assert.equal(existsSync(join(root, 'apps/games/.gen/catalog.json')), false);
+});
+
+test("gen gives a game whose play.ai bills the player app's ledger table, owned 'play', and refuses a manifest that takes the name or bills with no admin part", () => {
+	const root = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	const files = ['data/index.ts', 'play/api/index.ts', 'admin/api/index.ts'];
+	const storage = { tables: { scores: 'play' }, containers: {}, queues: {} };
+	game(root, 'reads', { id: 'reads', storage, play: { ...part, ai: { handwriting: 'Handwriting reading' } }, admin: part }, files);
+	game(root, 'quiet', { id: 'quiet', storage, admin: part }, files);
+	assert.equal(gen(root).status, 0);
+	const tables = (id: string) => JSON.parse(readFileSync(join(root, `games/${id}/.gen/params.json`), 'utf8')).parameters.storage.value.tables;
+	assert.deepEqual(tables('reads'), { scores: 'play', aiusage: 'play' }, 'infra/game.bicep creates it and grants the player app write and the admin app read');
+	assert.deepEqual(tables('quiet'), { scores: 'play' });
+
+	const bad = mkdtempSync(join(tmpdir(), 'g4k-gen-'));
+	game(bad, 'taker', { id: 'taker', storage: { tables: { aiusage: 'play' }, containers: {}, queues: {} } });
+	game(bad, 'alone', { id: 'alone', play: { ...part, ai: { handwriting: 'Handwriting reading' } } });
+	game(bad, 'empty', { id: 'empty', play: { ...part, ai: {} }, admin: part }, files);
+	game(bad, 'shout', { id: 'shout', play: { ...part, ai: { Reads: 'Reads' } }, admin: part }, files);
+	const { status, problems } = gen(bad);
+	assert.equal(status, 1);
+	assert.deepEqual(problems.sort(), [
+		'gen: ai-area: empty: play.ai needs an area, or leave it out',
+		'gen: ai-area: shout: play.ai "Reads" must match ^[a-z][a-z0-9-]{1,23}$',
+		"gen: no-admin-reader: alone: play.ai needs an admin part, whose console reports what the player app's AI costs",
+		'gen: reserved-name: taker: tables "aiusage" is the host\'s AI cost ledger',
+	]);
 });

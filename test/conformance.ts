@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { AdminPlatform, CreateAdminApi, Ctx, CreatePlayApi, GameManifest, Ownership, PlayPlatform, RouteOf, SettingSpec, StorageDeclaration } from '@g4k/sdk';
+import { PLAY_LEDGER_TABLE, type AdminPlatform, type CreateAdminApi, type Ctx, type CreatePlayApi, type GameManifest, type Ownership, type PlayPlatform, type RouteOf, type SettingSpec, type StorageDeclaration } from '@g4k/sdk';
 import { adminFunctionName, adminModule, createAdminApp, createPlayerApp, requireGameId, type App, type Env, type HostReply, type TokenSource } from '@g4k/host';
 import { call, codeOf, JPEG, PNG, type Send } from './support/http.ts';
 import { fakeIdp } from './support/idp.ts';
@@ -39,7 +39,7 @@ function probe(prefix: string, route: RouteOf<unknown>): Probe {
 /** Values that satisfy every declared setting, so the app can start. */
 function envFor(settings: Readonly<Record<string, SettingSpec>>, prefix: string): Env {
 	return Object.fromEntries(
-		Object.entries(settings).flatMap(([name, spec]) => (spec.kind === 'int' ? [] : [[`${prefix}${name}`, spec.kind === 'url' ? 'https://example.com/' : 'set']])),
+		Object.entries(settings).flatMap(([name, spec]) => (spec.kind === 'int' ? [] : [[`${prefix}${name}`, spec.kind === 'url' ? 'https://example.com/' : spec.kind === 'choice' ? spec.values[0] : 'set']])),
 	);
 }
 
@@ -178,7 +178,7 @@ export function runPlayConformance<M extends GameManifest>(manifest: M, create: 
 			const { seen } = setup();
 			const platform = seen.platform;
 			assert.ok(platform);
-			assert.deepEqual(Object.keys(platform).sort(), [...PLATFORM_KEYS].sort());
+			assert.deepEqual(Object.keys(platform).sort(), [...PLATFORM_KEYS, ...(manifest.play.ai ? ['usage'] : [])].sort());
 			assertHandles(platform.tables, manifest.storage.tables, ['play'], ['admin']);
 			assertHandles(platform.blobs, manifest.storage.containers, ['play'], ['admin']);
 			assertHandles(platform.queues, manifest.storage.queues, ['play'], []);
@@ -193,7 +193,8 @@ export function runPlayConformance<M extends GameManifest>(manifest: M, create: 
 			const ops = w.accounts.ops.slice(start);
 			assert.deepEqual([...new Set(ops.map((op) => op.account))].filter((account) => account !== id && account !== 'portal'), []);
 			assert.deepEqual(ops.filter((op) => op.account === 'portal' && op.write), []);
-			const declared = { table: manifest.storage.tables, container: manifest.storage.containers, queue: manifest.storage.queues };
+			const tables: StorageDeclaration = { ...manifest.storage.tables, ...(manifest.play.ai && { [PLAY_LEDGER_TABLE]: 'play' }) };
+			const declared = { table: tables, container: manifest.storage.containers, queue: manifest.storage.queues };
 			assert.deepEqual(ops.filter((op) => op.account === id && op.write && declared[op.kind][op.name] !== 'play'), []);
 		});
 

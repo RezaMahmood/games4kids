@@ -21,6 +21,8 @@ export type Ownership = 'play' | 'admin' | 'admin-private';
 export type SettingSpec =
 	| { readonly kind: 'url'; readonly optional?: true }
 	| { readonly kind: 'string'; readonly optional?: true }
+	/** One of `values`. The app does not start on any other. */
+	| { readonly kind: 'choice'; readonly values: readonly [string, ...string[]]; readonly optional?: true }
 	| { readonly kind: 'int'; readonly min: number; readonly max: number; readonly default: number };
 
 /** Storage is not one: code gets handles, never a credential. */
@@ -40,8 +42,14 @@ export type Part = {
 /** Area id (`^[a-z][a-z0-9-]{1,23}$`, checked by gen) to the label the Costs page shows. */
 export type AiAreas = Readonly<Record<string, string>>;
 
-/** An admin part may call AI models. `ai` names each area it bills, and `platform.usage.record` takes only those. */
+/** A part may call AI models. `ai` names each area it bills, and `platform.usage.record` takes only those. */
 export type AdminPartSpec = Part & { readonly ai?: AiAreas };
+
+/**
+ * The table in a game's own account that holds its player app's AI cost ledger. The host adds it, owned 'play', to
+ * every game whose `play.ai` declares an area, so no manifest may declare it.
+ */
+export const PLAY_LEDGER_TABLE = 'aiusage';
 
 export type Hosting = { readonly maxInstances?: number; readonly memoryMb?: 512 | 2048 | 4096 };
 
@@ -56,11 +64,11 @@ export type GameManifest = {
 	readonly summary: string;
 	readonly icon: string;
 	readonly storage: {
-		readonly tables: StorageDeclaration;
+		readonly tables: StorageDeclaration & { readonly [PLAY_LEDGER_TABLE]?: never };
 		readonly containers: StorageDeclaration;
 		readonly queues: StorageDeclaration;
 	};
-	readonly play: Part & { readonly hosting?: Hosting };
+	readonly play: Part & { readonly hosting?: Hosting; readonly ai?: AiAreas };
 	readonly admin?: AdminPartSpec;
 	/**
 	 * The play API answers GET and PUT `board/me` for a child's own switch: `{ optedIn }`, and `{ on }` to change it.
@@ -71,8 +79,8 @@ export type GameManifest = {
 	readonly exports?: ReservedExports;
 };
 
-/** The areas a game's admin part declares. `never` when it declares none, so it cannot record any usage. */
-export type AreaOf<M extends GameManifest> = M['admin'] extends { readonly ai: infer A } ? keyof A & string : never;
+/** The AI areas one part declares, admin by default. `never` when it declares none, so it cannot record any usage. */
+export type AreaOf<M extends GameManifest, S extends Side = 'admin'> = NonNullable<M[S]> extends { readonly ai: infer A } ? keyof A & string : never;
 
 /** Keeps every literal, so storage names, ownership, settings and services become unions downstream. */
 export function defineGame<const M extends GameManifest>(manifest: M): M {

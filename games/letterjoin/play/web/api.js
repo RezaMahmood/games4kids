@@ -94,7 +94,7 @@ export function createApi(client) {
     addPractice: (day, seconds, { keepalive = false } = {}) => client.post('practice', { day, seconds }, keepalive ? { keepalive: true } : undefined),
     /** Sends the child's unaided copy as a PNG. It is saved for an admin to review and never scored. @param {string} activityId @param {Blob} png */
     submitCopy: (activityId, png) => client.sendPng(`activities/${id(activityId)}/submission`, png),
-    /** Reads the handwriting in a PNG of one line. Nothing is kept. Boxes are in the pixels of that image. @param {Blob} png @returns {Promise<RecognitionResult>} */
-    readHandwriting: async (png) => parseRecognition(await client.sendPng('read', png)),
+    /** Reads the handwriting in a PNG of one line of an activity. Nothing is kept. Boxes are in the pixels of that image. @param {string} activityId @param {Blob} png @returns {Promise<RecognitionResult>} */
+    readHandwriting: async (activityId, png) => parseRecognition(await client.sendPng(`activities/${id(activityId)}/read`, png)),
   };
 }

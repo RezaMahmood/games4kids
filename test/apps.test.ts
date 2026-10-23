@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { defineGame, definePlayApi, HttpError, parseEmail } from '@g4k/sdk';
+import { defineGame, definePlayApi, HttpError, parseEmail, PLAY_LEDGER_TABLE } from '@g4k/sdk';
 import { costMicroUsd, createAdminApp, createPlayerApp, createPortalApp, EntraRefused, MAX_RANGE_DAYS, usageLedger, type AdminModule, type GraphFor, type PortalTableName } from '@g4k/host';
 import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
@@ -413,23 +413,28 @@ test('telemetry sees the matched route template and the player, never a raw id o
 	assert.deepEqual(w.telemetry.users, [kid.userId]);
 });
 
-type Period = { period: string; total: { microUsd: number; calls: number; text: string }; games: { game: string; microUsd: number }[]; areas: { game: string; area: string; label: string; microUsd: number; calls: number }[] };
-type Report = { by: string; from: string; to: string; total: { microUsd: number; calls: number; text: string }; games: { game: string; title: string; microUsd: number; calls: number }[]; areas: Period['areas']; periods: Period[] };
+type Cost = { microUsd: number; calls: number; text: string };
+type Breakdown = { apps: ({ side: string } & Cost)[]; games: ({ game: string; title: string } & Cost)[]; areas: ({ side: string; game: string; area: string; label: string } & Cost)[] };
+type Period = Breakdown & { period: string; total: Cost };
+type Report = Breakdown & { by: string; from: string; to: string; total: Cost; periods: Period[] };
 
-const billing = (game: string, title: string, areas: Record<string, string>): AdminModule => ({ id: gameId(game), title, areas, mount: () => ({ routes: [], workers: [] }) });
+const billing = (game: string, title: string, admin: Record<string, string>, play: Record<string, string> = {}): AdminModule => ({ id: gameId(game), title, ai: { admin, play }, mount: () => ({ routes: [], workers: [] }) });
 const words = { model: 'gpt-5.4-mini', tokens: { input: 1000, cachedInput: 0, output: 0 } } as const;
 const cents = costMicroUsd({ area: 'words', ...words });
+const readCost = costMicroUsd({ area: 'reads', model: 'azure-vision-read', tokens: { transactions: 1 } });
 
-/** The admin app over a world whose ledger holds one call at each of these instants. */
-async function billedApp(calls: readonly { at: string; game: 'fixture' | 'other'; area: string }[]) {
+/** The admin app over a world whose ledgers hold one call at each of these instants: the admin app's, or with `play` the game's player app's. */
+async function billedApp(calls: readonly { at: string; game: 'fixture' | 'other'; area: string; play?: true }[]) {
 	const w = world();
-	const modules = [billing('fixture', 'Fixture', { words: 'Story words', pictures: 'Pictures' }), billing('other', 'Other', { quiz: 'Quiz marking' }), billing('quiet', 'Quiet', {})];
+	const modules = [billing('fixture', 'Fixture', { words: 'Story words', pictures: 'Pictures' }), billing('other', 'Other', { quiz: 'Quiz marking' }, { reads: 'Handwriting reading' }), billing('quiet', 'Quiet', {})];
 	let now = NOW;
 	let next = 0;
-	const ledger = usageLedger(w.accounts.open('portal').table('aiusage'), { now: () => now, newId: () => `id-${++next}`, telemetry: w.telemetry });
-	for (const { at, game, area } of calls) {
+	const deps = { now: () => now, newId: () => `id-${++next}`, telemetry: w.telemetry };
+	const ledger = usageLedger(w.accounts.open('portal').table('aiusage'), { side: 'admin', ...deps });
+	for (const { at, game, area, play } of calls) {
 		now = new Date(at);
-		await ledger.forGame(gameId(game), [area]).record({ area, ...words, subject: { item: 'r1' } });
+		if (play) await usageLedger(w.accounts.open(gameId(game)).table(PLAY_LEDGER_TABLE), { side: 'play', ...deps }).forGame(gameId(game), [area]).record({ area, model: 'azure-vision-read', tokens: { transactions: 1 }, subject: { item: 'activity-1', group: 'child-1' } });
+		else await ledger.forGame(gameId(game), [area]).record({ area, ...words, subject: { item: 'r1' } });
 	}
 	const admin = createAdminApp({ telemetry: w.telemetry, now: w.now, issuer: idp.admin, store: w.admin, graph: () => fakeGraph().graph, games: [id], modules, accounts: w.accounts, tokens, env: {}, gamesOrigin: 'https://games.example' });
 	return { w, admin, me: await owner(w) };
@@ -493,7 +498,25 @@ test('GET portal/costs defaults to 31 days, 12 months, and everything since the 
 
 test('GET portal/costs with no spend answers zero and no breakdown', async () => {
 	const { report } = await costs(await billedApp([]), 'by=day');
-	assert.deepEqual([report.total.microUsd, report.games, report.areas], [0, [], []]);
+	assert.deepEqual([report.total.microUsd, report.apps, report.games, report.areas], [0, [], [], []]);
+});
+
+test("GET portal/costs merges the admin app's ledger with each player app's, by app, game and area, and only reads the player apps' ledgers", async () => {
+	const app = await billedApp([
+		{ at: '2026-10-19T09:00:00Z', game: 'fixture', area: 'words' },
+		{ at: '2026-10-19T10:00:00Z', game: 'other', area: 'quiz' },
+		{ at: '2026-10-19T11:00:00Z', game: 'other', area: 'reads', play: true },
+		{ at: '2026-10-19T12:00:00Z', game: 'other', area: 'reads', play: true },
+	]);
+	const start = app.w.accounts.ops.length;
+	const { report } = await costs(app, 'by=day&from=2026-10-19&to=2026-10-19');
+	assert.deepEqual(report.apps.map((one) => [one.side, one.calls, one.microUsd]), [['play', 2, 2 * readCost], ['admin', 2, 2 * cents]]);
+	assert.equal(report.total.microUsd, 2 * cents + 2 * readCost);
+	assert.deepEqual(report.games.map((one) => [one.game, one.calls]), [['other', 3], ['fixture', 1]], 'a game sums both its apps');
+	assert.deepEqual(report.areas.map((one) => `${one.side} ${one.game}/${one.area} ${one.label}`).sort(), ['admin fixture/words Story words', 'admin other/quiz Quiz marking', 'play other/reads Handwriting reading']);
+	assert.deepEqual(report.periods[0]?.apps.map((one) => one.side), report.apps.map((one) => one.side));
+	const ops = app.w.accounts.ops.slice(start);
+	assert.deepEqual([...new Set(ops.filter((op) => op.account !== 'portal').map((op) => `${op.account} ${op.name} ${op.write}`))], [`other ${PLAY_LEDGER_TABLE} false`], 'only games whose play.ai bills are read, and never written');
 });
 
 test('GET portal/costs refuses a bad by, a bad date, a backwards or too wide range, and anyone who is not an admin', async () => {

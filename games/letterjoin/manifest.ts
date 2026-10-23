@@ -13,8 +13,9 @@ export default defineGame({
 	},
 	play: {
 		web: { kind: 'static' },
-		settings: { VISION_ENDPOINT: { kind: 'url', optional: true } },
+		settings: { VISION_ENDPOINT: { kind: 'url', optional: true }, VISION_TIER: { kind: 'choice', values: ['F0', 'S1'], optional: true } },
 		services: ['cognitiveServices'],
+		ai: { handwriting: 'Handwriting reading' },
 	},
 	admin: {
 		web: { kind: 'static' },

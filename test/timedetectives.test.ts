@@ -1024,8 +1024,8 @@ test('a redraft sends the words and every finding to the chat model, saves new w
 	assert.deepEqual(after.rounds[round.id], cost(costBefore.microUsd + COST.words + COST.check, costBefore.calls + 2, 'est. $0.017'));
 	assert.deepEqual(after.topics[topic], after.rounds[round.id]);
 	assert.deepEqual((await s.ledgerAreas()).filter((row) => row.startsWith('redraft ')), [`redraft ${round.id}`]);
-	const report = (await s.asConsole('GET', 'portal/costs?by=day')).data as { areas: { game: string; area: string; label: string; microUsd: number; calls: number }[] };
-	assert.deepEqual(report.areas.find((one) => one.area === 'redraft'), { game: 'timedetectives', area: 'redraft', label: 'Story redrafts', microUsd: Math.round(COST.words), calls: 1, text: 'est. $0.003' }, 'the console labels the area from the manifest');
+	const report = (await s.asConsole('GET', 'portal/costs?by=day')).data as { areas: { side: string; game: string; area: string; label: string; microUsd: number; calls: number }[] };
+	assert.deepEqual(report.areas.find((one) => one.area === 'redraft'), { side: 'admin', game: 'timedetectives', area: 'redraft', label: 'Story redrafts', microUsd: Math.round(COST.words), calls: 1, text: 'est. $0.003' }, 'the console labels the area from the manifest');
 
 	const drawn = foundry.calls.length;
 	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);

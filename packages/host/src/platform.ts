@@ -11,6 +11,7 @@ import {
 	type Roster,
 	type SettingSpec,
 	type Settings,
+	type Side,
 	type Tokens,
 } from '@g4k/sdk';
 import { storageFor, type Account } from './storage.ts';
@@ -36,12 +37,14 @@ function parseSetting(name: string, spec: SettingSpec, raw: string | undefined):
 			return value;
 		}
 		case 'url':
-		case 'string': {
+		case 'string':
+		case 'choice': {
 			if (raw === undefined || raw === '') {
 				if (spec.optional) return undefined;
 				throw new Error(`${name} is required`);
 			}
 			if (spec.kind === 'url' && !URL.canParse(raw)) throw new Error(`${name} must be a URL`);
+			if (spec.kind === 'choice' && !spec.values.includes(raw)) throw new Error(`${name} must be one of ${spec.values.join(', ')}`);
 			return raw;
 		}
 	}
@@ -59,8 +62,9 @@ export function tokensFor<V extends AzureService>(services: readonly V[], source
 
 export type PlatformHost = { readonly account: Account; readonly env: Env; readonly tokens: TokenSource; readonly now: () => Date };
 
-export function playPlatform<M extends GameManifest>(manifest: M, game: GameId, host: PlatformHost): PlayPlatform<M> {
-	return {
+/** `usage` is the player app's own ledger, which the platform carries only when the manifest's play.ai declares an area. */
+export function playPlatform<M extends GameManifest>(manifest: M, game: GameId, host: PlatformHost, usage: GameUsage<AreaOf<M, 'play'>> | null): PlayPlatform<M> {
+	const platform = {
 		...storageFor(manifest, 'play', host.account),
 		game,
 		now: host.now,
@@ -68,6 +72,7 @@ export function playPlatform<M extends GameManifest>(manifest: M, game: GameId, 
 		settings: parseSettings(manifest.play.settings, host.env, ''),
 		tokens: tokensFor(manifest.play.services, host.tokens),
 	};
+	return (usage ? { ...platform, usage } : platform) as PlayPlatform<M>;
 }
 
 const NO_ADMIN_PART = { web: { kind: 'static' }, settings: {}, services: [] } as const;
@@ -86,5 +91,5 @@ export function adminPlatform<M extends GameManifest>(manifest: M, game: GameId,
 	};
 }
 
-/** The AI areas an admin part declares, which are all `platform.usage.record` takes. */
-export const areasOf = <M extends GameManifest>(manifest: M): readonly AreaOf<M>[] => Object.keys(manifest.admin?.ai ?? {}) as AreaOf<M>[];
+/** The AI areas one part declares, which are all that part's `platform.usage.record` takes. */
+export const areasOf = <M extends GameManifest, S extends Side>(manifest: M, side: S): readonly AreaOf<M, S>[] => Object.keys(manifest[side]?.ai ?? {}) as AreaOf<M, S>[];

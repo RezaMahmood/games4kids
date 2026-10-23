@@ -1,4 +1,4 @@
-import { definePlayApi, HttpError } from '@g4k/sdk';
+import { definePlayApi, HttpError, type UsageSubject } from '@g4k/sdk';
 import { buildBoard, daysEndingAt, isGuid, isPng, KEEP_PER_ACTIVITY, MAX_IMAGE_BYTES, newSubmission, parsePracticeInput, parsePracticeQuery, parseBoardInput, parseResultInput, playStore, PROGRESS_DAYS, DAY_MS, toAttempt, type Activity } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import { createVisionReader, ReaderUnavailable } from './reader.ts';
@@ -6,10 +6,31 @@ import { createVisionReader, ReaderUnavailable } from './reader.ts';
 const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', 'The request is not valid.', problems);
 const noActivity = () => new HttpError(404, 'not_found', 'There is no such activity.');
 
+/** The Vision account's pricing tier is a deploy fact that infra.bicep sets, so a read is priced at what the account bills. */
+const VISION_MODELS = { F0: 'azure-vision-read-free', S1: 'azure-vision-read' } as const;
+
+function visionModel(tier: keyof typeof VISION_MODELS | undefined) {
+	if (!tier) throw new Error('VISION_TIER must be F0 or S1 when VISION_ENDPOINT is set');
+	return VISION_MODELS[tier];
+}
+
 export const createPlayApi = definePlayApi(manifest, (platform) => {
 	const store = playStore(platform);
 	const endpoint = platform.settings.VISION_ENDPOINT;
 	const reader = endpoint ? createVisionReader({ endpoint, token: platform.tokens.cognitiveServices }) : null;
+	const model = endpoint ? visionModel(platform.settings.VISION_TIER) : null;
+
+	async function readHandwriting(body: Uint8Array, subject: UsageSubject) {
+		if (!reader || !model) throw new HttpError(503, 'reader_off', 'Reading handwriting is not switched on.');
+		if (!isPng(body)) throw invalid(['the body must be a PNG image']);
+		const billed = () => platform.usage.record({ area: 'handwriting', model, tokens: { transactions: 1 }, subject });
+		try {
+			return { status: 200 as const, json: { words: (await reader.read(body, billed)).words } };
+		} catch (error) {
+			if (error instanceof ReaderUnavailable) throw new HttpError(502, 'reader_unavailable', 'The handwriting reader is not available right now. Try again later.');
+			throw error;
+		}
+	}
 
 	async function published(rawId: string | undefined): Promise<Activity> {
 		const activity = isGuid(rawId) ? await store.activity(rawId) : undefined;
@@ -81,18 +102,21 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 			{
 				name: 'readHandwriting',
 				method: 'POST',
+				path: 'activities/{id}/read',
+				body: 'png',
+				async run({ caller, params, body }) {
+					const activityId = params['id'];
+					if (!isGuid(activityId)) throw noActivity();
+					return readHandwriting(body, { item: activityId, group: caller.userId });
+				},
+			},
+			{
+				// A page loaded before activities/{id}/read existed still posts here until the child reloads it, so the read is billed to the child alone.
+				name: 'readHandwritingUnattributed',
+				method: 'POST',
 				path: 'read',
 				body: 'png',
-				async run({ body }) {
-					if (!reader) throw new HttpError(503, 'reader_off', 'Reading handwriting is not switched on.');
-					if (!isPng(body)) throw invalid(['the body must be a PNG image']);
-					try {
-						return { status: 200, json: { words: (await reader.read(body)).words } };
-					} catch (error) {
-						if (error instanceof ReaderUnavailable) throw new HttpError(502, 'reader_unavailable', 'The handwriting reader is not available right now. Try again later.');
-						throw error;
-					}
-				},
+				run: ({ caller, body }) => readHandwriting(body, { item: caller.userId }),
 			},
 			{
 				name: 'practice',

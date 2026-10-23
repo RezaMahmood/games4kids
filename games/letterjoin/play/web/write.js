@@ -152,10 +152,11 @@ export function createWriteView({ api, onBack, onStroke, onSaved, nextAfter, onN
 
   async function readLine(line, mine) {
     const area = lineArea(line);
+    const activityId = activity.id;
     let read;
     try {
       const png = await renderCopyPng(area, strokesOn(state, line).map((s) => s.points), { color: '#000' });
-      const { words } = await api().readHandwriting(png);
+      const { words } = await api().readHandwriting(activityId, png);
       const { scale } = copyImageSize(area);
       read = { status: 'read', words: words.map(({ text, box }) => ({ text, line, box: { x: area.x + box.x / scale, y: area.y + box.y / scale, w: box.w / scale, h: box.h / scale } })) };
     } catch {
