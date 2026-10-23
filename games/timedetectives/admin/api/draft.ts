@@ -1,4 +1,4 @@
-import { isRecord, KINDS, parseRoundContent, type Checks, type Finding, type Parsed, type RoundContent } from '../../data/index.ts';
+import { isRecord, KINDS, parseRoundContent, type Angle, type Checks, type Finding, type Parsed, type RoundContent } from '../../data/index.ts';
 import { checkRound, forWriter, type TypeSafeDeps } from './check.ts';
 import { AiFailure, chatJson, generateImage, type Area, type FoundryDeps } from './foundry.ts';
 
@@ -51,12 +51,16 @@ const PICTURE_RULES = 'A painterly illustration for a children\'s history book. 
  */
 export type Written = { content: RoundContent; picturePrompt?: string; checks?: Checks };
 
+/** What the topic already holds: the titles of rounds with words, and the focus of each round the AI is still writing. */
+export type Covered = { titles: readonly string[]; drafting: readonly string[] };
+
 /**
  * What the chat model is asked for: a new round about a focus, or a redraft that fixes what the check found in a round.
- * A redraft keeps the picture, so it is asked for neither a picture prompt nor alt text, and keeps the alt text it had.
+ * A new round with no focus is told what the topic covers and given an angle, so it chooses a different moment each
+ * time. A redraft keeps the picture, so it is asked for neither a picture prompt nor alt text, and keeps the alt text it had.
  */
 export type Ask =
-	| { kind: 'new'; topic: { title: string; guidance: string }; focus: string }
+	| { kind: 'new'; topic: { title: string; guidance: string }; focus: string; covered: Covered; angle?: Angle }
 	| { kind: 'redraft'; content: RoundContent; findings: readonly Finding[] };
 
 const { pictureAlt: _alt, picturePrompt: _prompt, ...WORDS } = SCHEMA.properties;
@@ -90,13 +94,23 @@ function requestFor(ask: Ask): Request {
 		first: [
 			`Topic: ${JSON.stringify(ask.topic.title)}`,
 			ask.topic.guidance && `Guidance from the teacher: ${JSON.stringify(ask.topic.guidance)}`,
-			ask.focus ? `Write the round about: ${JSON.stringify(ask.focus)}` : 'Choose a well-known moment from this topic.',
+			...(ask.focus ? [`Write the round about: ${JSON.stringify(ask.focus)}`] : chooseFresh(ask.covered, ask.angle)),
 		].filter(Boolean).join('\n'),
 		read: (answer) => {
 			const picturePrompt = isRecord(answer) && typeof answer['picturePrompt'] === 'string' ? answer['picturePrompt'].trim() : '';
 			return { parsed: parseRoundContent(answer), picturePrompt, problems: picturePrompt ? [] : ['picturePrompt must not be empty'] };
 		},
 	};
+}
+
+function chooseFresh({ titles, drafting }: Covered, angle: Angle | undefined): string[] {
+	const different = titles.length > 0 || drafting.length > 0;
+	return [
+		titles.length > 0 && `The topic already has rounds with these titles: ${JSON.stringify(titles)}`,
+		drafting.length > 0 && `Other rounds are being written now about: ${JSON.stringify(drafting)}`,
+		angle && `Take this angle: ${JSON.stringify(angle)}`,
+		different ? 'Choose a well-known moment from this topic that is clearly different from those rounds: a different moment, person or place.' : 'Choose a well-known moment from this topic.',
+	].filter((line) => typeof line === 'string');
 }
 
 /**

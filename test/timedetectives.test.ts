@@ -6,12 +6,12 @@ import { adminModule, createAdminApp, createPlayerApp, storageFor, type Accounts
 import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
 import { startFakeFoundry, VIKING_ROUND } from '../dev/fake-foundry.ts';
 import { startFakeTypeSafe } from '../dev/fake-typesafe.ts';
-import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
+import { adminApiWith } from '../games/timedetectives/admin/api/index.ts';
 import { MAX_ATTEMPTS, PICTURE_REFUSED, STALE_AFTER_MS, STOPPED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
 import { REQUEST_TIMEOUT_MS, RETRY_MAX_SECONDS } from '../games/timedetectives/admin/api/foundry.ts';
 import type { RoundContent } from '../games/timedetectives/data/content.ts';
 import { pictureId, topicId, roundId, type RoundId, type TopicId } from '../games/timedetectives/data/ids.ts';
-import type { Finding, RoundState } from '../games/timedetectives/data/round.ts';
+import { ANGLES, type Finding, type RoundState } from '../games/timedetectives/data/round.ts';
 import { adminStore } from '../games/timedetectives/data/stores.ts';
 import manifest from '../games/timedetectives/manifest.ts';
 import { createPlayApi } from '../games/timedetectives/play/api/index.ts';
@@ -45,7 +45,8 @@ const mixed = [
 	{ kind: 'when', tries: ['AD 793'], hint: false },
 ];
 
-async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin }) {
+/** `random` picks the angle of each draft without a focus. */
+async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin }, random: () => number = Math.random) {
 	const w = world();
 	const apps: App[] = [];
 	const delivering = deliverQueues(w.accounts, () => apps);
@@ -81,7 +82,7 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 		store: w.admin,
 		graph: () => fakeGraph().graph,
 		games: [timedetectives],
-		modules: [adminModule(manifest, createAdminApi)],
+		modules: [adminModule(manifest, adminApiWith(random))],
 		env,
 		gamesOrigin: 'https://games.example',
 	});
@@ -367,6 +368,97 @@ test('a refused picture keeps the words, leaves a draft that says why and takes 
 	assert.deepEqual([redrawn.state.kind, redrawn.hasPicture], ['draft', true]);
 	assert.deepEqual(callsSince(before), [IMAGE], 'the words were not paid for twice');
 	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/retry`, { json: {} })).status, 409, 'only a failed round is retried');
+});
+
+/** What the AI was asked for in each round it wrote since `before`. */
+const roundAsks = (before: number) => foundry.calls.slice(before).filter(({ path }) => path === 'chat/completions').map((entry) => entry.messages?.[1]?.content ?? '');
+const first = () => 0;
+
+test('drafts with no focus are told what the topic covers and each take an angle no other draft in the topic holds', async () => {
+	const s = await setup(undefined, first);
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	await s.round(typedTopic, published({ ...ROUND, title: 'The Great Fire of London' }));
+	await s.round(typedTopic, { kind: 'drafting', focus: 'Samuel Pepys', source: 'ai' }, false);
+	await s.round(typedTopic, { kind: 'failed', focus: 'Plague', source: 'ai', reason: 'refused' }, false);
+	const elsewhere = topicId(await adminTopic(s, 'Romans'));
+	assert.ok(elsewhere);
+	await s.round(elsewhere, { kind: 'drafting', focus: '', angle: ANGLES[0], source: 'ai' }, false);
+
+	const before = foundry.calls.length;
+	const hold = foundry.holdNext();
+	const queued: AdminRound[] = [];
+	for (let n = 0; n < 3; n++) queued.push((await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: {} })).data as AdminRound);
+	assert.deepEqual(queued.map(({ state }) => state), ANGLES.slice(0, 3).map((angle) => ({ kind: 'drafting', focus: '', angle, source: 'ai' })), 'another topic\'s angle does not count');
+	await hold.arrived;
+	hold.release();
+	await s.settled();
+
+	const asks = roundAsks(before);
+	assert.equal(asks.length, 3);
+	assert.equal(asks[0], [
+		'Topic: "Vikings"',
+		'Guidance from the teacher: "Raids, longships and settlers."',
+		'The topic already has rounds with these titles: ["The Great Fire of London"]',
+		'Other rounds are being written now about: ["Samuel Pepys"]',
+		'Take this angle: "a turning point"',
+		'Choose a well-known moment from this topic that is clearly different from those rounds: a different moment, person or place.',
+	].join('\n'));
+	const titles = JSON.parse(/titles: (\[.*\])/.exec(asks[2] ?? '')?.[1] ?? '[]') as string[];
+	assert.deepEqual(titles.sort(), ['The Great Fire of London', 'The raid on Lindisfarne', 'The raid on Lindisfarne'], 'a draft that waited sees the rounds written before it');
+	assert.deepEqual(asks.map((ask) => /Take this angle: "([^"]+)"/.exec(ask)?.[1]), ANGLES.slice(0, 3));
+	for (const { id } of queued) assert.equal((await s.adminRound(id)).state.kind, 'draft');
+});
+
+test('a typed focus gets no angle and is written as asked, and a retry keeps or picks an angle by its focus', async () => {
+	const s = await setup(undefined, first);
+	const topic = await adminTopic(s);
+	const typedTopic = topicId(topic);
+	assert.ok(typedTopic);
+	let before = foundry.calls.length;
+	const typed = await s.asAdmin('POST', `topics/${topic}/rounds/draft`, { json: { focus: 'Jorvik' } });
+	assert.deepEqual((typed.data as AdminRound).state, { kind: 'drafting', focus: 'Jorvik', source: 'ai' });
+	await s.settled();
+	assert.deepEqual(roundAsks(before), ['Topic: "Vikings"\nGuidance from the teacher: "Raids, longships and settlers."\nWrite the round about: "Jorvik"']);
+
+	before = foundry.calls.length;
+	foundry.failNext(1, 503, 'chat');
+	const again = await drafted(s, topic, '');
+	assert.equal(again.state.kind, 'draft');
+	const [failedAsk, secondAsk] = roundAsks(before);
+	assert.ok(failedAsk?.includes('Take this angle: "a turning point"'), failedAsk);
+	assert.equal(secondAsk, failedAsk, 'a draft the queue tries again keeps its angle');
+
+	foundry.refuseNext(1, 'chat');
+	const failed = await drafted(s, topic, '');
+	assert.deepEqual(failed.state, { kind: 'failed', focus: '', source: 'ai', reason: WORDS_REFUSED });
+	await s.round(typedTopic, { kind: 'drafting', focus: '', angle: ANGLES[0], source: 'ai' }, false);
+	const retried = await s.asAdmin('POST', `rounds/${failed.id}/retry`, { json: {} });
+	assert.deepEqual((retried.data as AdminRound).state, { kind: 'drafting', focus: '', angle: ANGLES[1], source: 'ai' }, 'a retry with no focus picks a fresh angle');
+	await s.settled();
+
+	foundry.refuseNext(1, 'chat');
+	const refusedAgain = await drafted(s, topic, '');
+	const typedRetry = await s.asAdmin('POST', `rounds/${refusedAgain.id}/retry`, { json: { focus: 'Jorvik' } });
+	assert.deepEqual((typedRetry.data as AdminRound).state, { kind: 'drafting', focus: 'Jorvik', source: 'ai' });
+	await s.settled();
+});
+
+test('a stored drafting round keeps its angle, and one from a list that has changed drafts without it', async () => {
+	const s = await setup();
+	const typedTopic = await s.topic('Vikings');
+	const id = await s.round(typedTopic, { kind: 'drafting', focus: '', angle: "an ordinary person's day", source: 'ai' }, false);
+	const found = await s.store.round(id);
+	assert.ok(found && 'round' in found);
+	assert.deepEqual(found.round.state, { kind: 'drafting', focus: '', angle: "an ordinary person's day", source: 'ai' });
+
+	const old = roundId(randomUUID());
+	assert.ok(old);
+	await s.rows.put({ partitionKey: 'round', rowKey: old, topicId: typedTopic, state: 'drafting', source: 'ai', focus: '', angle: 'a song', updatedAt: NOW.toISOString() });
+	const dropped = await s.store.round(old);
+	assert.ok(dropped && 'round' in dropped);
+	assert.deepEqual(dropped.round.state, { kind: 'drafting', focus: '', source: 'ai' });
 });
 
 test('a refusal of the words fails the round at once without drawing, and the failed round can be deleted', async () => {

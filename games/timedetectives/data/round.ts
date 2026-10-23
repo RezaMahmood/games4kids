@@ -50,16 +50,41 @@ export function keptChecks(checks: Checks | undefined, before: RoundContent, aft
 }
 
 /**
+ * A way into a topic for a round the AI chooses. Asked only for a well-known moment, the AI writes the topic's most
+ * famous one every time, so each draft without a focus is given one of these when it is queued, and drafts queued
+ * together get different ones even when they run at the same time.
+ */
+export const ANGLES = [
+	'a turning point',
+	"an ordinary person's day",
+	'a building or place',
+	'an invention or discovery',
+	"a leader's decision",
+	'a journey',
+	'a celebration or festival',
+	'a disaster and recovery',
+] as const;
+export type Angle = (typeof ANGLES)[number];
+export const angle = (raw: unknown): Angle | undefined => ANGLES.find((one) => one === raw);
+
+/** One of the angles no other draft in the topic holds, or any once they all do. `random` is in [0, 1). */
+export function pickAngle(taken: readonly Angle[], random: () => number): Angle {
+	const free = ANGLES.filter((one) => !taken.includes(one));
+	const from = free.length > 0 ? free : ANGLES;
+	return from[Math.floor(random() * from.length)] ?? ANGLES[0];
+}
+
+/**
  * Where a round is in its life. The AI job lives here too, so there is no jobs table: `drafting` is queued for the
  * worker, and once it has content the words are written and only the picture is left to draw. The AI failing to
  * write the words leaves a `failed` round with nothing in it. The AI failing to draw a picture never loses the words
  * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came, kept
  * until the admin acts. `checks` is the automatic check's view of the words. It stays through edits and redraws, and
- * publishing ends it. `revising` is queued like `drafting`: the AI rewrites the words to fix `findings`, the checks the
+ * publishing ends it. `angle` is how the AI comes at a round with no focus. `revising` is queued like `drafting`: the AI rewrites the words to fix `findings`, the checks the
  * draft had, and the round goes back to a draft either way, with the old words and findings when the AI could not.
  */
 export type RoundState =
-	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent; checks?: Checks }
+	| { kind: 'drafting'; focus: string; angle?: Angle; source: Source; content?: RoundContent; checks?: Checks }
 	| { kind: 'revising'; content: RoundContent; findings: readonly Finding[]; source: Source }
 	| { kind: 'failed'; focus: string; source: Source; reason: string }
 	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string; checks?: Checks }

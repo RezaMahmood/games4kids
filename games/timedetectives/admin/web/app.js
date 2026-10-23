@@ -200,7 +200,7 @@ function roundStatus(round) {
   if (kind === 'broken') return damage(round);
   const { state } = round;
   if (kind === 'failed') return state.reason;
-  if (kind === 'drafting') return state.content ? 'The AI is drawing a new picture…' : 'The AI is writing it…';
+  if (kind === 'drafting') return state.content ? 'The AI is drawing a new picture…' : state.angle ? `The AI is writing about ${state.angle}…` : 'The AI is writing it…';
   if (kind === 'revising') return 'The AI is redrafting it…';
   if (kind === 'published') return 'Published, children can play it';
   const flagged = findings(state).length;

@@ -1,6 +1,6 @@
 import type { UsageSubject } from '@g4k/sdk';
 import { atWork, isRecord, roundId, type AdminStore, type PictureId, type Round, type RoundId, type RoundState, type StoredRound, type AtWork } from '../../data/index.ts';
-import { drawPicture, writeRound, type Written } from './draft.ts';
+import { drawPicture, writeRound, type Covered, type Written } from './draft.ts';
 import type { TypeSafeDeps } from './check.ts';
 import { AiFailure, Refusal, type FoundryDeps } from './foundry.ts';
 
@@ -57,6 +57,19 @@ function unchanged(state: Extract<AtWork, { kind: 'revising' }>, why: string): R
 	return { kind: 'draft', content: state.content, source: state.source, notice: redraftNotice(why), checks: state.findings };
 }
 
+/**
+ * What the round's topic holds when its words are written, read then rather than when it was queued, so a draft that
+ * waited sees the rounds finished before it. Drafts can run at once on several instances, so this is not enough alone:
+ * each draft without a focus also has its own angle.
+ */
+async function covered(store: AdminStore, self: Round): Promise<Covered> {
+	const others = (await store.rounds()).rounds.map(({ round }) => round).filter((round) => round.topicId === self.topicId && round.id !== self.id);
+	return {
+		titles: others.flatMap(({ state }) => ('content' in state && state.content ? [state.content.title] : [])),
+		drafting: others.flatMap(({ state }) => (state.kind === 'drafting' && !state.content && state.focus ? [state.focus] : [])),
+	};
+}
+
 /** The AI clients for one round. Each bills what it uses to `subject`, so every ask, check, retry and redraw sums into the round and its topic. */
 type Ctx = { store: AdminStore; foundry: (subject: UsageSubject) => FoundryDeps; typesafe: (subject: UsageSubject) => TypeSafeDeps | undefined; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
 
@@ -107,7 +120,8 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 		try {
 			const topic = await ctx.store.topic(found.round.topicId);
 			if (!topic) throw new AiFailure(false, 'The topic was deleted.');
-			written = await writeRound(ctx.foundry(subject), { kind: 'new', topic: topic.topic, focus: state.focus }, ctx.typesafe(subject), onCheckError);
+			const ask = { kind: 'new', topic: topic.topic, focus: state.focus, covered: await covered(ctx.store, found.round), ...(state.angle && { angle: state.angle }) } as const;
+			written = await writeRound(ctx.foundry(subject), ask, ctx.typesafe(subject), onCheckError);
 		} catch (error) {
 			const { refused, why } = settle(error);
 			await save({ ...current.round, state: { kind: 'failed', focus: state.focus, source: state.source, reason: refused ? WORDS_REFUSED : why }, updatedAt });

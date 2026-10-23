@@ -8,6 +8,7 @@ import {
 	parseFocus,
 	parseRoundContent,
 	parseTopicInput,
+	pickAngle,
 	pictureId,
 	roundId,
 	topicId,
@@ -16,6 +17,7 @@ import {
 	type RoundRows,
 	type RoundState,
 	type Settled,
+	type Source,
 	type StoredRound,
 	type StoredTopic,
 	type TopicId,
@@ -75,7 +77,8 @@ const costsOf = (spend: ReadonlyMap<string, Spend>, ids: readonly string[]) =>
 		return found ? [[id, costView(found)]] : [];
 	}));
 
-export const createAdminApi = defineAdminApi(manifest, (platform) => {
+/** `random` picks the angle of each draft without a focus. Tests pass their own, so they know which angle each gets. */
+export const adminApiWith = (random: () => number) => defineAdminApi(manifest, (platform) => {
 	const store = adminStore(platform);
 
 	const newId = <T>(parse: (raw: unknown) => T | undefined): T => {
@@ -122,11 +125,19 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		return saved;
 	}
 
-	/** Refuses AI work when there is no Foundry account, or when the worker already has plenty queued. */
-	async function guardDrafting(now: Date): Promise<void> {
+	/** Refuses AI work when there is no Foundry account, or when the worker already has plenty queued. Gives back the rounds at work. */
+	async function guardDrafting(now: Date): Promise<Round[]> {
 		if (!platform.settings.FOUNDRY_ENDPOINT) throw new HttpError(503, 'ai_unavailable', 'Drafting with AI is not set up yet.');
-		const drafting = (await allRounds(now)).rounds.filter(({ round }) => atWork(round.state)).length;
-		if (drafting >= MAX_DRAFTING) throw new HttpError(429, 'too_many_drafts', `The AI already has ${drafting} rounds to draft. Try again when some are done.`);
+		const working = (await allRounds(now)).rounds.map(({ round }) => round).filter((round) => atWork(round.state));
+		if (working.length >= MAX_DRAFTING) throw new HttpError(429, 'too_many_drafts', `The AI already has ${working.length} rounds to draft. Try again when some are done.`);
+		return working;
+	}
+
+	/** New words to write. With no focus the AI gets an angle no other draft in the topic has, so drafts queued together differ. */
+	function newWords(focus: string, source: Source, topic: TopicId, working: readonly Round[]): RoundState {
+		if (focus) return { kind: 'drafting', focus, source };
+		const taken = working.flatMap(({ topicId, state }) => (topicId === topic && state.kind === 'drafting' && state.angle ? [state.angle] : []));
+		return { kind: 'drafting', focus, angle: pickAngle(taken, random), source };
 	}
 
 	/**
@@ -253,8 +264,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const { topic } = await existingTopic(params['id']);
 					const focus = parseFocus(body);
 					if (!focus.ok) throw invalid(focus.problems);
-					await guardDrafting(now);
-					const state: RoundState = { kind: 'drafting', focus: focus.value, source: 'ai' };
+					const state = newWords(focus.value, 'ai', topic.id, await guardDrafting(now));
 					const created = await store.createRound({ id: newId(roundId), topicId: topic.id, state, updatedAt: now.toISOString() });
 					return { status: 202, json: roundView(await queue(created, null)) };
 				},
@@ -385,8 +395,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					if (state.kind !== 'failed') throw new HttpError(409, 'not_failed', 'Only a round the AI gave up on can be tried again.');
 					const focus = parseFocus(body);
 					if (!focus.ok) throw invalid(focus.problems);
-					await guardDrafting(now);
-					const next: RoundState = { kind: 'drafting', focus: focus.value, source: state.source };
+					const next = newWords(focus.value, state.source, found.round.topicId, await guardDrafting(now));
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},
@@ -428,3 +437,5 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 		],
 	};
 });
+
+export const createAdminApi = adminApiWith(Math.random);
