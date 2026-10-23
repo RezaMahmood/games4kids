@@ -351,8 +351,8 @@ async function bulk(action) {
     const results = await whileLoading(inBatches(targets, rule.run));
     selected.clear();
     const { text, tone } = bulkOutcome(rule, results);
-    await loadRounds().catch((err) => status(err.message, 'error'));
-    status(text, tone);
+    const reloadFailed = await loadRounds().then(() => null, (err) => err);
+    status(reloadFailed ? `${text} ${reloadFailed.message}` : text, reloadFailed ? 'error' : tone);
   } finally {
     bulkBusy = false;
     renderRoundList();
@@ -365,7 +365,10 @@ function renderRoundList() {
   const focused = document.activeElement?.dataset?.roundId;
   $('rounds').replaceChildren(...listed.map(roundCard));
   renderBulk();
-  if (focused) $('rounds').querySelector(`input[data-round-id="${focused}"]`)?.focus();
+  if (!focused) return;
+  const box = $('rounds').querySelector(`input[data-round-id="${focused}"]`);
+  if (box && !box.disabled) box.focus();
+  else refocus($('bulk-all'), $('topic-heading'));
 }
 
 async function loadRounds() {
