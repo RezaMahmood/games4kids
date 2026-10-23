@@ -1,3 +1,5 @@
+import type { AiUse, JudgeTokens } from '@g4k/sdk';
+import type { Area } from './foundry.ts';
 import { fieldText, isRecord, KINDS, QUESTION_KINDS, type FieldRef, type Finding, type QuestionKind, type RoundContent } from '../../data/index.ts';
 
 /** A check at or above this chance of being bad is sent back to the writer. */
@@ -9,7 +11,13 @@ export const MODEL = 'jev-1.14.0';
 const TIMEOUT_MS = 60_000;
 const DETAIL_MAX = 300;
 
-export type TypeSafeDeps = { endpoint: string; apiKey: string; timeoutMs?: number };
+export type TypeSafeDeps = {
+	endpoint: string;
+	apiKey: string;
+	timeoutMs?: number;
+	/** Hears the tokens of every 2xx reply that reported them, billed whether or not its answers are usable. */
+	meter?: (use: AiUse<Area>) => Promise<void>;
+};
 
 /** The check could not give a verdict: the service was down, refused the key, or answered something unreadable. */
 export class CheckFailure extends Error {}
@@ -105,6 +113,16 @@ export function forWriter({ field, problem }: Finding, content: RoundContent): s
 	return `the ${kind} ${part} "${fieldText(content, field)}" seems to ${problem}`;
 }
 
+const count = (value: unknown): number | undefined => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined);
+
+/** TypeSafe's usage: billable input tokens, and output tokens that are free for now. */
+export function parseJudgeUsage(reply: unknown): JudgeTokens | undefined {
+	const usage = isRecord(reply) ? reply['usage'] : undefined;
+	const input = isRecord(usage) ? count(usage['input_tokens']) : undefined;
+	const output = isRecord(usage) ? count(usage['output_tokens']) : undefined;
+	return input === undefined || output === undefined ? undefined : { input, output };
+}
+
 /** Asks Jev all the checks of a round in one request. */
 export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Promise<Finding[]> {
 	const checks = checksFor(content);
@@ -135,5 +153,8 @@ export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Pro
 	} catch {
 		throw new CheckFailure('the reply was not JSON');
 	}
+	const tokens = parseJudgeUsage(reply);
+	const replyModel = isRecord(reply) && typeof reply['model'] === 'string' ? { replyModel: reply['model'] } : {};
+	if (tokens) await deps.meter?.({ area: 'check', model: MODEL, tokens, ...replyModel });
 	return judge(checks, isRecord(reply) ? reply['answers'] : undefined);
 }

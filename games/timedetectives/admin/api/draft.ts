@@ -74,7 +74,7 @@ export async function writeRound(
 		{ role: 'user', content: ask(topic, focus) },
 	];
 	for (let asked = 1; ; asked++) {
-		const answer = await chatJson(deps, { model: CHAT_DEPLOYMENT, messages, name: 'round', schema: SCHEMA });
+		const answer = await chatJson(deps, { area: 'words', model: CHAT_DEPLOYMENT, messages, name: 'round', schema: SCHEMA });
 		const parsed = parseRoundContent(answer);
 		const picturePrompt = isRecord(answer) && typeof answer['picturePrompt'] === 'string' ? answer['picturePrompt'].trim() : '';
 		const problems = [...(parsed.ok ? [] : parsed.problems), ...(picturePrompt ? [] : ['picturePrompt must not be empty'])];
@@ -99,5 +99,5 @@ async function checked(typesafe: TypeSafeDeps, content: RoundContent, onError: (
 }
 
 export function drawPicture(deps: FoundryDeps, scene: string): Promise<Uint8Array> {
-	return generateImage(deps, { model: IMAGE_DEPLOYMENT, prompt: `${scene}\n${PICTURE_RULES}` });
+	return generateImage(deps, { area: 'picture', model: IMAGE_DEPLOYMENT, prompt: `${scene}\n${PICTURE_RULES}` });
 }

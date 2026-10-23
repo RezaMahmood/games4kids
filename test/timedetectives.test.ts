@@ -49,8 +49,8 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const w = world();
 	const apps: App[] = [];
 	const delivering = deliverQueues(w.accounts, () => apps);
-	/** Storage faults a test switches on: each says whether the next queue send, or round write, throws. */
-	const faults = { send: () => false, replace: () => false };
+	/** Storage faults a test switches on: each says whether the next queue send, round write, or AI cost ledger write throws. */
+	const faults = { send: () => false, replace: () => false, ledger: () => false };
 	const down = () => Promise.reject(new Error('storage is down'));
 	const accounts: Accounts = {
 		open(owner) {
@@ -59,6 +59,7 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 				...account,
 				table(name) {
 					const table = account.table(name);
+					if (owner === 'portal' && name === 'aiusage') return { ...table, insertIfAbsent: (row) => (faults.ledger() ? down() : table.insertIfAbsent(row)) };
 					return name === 'rounds' ? { ...table, replaceIfMatch: (row, etag) => (faults.replace() ? down() : table.replaceIfMatch(row, etag)) } : table;
 				},
 				queue(name) {
@@ -114,7 +115,11 @@ async function setup(env: Env = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origi
 	const adminRound = async (id: string) => (await asAdmin('GET', `rounds/${id}`)).data as AdminRound;
 	/** Publishes the round as the admin page would, with the etag of the round as it last loaded it. */
 	const publish = async (id: string, etag?: string) => asAdmin('POST', `rounds/${id}/publish`, { json: { etag: etag ?? (await adminRound(id)).etag } });
-	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
+	type Cost = { microUsd: number; calls: number; text: string };
+	const costs = async () => (await asAdmin('GET', 'costs')).data as { topics: Record<string, Cost>; rounds: Record<string, Cost> };
+	/** The areas of every ledger row, sorted, since rows written in the same instant sort by their random id. */
+	const ledgerAreas = async () => (await w.accounts.open('portal').table('aiusage').list()).map((row) => `${String(row['area'])} ${String(row['item'])}`).sort();
+	return { w, clock, store, child, as, asAda: as(ada.token), asAdmin, adminRound, publish, ada, topic, round, costs, ledgerAreas, settled: () => delivering.idle(), faults, queue: accounts.open(timedetectives).queue('drafts'), rows: w.accounts.open(timedetectives).table('rounds'), logs, exceptions: w.telemetry.exceptions };
 }
 
 const published = (content: RoundContent = ROUND): RoundState => ({ kind: 'published', content, source: 'ai', publishedAt: NOW.toISOString() });
@@ -871,4 +876,77 @@ test('the admin app gives up on a message after the attempts the worker settles 
 	const between = (Number(minutes) * 60 + Number(seconds)) * 1000;
 	assert.ok(between > 0);
 	assert.ok(MAX_ATTEMPTS * attempt + (MAX_ATTEMPTS - 1) * between < STALE_AFTER_MS, 'every attempt is over before a drafting round reads as stale');
+});
+
+/** What the fakes bill, in micro-USD at list prices: one chat reply, one generated picture, and one check. */
+const COST = { words: 800 * 0.75 + 200 * 0.075 + 500 * 4.5, picture: 50 * 2 + 1000 * 8, check: 2000 * 0.042 };
+const cost = (microUsd: number, calls: number, text: string) => ({ microUsd: Math.round(microUsd), calls, text });
+
+test('a draft whose first check fails bills both asks, both checks and the picture to its round and its topic', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	typesafe.setBad({ who_brief: 0.9 });
+	const round = await drafted(s, topic);
+	assert.equal(round.state.kind, 'draft');
+	const total = cost(2 * COST.words + 2 * COST.check + COST.picture, 5, 'est. $0.014');
+	assert.deepEqual(await s.costs(), { topics: { [topic]: total }, rounds: { [round.id]: total } });
+	assert.deepEqual(await s.ledgerAreas(), [`check ${round.id}`, `check ${round.id}`, `picture ${round.id}`, `words ${round.id}`, `words ${round.id}`]);
+});
+
+test('a failed request bills nothing, the queue\'s retry bills only the step it repeats, and an unusable answer is still billed', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	foundry.failNext(1);
+	const retried = await drafted(s, topic);
+	assert.equal(retried.hasPicture, true);
+	assert.deepEqual((await s.costs()).rounds[retried.id], cost(COST.words + COST.picture, 2, 'est. $0.011'), 'the 500 bills nothing, and the words are not asked for again');
+
+	foundry.refuseNext(1, 'chat', 'finish');
+	const filtered = await drafted(s, topic);
+	assert.equal(filtered.state.kind, 'failed');
+	assert.deepEqual((await s.costs()).rounds[filtered.id], cost(COST.words, 1, 'est. $0.003'), 'a 200 the content filter stopped is billed');
+	assert.equal((await s.asAdmin('POST', `rounds/${filtered.id}/retry`, { json: { focus: 'Jorvik' } })).status, 202);
+	await s.settled();
+	assert.deepEqual((await s.costs()).rounds[filtered.id], cost(2 * COST.words + COST.picture, 3, 'est. $0.014'), 'the admin\'s retry sums into the same round');
+
+	foundry.refuseNext(1, 'chat');
+	const refused = await drafted(s, topic);
+	assert.equal(refused.state.kind, 'failed');
+	assert.equal((await s.costs()).rounds[refused.id], undefined, 'a 400 refusal reports no usage, so nothing is billed');
+});
+
+test('a redraw bills one more picture to the same round', async () => {
+	const s = await setup();
+	const round = await drafted(s, await adminTopic(s));
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	assert.deepEqual((await s.costs()).rounds[round.id], cost(COST.words + 2 * COST.picture, 3, 'est. $0.019'));
+});
+
+test('a deleted round leaves the costs by round, and its spend stays in its topic', async () => {
+	const s = await setup();
+	const topic = await adminTopic(s);
+	const kept = await drafted(s, topic);
+	const gone = await drafted(s, topic);
+	const before = await s.costs();
+	assert.equal((await s.asAdmin('DELETE', `rounds/${gone.id}`)).status, 204);
+	const after = await s.costs();
+	assert.deepEqual(Object.keys(after.rounds), [kept.id]);
+	assert.deepEqual(after.topics[topic], before.topics[topic]);
+	assert.deepEqual(after.topics[topic], cost(2 * (COST.words + COST.picture), 4, 'est. $0.022'));
+	assert.deepEqual(await s.adminRound(kept.id).then((round) => round.state.kind), 'draft');
+});
+
+test('a ledger that cannot be written neither fails nor retries a draft, and logs each lost entry whole', async () => {
+	const s = await setup();
+	s.faults.ledger = () => true;
+	const before = foundry.calls.length;
+	const round = await drafted(s, await adminTopic(s));
+	assert.deepEqual([round.state, round.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai' }, true]);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE], 'nothing was asked for twice');
+	const lost = s.logs.filter((line) => line.startsWith('usage entry lost'));
+	assert.equal(lost.length, 2);
+	assert.ok(lost.every((line) => line.includes(`"item":"${round.id}"`) && line.includes('"microUsd":')));
+	assert.equal(s.exceptions.length, 2);
+	assert.deepEqual(await s.costs(), { topics: {}, rounds: {} });
 });

@@ -1,3 +1,10 @@
+import type { AiModel, AiUse, AreaOf, ChatTokens, ImageTokens, TokensOf } from '@g4k/sdk';
+import type manifest from '../../manifest.ts';
+
+export type Area = AreaOf<typeof manifest>;
+/** The models that bill on this kind of token, so a chat call can only name a chat model. */
+type BilledAs<T> = { [M in AiModel]: TokensOf[M] extends T ? M : never }[AiModel];
+
 const REFUSAL = /content_policy|content_filter|moderation_blocked|ResponsibleAIPolicyViolation/i;
 const RETRY_DEFAULT_SECONDS = 10;
 export const RETRY_MAX_SECONDS = 20;
@@ -31,7 +38,38 @@ export type FoundryDeps = {
 	token: () => Promise<string>;
 	sleep?: (ms: number) => Promise<void>;
 	timeoutMs?: number;
+	/** Hears the tokens of every reply that reported them, billed whether or not the answer is usable. */
+	meter?: (use: AiUse<Area>) => Promise<void>;
 };
+
+const at = (value: unknown, key: string): unknown => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined);
+const count = (value: unknown): number | undefined => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined);
+const replyModel = (reply: unknown) => {
+	const model = at(reply, 'model');
+	return typeof model === 'string' ? { replyModel: model } : {};
+};
+
+/** Chat usage. Cached prompt tokens bill at their own rate, and reasoning tokens are already part of completion_tokens. */
+export function parseChatUsage(reply: unknown): ChatTokens | undefined {
+	const usage = at(reply, 'usage');
+	const prompt = count(at(usage, 'prompt_tokens'));
+	const output = count(at(usage, 'completion_tokens'));
+	const cached = count(at(at(usage, 'prompt_tokens_details'), 'cached_tokens')) ?? 0;
+	if (prompt === undefined || output === undefined || cached > prompt) return undefined;
+	return { input: prompt - cached, cachedInput: cached, output };
+}
+
+/** Image usage, which the docs give for gpt-image-1-series models. Input with no text and image split bills as text. */
+export function parseImageUsage(reply: unknown): ImageTokens | undefined {
+	const usage = at(reply, 'usage');
+	const input = count(at(usage, 'input_tokens'));
+	const output = count(at(usage, 'output_tokens'));
+	if (input === undefined || output === undefined) return undefined;
+	const details = at(usage, 'input_tokens_details');
+	const text = count(at(details, 'text_tokens'));
+	const image = count(at(details, 'image_tokens'));
+	return text !== undefined && image !== undefined ? { textInput: text, imageInput: image, output } : { textInput: input, imageInput: 0, output };
+}
 
 const retryDelayMs = (res: Response) => {
 	const header = res.headers.get('retry-after')?.trim();
@@ -44,8 +82,9 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 /**
  * POSTs JSON to the Foundry OpenAI v1 API and returns the parsed reply. Waits out one 429, since back to back calls hit
  * the per-minute limit. Each request, body included, is given up after REQUEST_TIMEOUT_MS, so a hung call fails the attempt.
+ * A 2xx reply's usage is metered before the caller checks the answer, since an unusable answer is billed too.
  */
-async function postFoundry(deps: FoundryDeps, path: string, body: object): Promise<unknown> {
+async function postFoundry(deps: FoundryDeps, path: string, body: object, usageOf: (reply: unknown) => AiUse<Area> | undefined): Promise<unknown> {
 	const send = async () => {
 		const signal = AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
 		try {
@@ -67,23 +106,31 @@ async function postFoundry(deps: FoundryDeps, path: string, body: object): Promi
 	}
 	if (res.status === 400 && REFUSAL.test(text)) throw new Refusal();
 	if (!res.ok) throw new AiFailure(true, `${res.status}: ${text}`);
+	let reply: unknown;
 	try {
-		return JSON.parse(text) as unknown;
+		reply = JSON.parse(text);
 	} catch {
 		throw new AiFailure(true, 'the reply was not JSON');
 	}
+	const use = usageOf(reply);
+	if (use) await deps.meter?.(use);
+	return reply;
 }
 
 type ChatReply = { choices?: { finish_reason?: string; message?: { content?: unknown; refusal?: unknown } }[] };
 
 /** One chat completion whose answer must match a strict JSON schema, returned parsed. */
-export async function chatJson(deps: FoundryDeps, ask: { model: string; messages: unknown[]; name: string; schema: object }): Promise<unknown> {
-	const reply = (await postFoundry(deps, 'chat/completions', {
+export async function chatJson(deps: FoundryDeps, ask: { area: Area; model: BilledAs<ChatTokens>; messages: unknown[]; name: string; schema: object }): Promise<unknown> {
+	const body = {
 		model: ask.model,
 		messages: ask.messages,
 		response_format: { type: 'json_schema', json_schema: { name: ask.name, strict: true, schema: ask.schema } },
 		reasoning_effort: 'low',
 		max_completion_tokens: 4000,
+	};
+	const reply = (await postFoundry(deps, 'chat/completions', body, (raw) => {
+		const tokens = parseChatUsage(raw);
+		return tokens && { area: ask.area, model: ask.model, tokens, ...replyModel(raw) };
 	})) as ChatReply;
 	const choice = reply?.choices?.[0];
 	if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new Refusal();
@@ -96,8 +143,12 @@ export async function chatJson(deps: FoundryDeps, ask: { model: string; messages
 }
 
 /** One picture from a Foundry image model, as PNG bytes. */
-export async function generateImage(deps: FoundryDeps, ask: { model: string; prompt: string }): Promise<Uint8Array> {
-	const reply = await postFoundry(deps, 'images/generations', { model: ask.model, prompt: ask.prompt, size: '1536x1024', quality: 'medium', n: 1 });
+export async function generateImage(deps: FoundryDeps, ask: { area: Area; model: BilledAs<ImageTokens>; prompt: string }): Promise<Uint8Array> {
+	const body = { model: ask.model, prompt: ask.prompt, size: '1536x1024', quality: 'medium', n: 1 };
+	const reply = await postFoundry(deps, 'images/generations', body, (raw) => {
+		const tokens = parseImageUsage(raw);
+		return tokens && { area: ask.area, model: ask.model, tokens, ...replyModel(raw) };
+	});
 	const png = (reply as { data?: { b64_json?: unknown }[] } | null)?.data?.[0]?.b64_json;
 	if (typeof png !== 'string') throw new AiFailure(true, 'the reply had no image');
 	return Uint8Array.from(atob(png), (char) => char.charCodeAt(0));

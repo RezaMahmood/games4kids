@@ -1,4 +1,4 @@
-import { defineAdminApi, HttpError, type AdminPlatform, type AdminRoute } from '@g4k/sdk';
+import { costView, defineAdminApi, HttpError, type AdminPlatform, type AdminRoute, type AiUse, type Spend, type UsageSubject } from '@g4k/sdk';
 import {
 	adminStore,
 	imageReply,
@@ -21,7 +21,7 @@ import {
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import type { TypeSafeDeps } from './check.ts';
-import { AiFailure, type FoundryDeps } from './foundry.ts';
+import { AiFailure, type Area, type FoundryDeps } from './foundry.ts';
 import { parseDraftMessage, runDraft, settleStale, type DraftMessage } from './worker.ts';
 
 /** About ten minutes of AI work, so a stuck page cannot fill the queue. */
@@ -52,18 +52,29 @@ const roundView = ({ round: { picturePrompt: _prompt, picture, ...round }, etag 
 const brokenView = ({ id, topicId, problems }: BrokenRound) => ({ id, topicId, broken: problems });
 const isBroken = (read: StoredRound | BrokenRound): read is BrokenRound => 'broken' in read;
 
-function foundryFor(platform: AdminPlatform<typeof manifest>): FoundryDeps {
+type Platform = AdminPlatform<typeof manifest>;
+
+const meterFor = (platform: Platform, subject: UsageSubject) => (use: AiUse<Area>) => platform.usage.record({ ...use, subject });
+
+function foundryFor(platform: Platform, subject: UsageSubject): FoundryDeps {
 	const endpoint = platform.settings.FOUNDRY_ENDPOINT;
 	if (!endpoint) throw new AiFailure(false, 'Drafting with AI is not set up.');
-	return { endpoint, token: platform.tokens.cognitiveServices };
+	return { endpoint, token: platform.tokens.cognitiveServices, meter: meterFor(platform, subject) };
 }
 
 /** Undefined turns the check off. App Service leaves a Key Vault reference's text in the setting until the secret exists, which is not a key. */
-function typesafeFor(platform: AdminPlatform<typeof manifest>): TypeSafeDeps | undefined {
+function typesafeFor(platform: Platform, subject: UsageSubject): TypeSafeDeps | undefined {
 	const apiKey = platform.settings.TYPESAFE_API_KEY;
 	if (!apiKey || apiKey.startsWith('@Microsoft.KeyVault(')) return undefined;
-	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/' };
+	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/', meter: meterFor(platform, subject) };
 }
+
+/** Only the ids still here, each with what the AI has cost it. */
+const costsOf = (spend: ReadonlyMap<string, Spend>, ids: readonly string[]) =>
+	Object.fromEntries(ids.flatMap((id) => {
+		const found = spend.get(id);
+		return found ? [[id, costView(found)]] : [];
+	}));
 
 export const createAdminApi = defineAdminApi(manifest, (platform) => {
 	const store = adminStore(platform);
@@ -166,6 +177,18 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run() {
 					const [topics, rounds] = await Promise.all([store.topics(), store.rounds()]);
 					return { status: 200, json: { topics: topics.map((topic) => topicView(topic, rounds)) } };
+				},
+			},
+			{
+				name: 'costs',
+				method: 'GET',
+				path: 'costs',
+				body: 'none',
+				/** What the AI has cost so far by topic and by round, counting every ask, check, retry and redraw. A topic still counts its deleted rounds. */
+				async run() {
+					const [{ byGroup, byItem }, topics, { rounds, broken }] = await Promise.all([platform.usage.spend(), store.topics(), store.rounds()]);
+					const roundIds = [...rounds.map(({ round }) => round.id), ...broken.map(({ id }) => id)];
+					return { status: 200, json: { topics: costsOf(byGroup, topics.map(({ topic }) => topic.id)), rounds: costsOf(byItem, roundIds) } };
 				},
 			},
 			{
@@ -381,7 +404,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run(message, { now, log, dequeueCount }) {
 					const draft = parseDraftMessage(message);
 					if (!draft) return log('ignored a queue message that names no round');
-					await runDraft({ store, foundry: () => foundryFor(platform), typesafe: () => typesafeFor(platform), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
+					await runDraft({ store, foundry: (subject) => foundryFor(platform, subject), typesafe: (subject) => typesafeFor(platform, subject), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
 				},
 			},
 		],

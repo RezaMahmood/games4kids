@@ -1,3 +1,4 @@
+import type { UsageSubject } from '@g4k/sdk';
 import { isRecord, roundId, type AdminStore, type PictureId, type Round, type RoundId, type RoundState, type StoredRound } from '../../data/index.ts';
 import { drawPicture, writeRound, type Written } from './draft.ts';
 import type { TypeSafeDeps } from './check.ts';
@@ -45,7 +46,8 @@ export function settleStale({ round, etag }: StoredRound, now: Date): StoredRoun
 	return { round: { ...round, state: settled }, etag };
 }
 
-type Ctx = { store: AdminStore; foundry: () => FoundryDeps; typesafe: () => TypeSafeDeps | undefined; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
+/** The AI clients for one round. Each bills what it uses to `subject`, so every ask, check, retry and redraw sums into the round and its topic. */
+type Ctx = { store: AdminStore; foundry: (subject: UsageSubject) => FoundryDeps; typesafe: (subject: UsageSubject) => TypeSafeDeps | undefined; newPicture: () => PictureId; now: Date; log: (line: string) => void; dequeueCount: number };
 
 /**
  * Takes a drafting round as far as it can: the words, then the picture, then a draft for the admin to review. Each step
@@ -58,6 +60,7 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 	if (!found || found.round.state.kind !== 'drafting') return;
 	let current: StoredRound = found;
 	const state = found.round.state;
+	const subject: UsageSubject = { item: id, group: found.round.topicId };
 	const updatedAt = ctx.now.toISOString();
 	const save = async (round: Round) => {
 		const saved = await ctx.store.replaceRound(round, current.etag);
@@ -79,7 +82,7 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 		try {
 			const topic = await ctx.store.topic(found.round.topicId);
 			if (!topic) throw new AiFailure(false, 'The topic was deleted.');
-			written = await writeRound(ctx.foundry(), topic.topic, state.focus, ctx.typesafe(), (error) => ctx.log(`round ${id} could not be checked: ${error instanceof Error ? error.message : String(error)}`));
+			written = await writeRound(ctx.foundry(subject), topic.topic, state.focus, ctx.typesafe(subject), (error) => ctx.log(`round ${id} could not be checked: ${error instanceof Error ? error.message : String(error)}`));
 		} catch (error) {
 			const { refused, why } = settle(error);
 			await save({ ...current.round, state: { kind: 'failed', focus: state.focus, source: state.source, reason: refused ? WORDS_REFUSED : why }, updatedAt });
@@ -91,7 +94,7 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 	}
 	let picture: Uint8Array;
 	try {
-		picture = await drawPicture(ctx.foundry(), current.round.picturePrompt ?? content.pictureAlt);
+		picture = await drawPicture(ctx.foundry(subject), current.round.picturePrompt ?? content.pictureAlt);
 	} catch (error) {
 		const { refused, why } = settle(error);
 		await save({ ...current.round, state: { kind: 'draft', content, source: state.source, notice: refused ? PICTURE_REFUSED : pictureNotice(why), ...(checks && { checks }) }, updatedAt });
