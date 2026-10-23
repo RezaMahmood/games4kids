@@ -52,7 +52,7 @@ Gen writes the catalogs, the registered ids, the admin module list, the per-game
 
 - A missing icon shows a broken image on home. Nothing tests it.
 - A missing required admin setting stops the whole admin app, so every game's admin pages and the members page go down with it.
-- Each game with an admin part adds a link to the admin bar, and `test/e2e/phone.spec.ts` caps that bar at 160px on a phone. Run `npm run e2e` early. If the new link breaks the cap, fix the bar in `apps/shared/shell.css` rather than loosening the test.
+- Each game with an admin part adds a link to the admin bar, and `test/e2e/phone.spec.ts` caps that bar at 160px on a phone. Run `npm run e2e` early. If the new link breaks the cap, fix the bar in `apps/shared/shell.css` rather than loosening the test. CI's Linux fonts draw wider than macOS fonts, so a layout that passes locally can fail there. The phone bar is a three-column grid for this reason, and a fourth game with admin pages gives it a third row of links.
 - A play part that imports from another game's folder passes lint, `tsc -b`, and the tests, then fails in Azure. A player app's zip holds only `games/<id>/` (`appPlan` in `tools/package-app.ts`).
 
 ## After the merge
