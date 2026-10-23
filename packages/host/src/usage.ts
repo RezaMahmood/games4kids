@@ -170,12 +170,14 @@ export function usageLedger(table: Table, deps: { readonly now: () => Date; read
 						deps.telemetry.exception(new Error(`${game} recorded AI usage the ledger refused: ${problems}`));
 						return;
 					}
-					const { subject, tokens: _reported, ...use } = call;
+					const { area, model, replyModel, subject } = call;
 					const entry: UsageEntry = {
-						...use,
 						id: deps.newId(),
 						at: deps.now().toISOString(),
 						game,
+						area,
+						model,
+						...(typeof replyModel === 'string' && { replyModel }),
 						item: subject.item,
 						...(subject.group !== undefined && { group: subject.group }),
 						tokens: parsed.tokens,
