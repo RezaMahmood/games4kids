@@ -69,6 +69,8 @@ async function restPalm(page: Page): Promise<void> {
 	}
 }
 
+const strokeCount = (page: Page) => page.evaluate(() => (window as unknown as { __tracing: { strokes(): unknown[] } }).__tracing.strokes().length);
+
 const phase = (page: Page) => page.evaluate(() => (window as unknown as { __tracing: { state(): { phase: string } } }).__tracing.state().phase);
 
 test('a child traces what an admin wrote and finds it in their progress, and the admin edits it, reviews the copy and reads the practice report', async ({ browser }) => {
@@ -149,9 +151,20 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		await expect(kid.getByRole('heading', { level: 1 })).toHaveText('Letter Tracing');
 		await kid.locator('.activity-card', { hasText: RENAMED }).click();
 		await kid.waitForFunction(() => Boolean((window as unknown as { __tracing?: { layout(): unknown } }).__tracing?.layout()) && !document.getElementById('trace-screen')!.hidden);
-		const sheetTop = (await kid.locator('#stage').boundingBox())!.y;
+		await expect(kid.locator('portal-bar')).toBeHidden();
+		await expect(kid.locator('#app > header.bar')).toBeHidden();
+		const stage = (await kid.locator('#stage').boundingBox())!;
+		expect(stage.height, 'the paper takes most of the screen').toBeGreaterThan(kid.viewportSize()!.height * 0.85);
+		expect((await kid.locator('#sheet').boundingBox())!.y, 'the text starts at the top of the paper').toBe(stage.y);
+		await draw(kid, [[{ x: stage.x + 100, y: stage.y + 100 }, { x: stage.x + 300, y: stage.y + 120 }]]);
+		expect((await kid.locator('#stage').boundingBox())!.y, 'the sheet stays put when Clear and Finish replace the style buttons').toBe(stage.y);
+		await kid.locator('#clear').click();
+		expect(await strokeCount(kid), 'a tap on Clear keeps the writing').toBe(1);
+		await kid.locator('#clear').hover();
+		await kid.mouse.down();
+		await expect.poll(() => strokeCount(kid), 'holding Clear wipes the page').toBe(0);
+		await kid.mouse.up();
 		await draw(kid, await outlineStrokes(kid));
-		expect((await kid.locator('#stage').boundingBox())!.y, 'the sheet stays put when Clear and Finish replace the style buttons').toBe(sheetTop);
 		await restPalm(kid);
 		expect(await phase(kid)).toBe('tracing');
 		const ask = kid.getByRole('dialog', { name: 'Finished tracing?' });
