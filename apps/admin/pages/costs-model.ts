@@ -70,3 +70,11 @@ export function barPercent(microUsd: number, most: number): number {
 	return Math.max(2, Math.round((microUsd / most) * 100));
 }
 
+
+/** The periods with spend, newest first. A quiet period is summed up by `quietLine`, not listed. */
+export const spentPeriods = (periods: readonly PeriodCost[]): PeriodCost[] => periods.filter((period) => period.total.calls > 0).sort((a, b) => b.period.localeCompare(a.period));
+
+/** "No AI spend on the other 30 days in this range.", or null when every period had spend. */
+export function quietLine(by: CostBy, quiet: number): string | null {
+	return quiet > 0 ? `No AI spend on the other ${quiet} ${by}${quiet === 1 ? '' : 's'} in this range.` : null;
+}

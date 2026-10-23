@@ -661,8 +661,7 @@ summary.cost-row:hover {
 }
 
 .cost-row .sub,
-.cost-row .calls,
-.cost-row.none {
+.cost-row .calls {
 	color: var(--color-muted);
 	font-size: 0.9375em;
 }
@@ -674,8 +673,10 @@ summary.cost-row:hover {
 	white-space: nowrap;
 }
 
-.cost-row.none .name {
-	font-weight: 400;
+.quiet {
+	margin: var(--space-sm) 0 0;
+	color: var(--color-muted);
+	font-size: 0.9375em;
 }
 
 .bar {

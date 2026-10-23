@@ -76,7 +76,7 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		const bar = admin.locator('admin-bar .g4k-bar');
 		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
 		await expect(bar.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(200);
+		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(160);
 		await expectNoSideways(admin);
 	});
 
@@ -84,7 +84,7 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		const bar = admin.locator('admin-bar .g4k-bar');
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = '0.12em'));
 		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(200);
+		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(160);
 		await expectNoSideways(admin);
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = ''));
 	});
@@ -154,3 +154,31 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 	await playerContext.close();
 	await strangerContext.close();
 });
+
+for (const width of [320, 390, 430]) {
+	test(`at ${width}px the admin bar's controls never overlap and each is a full touch target`, async ({ browser }) => {
+		const context = await browser.newContext({ ...PHONE, viewport: { width, height: 844 } });
+		const page = await context.newPage();
+		await page.goto(`${ADMIN}/costs/`);
+		await signInAtFakeEntra(page, ADMIN_EMAIL);
+		await adminReady(page);
+		const bar = page.locator('admin-bar .g4k-bar');
+		const controls = bar.locator('a, button');
+		const boxes = await controls.evaluateAll((elements) => elements.map((element) => ({ name: element.textContent ?? '', ...element.getBoundingClientRect().toJSON() })));
+		expect(boxes.length, 'brand, every link and Sign out').toBeGreaterThanOrEqual(5);
+		for (const [i, a] of boxes.entries()) {
+			expect(Math.min(a.width, a.height), `${a.name} is a touch target`).toBeGreaterThanOrEqual(44);
+			for (const b of boxes.slice(i + 1)) {
+				const apart = a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
+				expect(apart, `${a.name} and ${b.name} do not overlap`).toBe(true);
+			}
+		}
+		for (const control of await controls.all()) await expect(control).toBeInViewport({ ratio: 1 });
+		const height = (await bar.boundingBox())!.height;
+		console.log(`admin bar at ${width}px is ${height}px tall`);
+		expect(height, 'the bar leaves the page in view').toBeLessThanOrEqual(160);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth), 'nothing scrolls sideways').toBeLessThanOrEqual(width);
+		if (process.env['G4K_SHOTS']) await page.screenshot({ path: `${process.env['G4K_SHOTS']}/admin-bar-${width}.png` });
+		await context.close();
+	});
+}

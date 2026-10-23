@@ -1,6 +1,6 @@
 import { ApiFailure, enterAdmin, ready, report, whileLoading } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
-import { barPercent, callsLabel, COST_BYS, parseCostReport, periodName, totalLine, type AreaCost, type CostBy, type CostReport } from './costs-model.ts';
+import { barPercent, callsLabel, COST_BYS, parseCostReport, periodName, quietLine, spentPeriods, totalLine, type AreaCost, type CostBy, type CostReport } from './costs-model.ts';
 
 const { api } = await enterAdmin({ game: null });
 
@@ -37,7 +37,6 @@ function periodRow(period: CostReport['periods'][number], by: CostBy, most: numb
 	fill.style.width = `${barPercent(period.total.microUsd, most)}%`;
 	const bar = el('span', { class: 'bar', 'aria-hidden': 'true' }, fill);
 	const name = periodName(period.period, by);
-	if (period.total.calls === 0) return el('li', { class: 'cost-row none' }, el('span', { class: 'what' }, el('span', { class: 'name' }, name)), el('span', { class: 'cost' }, 'Nothing spent'));
 	const summary = el('summary', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, name), bar), costLine(period.total));
 	const details = el('details', {}, summary, el('ul', { class: 'costs inner', 'aria-label': `Cost by area, ${name}` }, ...period.areas.map(areaRow)));
 	return el('li', {}, details);
@@ -54,8 +53,12 @@ function draw(data: CostReport): void {
 		...data.games.map((game) => el('li', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, game.title)), costLine(game))),
 	);
 	byId('areas').replaceChildren(...data.areas.map(areaRow));
-	const most = Math.max(0, ...data.periods.map((period) => period.total.microUsd));
-	byId('periods').replaceChildren(...(spent ? data.periods.map((period) => periodRow(period, data.by, most)) : []));
+	const shown = spentPeriods(data.periods);
+	const most = Math.max(0, ...shown.map((period) => period.total.microUsd));
+	byId('periods').replaceChildren(...shown.map((period) => periodRow(period, data.by, most)));
+	const quiet = quietLine(data.by, data.periods.length - shown.length);
+	byId('quiet').textContent = quiet ?? '';
+	byId('quiet').hidden = !spent || quiet === null;
 	byId('periods-title').hidden = !spent;
 	byId('periods').hidden = !spent;
 	content.hidden = false;

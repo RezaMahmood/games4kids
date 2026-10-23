@@ -55,7 +55,8 @@ for (const { name, options } of SIZES) {
 
 		const today = london({ day: 'numeric', month: 'short', year: 'numeric' });
 		const days = page.locator('#periods > li');
-		await expect(days).toHaveCount(31);
+		await expect(days).toHaveCount(1);
+		await expect(page.locator('#quiet')).toHaveText(/^No AI spend on the other \d+ days in this range\.$/);
 		await expect(days.first()).toContainText(today);
 		await days.first().locator('summary').click();
 		await expect(days.first().getByRole('list').getByText('Story words')).toBeVisible();
@@ -64,7 +65,8 @@ for (const { name, options } of SIZES) {
 		await page.getByRole('button', { name: 'Month' }).click();
 		await expect(page.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.locator('#periods-title')).toHaveText('By month');
-		await expect(page.locator('#periods > li')).toHaveCount(12);
+		await expect(page.locator('#periods > li')).toHaveCount(1);
+		await expect(page.locator('#quiet')).toHaveText(/^No AI spend on the other \d+ months in this range\.$/);
 		await expect(page.locator('#periods > li').first()).toContainText(london({ month: 'long', year: 'numeric' }));
 		await shot(page, `costs-month-${options.viewport.width}`);
 

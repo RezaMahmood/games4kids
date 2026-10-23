@@ -209,34 +209,46 @@ body[aria-busy="true"]::after {
 }
 
 /*
- * On a phone the brand takes its own row and the links sit in four columns below it, so every game stays in view; the email goes.
+ * On a phone the brand and Sign out share the first row and the links sit in three columns below, so every game stays in view; the email goes.
  * A grid rather than wrapped text, so the bar's height follows the number of links and not the width of each machine's fonts.
+ * Sign out is placed on the bar itself, not in the grid, so a link can never land under it.
  */
 @media (max-width: 600px) {
 	.g4k-bar.admin {
+		position: relative;
+		row-gap: 0;
 		padding-block: var(--space-xs);
 	}
 
 	.g4k-bar.admin .brand {
-		flex: 1 0 100%;
+		flex: 0 0 auto;
+		min-height: var(--touch-min);
 		font-size: var(--size-body);
 	}
 
 	.g4k-bar.admin nav {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		flex: 1 0 100%;
-		align-items: center;
+		align-items: stretch;
 		gap: 0 var(--space-sm);
 	}
 
 	.g4k-bar.admin nav a {
+		display: flex;
+		align-items: center;
+		min-height: var(--touch-min);
 		font-size: var(--size-caption);
+		line-height: 1.2;
 		overflow-wrap: anywhere;
 	}
 
 	.g4k-bar.admin .g4k-button {
-		justify-self: end;
+		position: absolute;
+		margin: 0;
+		top: var(--space-xs);
+		min-height: var(--touch-min);
+		right: var(--space-md);
 		white-space: nowrap;
 	}
 

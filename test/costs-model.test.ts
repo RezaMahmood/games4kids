@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { barPercent, parseCostReport, periodName, totalLine } from '../apps/admin/pages/costs-model.ts';
+import { barPercent, parseCostReport, periodName, quietLine, spentPeriods, totalLine } from '../apps/admin/pages/costs-model.ts';
 
 const cost = (microUsd: number, calls: number) => ({ microUsd, calls, text: `est. $${(microUsd / 1_000_000).toFixed(2)}` });
 
@@ -31,4 +31,12 @@ test('periods are named for the switch they came from', () => {
 test('a bar is a share of the dearest period, and any spend shows a sliver', () => {
 	assert.deepEqual([barPercent(0, 100), barPercent(50, 100), barPercent(100, 100), barPercent(1, 1_000_000)], [0, 50, 100, 2]);
 	assert.equal(barPercent(5, 0), 0);
+});
+
+test('only periods with spend are listed, newest first, and the rest are counted in one line', () => {
+	const period = (name: string, calls: number) => ({ period: name, total: cost(calls * 1000, calls), games: [], areas: [] });
+	assert.deepEqual(spentPeriods([period('2026-10-01', 0), period('2026-10-02', 2), period('2026-10-03', 0), period('2026-10-04', 1)]).map((one) => one.period), ['2026-10-04', '2026-10-02']);
+	assert.equal(quietLine('day', 30), 'No AI spend on the other 30 days in this range.');
+	assert.equal(quietLine('year', 1), 'No AI spend on the other 1 year in this range.');
+	assert.equal(quietLine('month', 0), null);
 });
