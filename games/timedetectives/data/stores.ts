@@ -51,7 +51,7 @@ const toTopic = ({ rowKey, title, guidance, order }: TopicRow): Topic => ({ id: 
 const topicRow = ({ id, title, guidance, order }: Topic): TopicRow => ({ partitionKey: TOPIC, rowKey: id, title, guidance, order });
 const byOrder = (a: Topic, b: Topic) => a.order - b.order || a.title.localeCompare(b.title);
 
-const STATES = ['drafting', 'failed', 'draft', 'published'] as const satisfies readonly RoundState['kind'][];
+const STATES = ['drafting', 'revising', 'failed', 'draft', 'published'] as const satisfies readonly RoundState['kind'][];
 const SOURCES = ['ai', 'human'] as const satisfies readonly Source[];
 
 function optionalText(row: Row, field: string, problems: string[]): string | undefined {
@@ -105,6 +105,12 @@ function storedState(row: Row, problems: string[]): RoundState | undefined {
 	switch (kind) {
 		case 'drafting':
 			return { kind, focus, source, ...kept, ...storedChecks(row, problems) };
+		case 'revising': {
+			const { checks: findings } = storedChecks(row, problems);
+			if (content && findings !== undefined && findings !== 'not-run' && findings.length > 0) return { kind, content, findings, source };
+			problems.push('a round being redrafted needs content and the findings it fixes');
+			return undefined;
+		}
 		case 'failed':
 			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '' };
 		case 'draft': {
@@ -160,6 +166,7 @@ function roundRow({ id, topicId, state, picture, picturePrompt, updatedAt }: Rou
 		...(state.kind === 'failed' && { reason: state.reason }),
 		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
 		...((state.kind === 'draft' || state.kind === 'drafting') && state.checks && { checks: JSON.stringify(state.checks) }),
+		...(state.kind === 'revising' && { checks: JSON.stringify(state.findings) }),
 		...content,
 		...(state.kind === 'published' && { publishedAt: state.publishedAt }),
 		...(picture && { picture }),
