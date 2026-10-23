@@ -24,6 +24,8 @@ export type FakeFoundry = {
 	rateLimitNext(count: number): void;
 	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
 	answerNextRounds(...replies: unknown[]): void;
+	/** The next chat calls that rewrite a drawpad description answer with these three prompts, in order, instead of the fox ones. */
+	answerNextScenePrompts(...replies: string[][]): void;
 	/** Holds the next image call until `release`, so a test can change the world while a job is at work. `arrived` settles when the call comes in. */
 	holdNext(): { readonly arrived: Promise<void>; release(): void };
 	close(): Promise<void>;
@@ -123,6 +125,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const roundReplies: unknown[] = [];
+	const scenePromptReplies: string[][] = [];
 	const png = (bytes: Uint8Array, imageTokens: number) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }], usage: imageUsage(imageTokens) });
 
 	const server = createServer(async (req, res) => {
@@ -157,7 +160,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		if (kind === 'chat') {
 			if (fault()) return;
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
-			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: SCENE_PROMPTS, titles: TITLES };
+			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: scenePromptReplies.shift() ?? SCENE_PROMPTS, titles: TITLES };
 			return json(200, { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }], usage: CHAT_USAGE });
 		}
 		if (held) {
@@ -192,6 +195,9 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		},
 		answerNextRounds(...replies) {
 			roundReplies.push(...replies);
+		},
+		answerNextScenePrompts(...replies) {
+			scenePromptReplies.push(...replies);
 		},
 		holdNext() {
 			let arrive = () => {};

@@ -1,8 +1,9 @@
+import { imageUse, type BilledAs, type ImageTokens } from '@g4k/sdk';
 import type { Photo } from '../../data/model.ts';
 import type { RedrawQuality } from '../../data/types.ts';
 import { failure, postFoundry, type FoundryDeps } from './foundry.ts';
 
-export const REDRAWS: Record<RedrawQuality, { deployment: string; quality: 'medium' }> = {
+export const REDRAWS: Record<RedrawQuality, { deployment: BilledAs<ImageTokens>; quality: 'medium' }> = {
 	standard: { deployment: 'gpt-image-1-mini', quality: 'medium' },
 	best: { deployment: 'gpt-image-2', quality: 'medium' },
 };
@@ -29,7 +30,7 @@ export async function redraw(deps: FoundryDeps, photo: Photo, quality: RedrawQua
 	form.set('quality', level);
 	form.set('n', '1');
 	form.set('image', new Blob([new Uint8Array(photo.jpeg)], { type: 'image/jpeg' }), 'photo.jpg');
-	return pngOf(await postFoundry(deps, 'images/edits', { body: form }, REDRAW_CODES));
+	return pngOf(await postFoundry(deps, 'images/edits', { body: form }, REDRAW_CODES, (raw) => imageUse('redraw', deployment, raw)));
 }
 
 /** The PNG bytes of an image model reply. */

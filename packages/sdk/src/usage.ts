@@ -49,3 +49,47 @@ export function estimateText(microUsd: number): string {
 }
 
 export const costView = (spend: Spend): CostView => ({ ...spend, text: estimateText(spend.microUsd) });
+
+/** The models that bill on this kind of token, so a chat call can only name a chat model. */
+export type BilledAs<T> = { [M in AiModel]: TokensOf[M] extends T ? M : never }[AiModel];
+
+const at = (value: unknown, key: string): unknown => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined);
+const count = (value: unknown): number | undefined => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined);
+const replyModel = (reply: unknown) => {
+	const model = at(reply, 'model');
+	return typeof model === 'string' ? { replyModel: model } : {};
+};
+
+/** Chat usage. Cached prompt tokens bill at their own rate, and reasoning tokens are already part of completion_tokens. */
+export function parseChatUsage(reply: unknown): ChatTokens | undefined {
+	const usage = at(reply, 'usage');
+	const prompt = count(at(usage, 'prompt_tokens'));
+	const output = count(at(usage, 'completion_tokens'));
+	const cached = count(at(at(usage, 'prompt_tokens_details'), 'cached_tokens')) ?? 0;
+	if (prompt === undefined || output === undefined || cached > prompt) return undefined;
+	return { input: prompt - cached, cachedInput: cached, output };
+}
+
+/** Image usage, which the docs give for gpt-image-1-series models. Input with no text and image split bills as text. */
+export function parseImageUsage(reply: unknown): ImageTokens | undefined {
+	const usage = at(reply, 'usage');
+	const input = count(at(usage, 'input_tokens'));
+	const output = count(at(usage, 'output_tokens'));
+	if (input === undefined || output === undefined) return undefined;
+	const details = at(usage, 'input_tokens_details');
+	const text = count(at(details, 'text_tokens'));
+	const image = count(at(details, 'image_tokens'));
+	return text !== undefined && image !== undefined ? { textInput: text, imageInput: image, output } : { textInput: input, imageInput: 0, output };
+}
+
+/** What a chat completion reply billed, or undefined when it reported no usage. */
+export function chatUse<Area extends string>(area: Area, model: BilledAs<ChatTokens>, reply: unknown): AiUse<Area> | undefined {
+	const tokens = parseChatUsage(reply);
+	return tokens && { area, model, tokens, ...replyModel(reply) };
+}
+
+/** What an image generation or edit reply billed, or undefined when it reported no usage. */
+export function imageUse<Area extends string>(area: Area, model: BilledAs<ImageTokens>, reply: unknown): AiUse<Area> | undefined {
+	const tokens = parseImageUsage(reply);
+	return tokens && { area, model, tokens, ...replyModel(reply) };
+}

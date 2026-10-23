@@ -1,3 +1,4 @@
+import { imageUse } from '@g4k/sdk';
 import type { RedrawQuality } from '../../data/types.ts';
 import { chatJson, failure, postFoundry, type FoundryDeps } from './foundry.ts';
 import { pngOf, REDRAW_CODES, REDRAWS } from './redraw.ts';
@@ -45,7 +46,7 @@ export async function writePrompts(deps: FoundryDeps, description: string): Prom
 		{ role: 'user', content: `The description: "${description}"` },
 	];
 	for (let ask = 1; ; ask++) {
-		const answer = await chatJson(deps, { model: CHAT_DEPLOYMENT, messages, name: 'scene', schema: SCHEMA }, CODES);
+		const answer = await chatJson(deps, { area: 'scene-prompts', model: CHAT_DEPLOYMENT, messages, name: 'scene', schema: SCHEMA }, CODES);
 		const prompts = cleanPrompts(answer);
 		const hit = bannedWordIn(prompts);
 		if (hit === undefined) return { prompts, titles: cleanTitles(answer) };
@@ -61,5 +62,5 @@ export async function writePrompts(deps: FoundryDeps, description: string): Prom
 export async function drawScene(deps: FoundryDeps, prompt: string, quality: RedrawQuality): Promise<Uint8Array> {
 	const { deployment, quality: level } = REDRAWS[quality];
 	const body = JSON.stringify({ model: deployment, prompt, size: '1024x1024', quality: level, n: 1 });
-	return pngOf(await postFoundry(deps, 'images/generations', { body, headers: { 'content-type': 'application/json' } }, REDRAW_CODES));
+	return pngOf(await postFoundry(deps, 'images/generations', { body, headers: { 'content-type': 'application/json' } }, REDRAW_CODES, (raw) => imageUse('scene', deployment, raw)));
 }
