@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time Detectives Admin</title>
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body aria-busy="true">
+  <admin-bar></admin-bar>
+  <div id="app" inert>
+    <main>
+      <section id="topics-view" aria-labelledby="topics-heading">
+        <div class="row">
+          <h1 id="topics-heading" tabindex="-1">Time Detectives</h1>
+          <button id="new-topic" type="button" class="primary">New topic</button>
+        </div>
+        <form id="topic-form" class="panel" hidden novalidate>
+          <h2 id="topic-form-heading">New topic</h2>
+          <p class="note">Pick a starter or type your own.</p>
+          <div id="suggestions" class="chips" role="group" aria-label="Starter topics"></div>
+          <label>Title <input id="t-title" type="text" maxlength="60" required></label>
+          <label>Guidance for the AI (optional)
+            <textarea id="t-guidance" rows="3" maxlength="600" placeholder="For example: focus on everyday life, and avoid battles."></textarea>
+          </label>
+          <ul id="topic-problems" class="problems" hidden></ul>
+          <div class="actions">
+            <button id="t-save" type="submit" class="primary">Save topic</button>
+            <button id="t-cancel" type="button">Cancel</button>
+          </div>
+        </form>
+        <ul id="topics" class="cards"></ul>
+        <p id="topics-empty" class="note" hidden>No topics yet. Add one to start writing rounds.</p>
+      </section>
+
+      <section id="topic-view" hidden aria-labelledby="topic-heading">
+        <a href="#" class="back">All topics</a>
+        <h1 id="topic-heading" tabindex="-1"></h1>
+        <p id="topic-guidance" class="note"></p>
+        <form id="draft-form" class="panel" novalidate>
+          <h2>Draft a round with AI</h2>
+          <label>What should it be about? (optional)
+            <input id="d-focus" type="text" maxlength="120" placeholder="For example: Tutankhamun's tomb">
+          </label>
+          <div class="actions">
+            <button id="d-go" type="submit" class="primary">Draft with AI</button>
+            <button id="write" type="button">Write one yourself</button>
+          </div>
+        </form>
+        <h2>Rounds</h2>
+        <ul id="rounds" class="cards"></ul>
+        <p id="rounds-empty" class="note" hidden>No rounds yet.</p>
+      </section>
+
+      <section id="round-view" hidden aria-labelledby="round-heading">
+        <a id="round-back" href="#" class="back">Back to the topic</a>
+        <div class="row">
+          <h1 id="round-heading" tabindex="-1"></h1>
+          <span id="round-badge" class="badge"></span>
+        </div>
+        <p id="round-note" class="panel note" hidden></p>
+        <form id="retry-form" class="panel" hidden novalidate>
+          <label>What should the AI write about this time? (optional)
+            <input id="r-focus" type="text" maxlength="120" placeholder="For example: Tutankhamun's tomb">
+          </label>
+        </form>
+        <div id="round-picture" class="picture-panel" hidden>
+          <img id="r-picture" alt="">
+          <p id="r-no-picture" class="note" hidden>No picture yet. Draw one with AI or upload a PNG or JPEG.</p>
+          <p id="r-redraw-note" class="note" hidden>To redraw it with AI, unpublish the round first.</p>
+          <div class="actions">
+            <button id="r-redraw" type="button">Redraw with AI</button>
+            <label class="button">Upload a picture <input id="r-upload" type="file" accept="image/png,image/jpeg" class="visually-hidden"></label>
+          </div>
+        </div>
+        <form id="round-form" novalidate>
+          <label>Title (only admins see it) <input id="r-title" type="text" maxlength="80"></label>
+          <label>The whole story <span class="note">(for "I know a bit" and "go easy"; every answer is in it)</span>
+            <textarea id="r-full" rows="8" maxlength="1600"></textarea>
+          </label>
+          <label>The short clue <span class="note">(for "I know a lot"; gives no answer away)</span>
+            <textarea id="r-brief" rows="4" maxlength="900"></textarea>
+          </label>
+          <label>Picture description <input id="r-pictureAlt" type="text" maxlength="250"></label>
+          <div id="r-questions"></div>
+          <ul id="round-problems" class="problems" hidden></ul>
+        </form>
+        <section id="preview" class="panel" aria-labelledby="preview-heading" hidden>
+          <h2 id="preview-heading">What a child sees</h2>
+          <div id="preview-tabs" class="tabs" role="tablist" aria-label="Confidence"></div>
+          <div id="preview-body"></div>
+        </section>
+      </section>
+    </main>
+    <div id="dock">
+      <p id="status" role="status" hidden></p>
+      <div id="round-actions" class="actions" hidden>
+        <button id="r-save" type="submit" form="round-form" class="primary">Save</button>
+        <button id="r-publish" type="button">Publish</button>
+        <button id="r-unpublish" type="button">Unpublish</button>
+        <button id="r-retry" type="button" class="primary">Try again</button>
+        <button id="r-delete" type="button" class="danger">Delete round</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

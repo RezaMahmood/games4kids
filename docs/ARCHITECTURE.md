@@ -16,7 +16,7 @@ The costs are two codebases in one repo, a popup before every Entra change, and 
 
 ## Problem
 
-Two finished games, drawpad (Preact with Vite, keyed by Entra `oid`) and letterjoin (vanilla ES modules, keyed by email), need one sign-in per child for every current and future game, invite-only players, per-game access, and per-game cost. The old repos, deployments, and registrations stay as they are. Everything new lives in `rg-games4kids` in West Europe, except the Foundry account in Sweden Central.
+Two finished games, drawpad (Preact with Vite, keyed by Entra `oid`) and letterjoin (vanilla ES modules, keyed by email), need one sign-in per child for every current and future game, invite-only players, per-game access, and per-game cost. The old repos, deployments, and registrations stay as they are. Everything new lives in `rg-games4kids` in West Europe, except the Foundry accounts of drawpad and timedetectives in Sweden Central. An account can deploy only the models its own region lists, even as Global Standard, and West Europe lists no image model (verified, `az cognitiveservices model list --location westeurope`, October 2026). Sweden Central lists `gpt-image-1-mini`, `gpt-image-2` and `gpt-5.4-mini`.
 
 ## Where each action runs
 
@@ -72,6 +72,7 @@ games4kids/
 	games/tsconfig.*.json   one project each for every game's data, play api, admin api and generated entries, so a part cannot import one it may not
 	games/drawpad/          manifest.ts, data/, play/ (api, web), admin/ (api, web), infra.bicep (Foundry)
 	games/letterjoin/       manifest.ts, data/, play/, admin/, infra.bicep (Vision)
+	games/timedetectives/   manifest.ts, data/, play/, admin/, infra.bicep (Foundry)
 	tools/                  gen, dev, changes, package-app, build-web, site-config, deploy, bootstrap, migrate/content, migrate/player-data (.mjs, with .ts beside those that tests import)
 	infra/                  main.bicep (shared), game.bicep (one deployment per game), modules/function-app.bicep, workbook.json
 	dev/                    fake-idp.ts, fake-graph.ts, sites.ts, stack.ts (tools/dev.mjs starts it), generated/
@@ -170,6 +171,9 @@ Every table, container, and queue has one writer. The manifest declares it, `Sto
 | letterjoin | `results`, `attempts` | scores, practice-day partitions, attempts | player app | admin app reads (practice, progress) |
 | letterjoin | `submissions` table and container | copy-writing submissions | player app | admin app reads (review) |
 | letterjoin | `reviews` | reviewed, note, reviewer, time | admin app | none |
+| timedetectives | `topics`, `rounds`, `pictures` container | topics, and each round with its AI job state and picture | admin app | player app reads (published rounds only) |
+| timedetectives | `attempts`, `board` | each child's finished rounds, and who switched the board on | player app | none |
+| timedetectives | `drafts` queue | rounds for the AI to write and draw | admin app | none |
 
 Review state moves out of `submissions` into `reviews`, keyed by submission id, so a review never makes the admin app a second writer. Deleting on the Review tab becomes a `discarded` review that hides the submission. Its image stays in the player-owned container at a few kilobytes each (guess).
 
@@ -219,7 +223,7 @@ Google and Facebook sign-in would come through an Entra External ID tenant added
 
 ### Cost and usage by game
 
-**Tags.** Bicep tags every resource `app=games4kids` and a `game` value. A game's storage, plan, player app, and `infra.bicep` resources carry `game=<id>`, so Foundry carries `game=drawpad`. The portal account and app carry `game=portal`, the admin app `game=admin`, and both Static Web Apps, Log Analytics, and Application Insights `game=shared`. Admin compute is shared by every game's admin module, drawpad's worker included, and Foundry, the large cost, is exact by tag. Tags reach usage records only while applied ([Cost Management data](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/understand-cost-mgt-data)), so the infra job fails on a missing tag.
+**Tags.** Bicep tags every resource `app=games4kids` and a `game` value. A game's storage, plan, player app, and `infra.bicep` resources carry `game=<id>`, so each Foundry account carries its own game's tag. The portal account and app carry `game=portal`, the admin app `game=admin`, and both Static Web Apps, Log Analytics, and Application Insights `game=shared`. Admin compute is shared by every game's admin module, drawpad's worker included, and Foundry, the large cost, is exact by tag. Tags reach usage records only while applied ([Cost Management data](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/understand-cost-mgt-data)), so the infra job fails on a missing tag.
 
 **Telemetry** goes to one Application Insights ([`telemetry.ts`](sketch/telemetry.ts)). A player app's rows carry `cloud_RoleName` `func-g4k-<id>`, because `service.name` defaults to the Function app name (verified, [Functions OpenTelemetry](https://learn.microsoft.com/en-us/azure/azure-functions/opentelemetry-howto)), so code needs no game envelope (review W10). The admin app names every function `<owner>-<name>` and mounts game routes under `api/admin/g/<id>/`, so its rows split by game in KQL. Each shell stamps page views with `game` and sends a `game_session` beat each minute a game page is visible. Each shell also reports browser faults as exceptions: whatever no catch handled, an API call that fails on the network or with a 5xx, and any error a page passes to `report(error)`. A 4xx is an answer, not a fault. On the server, every 5xx and every Entra refusal is recorded. The user is a span attribute, the `PortalUserId`, never an email. Sampling is off, and the daily cap is 0.16 GB, so a 31-day month stays under the 5 GB free grant (review N8, grant not checked on Learn this revision). At the cap, collection stops until the reset hour ([daily cap](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/daily-cap)), and an alert emails you.
 
@@ -231,7 +235,7 @@ Google and Facebook sign-in would come through an Entra External ID tenant added
 - Flex Consumption apps on Node 22, one plan each, since Flex allows one app per plan (verified, Flex plan): `func-g4k-portal` (512 MB, guess), one `func-g4k-<id>` per game (2048 MB), and `func-g4k-admin` (2048 MB, one instance).
 - `g4kportal<suffix>`, one `g4k<id><suffix>` per game, and `g4kshared<suffix>`, the Functions host and code-package account for every app. The suffix is the first five characters of `uniqueString(resourceGroup().id)`. Shared keys off, no public blob access. The host account holds no game data, because the host needs account-wide blob, queue and table roles that would break one writer per name on any account that does.
 - Function app names are `func-g4k-<app>` with `autoGeneratedDomainNameLabelScope: TenantReuse`, so the name only has to be unique in the resource group and the default host name carries a hash.
-- Log Analytics, Application Insights, the workbook, drawpad's Foundry account, and letterjoin's Vision account.
+- Log Analytics, Application Insights, the workbook, the Foundry accounts of drawpad and timedetectives, and letterjoin's Vision account.
 - `id-g4k-infra`, `id-g4k-deploy`, and `id-g4k-admin`.
 
 The monthly cost is a guess of 1 to 3 USD before Foundry, at 0.015 to 0.048 USD per redraw (drawpad measured).

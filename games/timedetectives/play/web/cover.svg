@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-label="An open wooden door in a stone wall, with pyramids and a setting sun in the past beyond it">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E3A6E"/>
+      <stop offset="1" stop-color="#1F2750"/>
+    </linearGradient>
+    <linearGradient id="past" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB86B"/>
+      <stop offset="0.6" stop-color="#FFE3A3"/>
+      <stop offset="1" stop-color="#F7D58A"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE7A8" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#FFE7A8" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="arch">
+      <path d="M220 360V170a80 80 0 0 1 160 0v190z"/>
+    </clipPath>
+  </defs>
+  <rect width="600" height="400" fill="url(#wall)"/>
+  <g fill="#38467F" opacity="0.8">
+    <rect x="20" y="40" width="70" height="30" rx="4"/><rect x="100" y="40" width="70" height="30" rx="4"/><rect x="430" y="40" width="70" height="30" rx="4"/><rect x="510" y="40" width="70" height="30" rx="4"/>
+    <rect x="55" y="80" width="70" height="30" rx="4"/><rect x="135" y="80" width="50" height="30" rx="4"/><rect x="415" y="80" width="50" height="30" rx="4"/><rect x="475" y="80" width="70" height="30" rx="4"/>
+    <rect x="20" y="120" width="70" height="30" rx="4"/><rect x="100" y="120" width="70" height="30" rx="4"/><rect x="430" y="120" width="70" height="30" rx="4"/><rect x="510" y="120" width="70" height="30" rx="4"/>
+    <rect x="55" y="160" width="70" height="30" rx="4"/><rect x="135" y="160" width="50" height="30" rx="4"/><rect x="415" y="160" width="50" height="30" rx="4"/><rect x="475" y="160" width="70" height="30" rx="4"/>
+    <rect x="20" y="200" width="70" height="30" rx="4"/><rect x="100" y="200" width="70" height="30" rx="4"/><rect x="430" y="200" width="70" height="30" rx="4"/><rect x="510" y="200" width="70" height="30" rx="4"/>
+    <rect x="55" y="240" width="70" height="30" rx="4"/><rect x="135" y="240" width="50" height="30" rx="4"/><rect x="415" y="240" width="50" height="30" rx="4"/><rect x="475" y="240" width="70" height="30" rx="4"/>
+    <rect x="20" y="280" width="70" height="30" rx="4"/><rect x="100" y="280" width="70" height="30" rx="4"/><rect x="430" y="280" width="70" height="30" rx="4"/><rect x="510" y="280" width="70" height="30" rx="4"/>
+  </g>
+  <rect y="360" width="600" height="40" fill="#151B3A"/>
+  <path d="M220 360h160l90 40H130z" fill="url(#glow)"/>
+  <g clip-path="url(#arch)">
+    <rect x="200" y="80" width="200" height="290" fill="url(#past)"/>
+    <circle cx="330" cy="200" r="30" fill="#FFF4D0"/>
+    <path d="M220 300l55-75 55 75z" fill="#D9A04F"/>
+    <path d="M275 225l55 75h-55z" fill="#B97E35"/>
+    <path d="M300 310l45-60 45 60z" fill="#E2B064"/>
+    <path d="M345 250l45 60h-45z" fill="#C48C40"/>
+    <path d="M200 300q60-20 110 0t110 0v70H200z" fill="#E9C27A"/>
+    <path d="M200 330q70-14 130 2t90-4v52H200z" fill="#DDB065"/>
+    <path d="M245 120q8-6 16 0q8-6 16 0" fill="none" stroke="#B9763A" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <path d="M212 360V170a88 88 0 0 1 176 0v190" fill="none" stroke="#8C95C4" stroke-width="16"/>
+  <path d="M380 362l78 30V108l-78 54z" fill="#8A4B1F"/>
+  <path d="M380 362l78 30V108l-78 54z" fill="none" stroke="#5E3112" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M404 170v199M430 152v228" stroke="#6E3915" stroke-width="4"/>
+  <circle cx="400" cy="265" r="8" fill="none" stroke="#F2B33D" stroke-width="4"/>
+  <circle cx="300" cy="62" r="34" fill="#FFFDF8" stroke="#F2B33D" stroke-width="6"/>
+  <path d="M300 40v22l15 10" fill="none" stroke="#1F2430" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#FFE7A8">
+    <path d="M150 300l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/>
+    <path d="M470 330l3 7 7 3-7 3-3 7-3-7-7-3 7-3z"/>
+    <path d="M190 220l3 7 7 3-7 3-3 7-3-7-7-3 7-3z"/>
+  </g>
+</svg>

@@ -172,6 +172,41 @@ for (const { name, options } of SIZES) {
 	});
 }
 
+const TIME_DETECTIVES_API = '**/api/admin/g/timedetectives/**';
+
+for (const { name, options } of SIZES) {
+	test(`${name}, the Time Detectives admin stays greyed out until its topics load or fail, then lifts`, async ({ browser }) => {
+		const context = await browser.newContext(options);
+		const page = await context.newPage();
+		await signedInAdmin(page);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(TIME_DETECTIVES_API, async (route) => {
+			await held;
+			return route.continue();
+		});
+
+		try {
+			await page.goto(`${ADMIN}/g/timedetectives/`);
+			await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(page), 'a grey layer and a spinning ring cover the page').toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			release();
+		}
+
+		await pageReady(page);
+		expect((await overlay(page)).shown, 'the grey layer is gone').toBe(false);
+		await expect(page.getByRole('button', { name: 'New topic' })).toBeEnabled();
+		await page.unroute(TIME_DETECTIVES_API);
+
+		await page.route(TIME_DETECTIVES_API, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The topics are unavailable.' }) }));
+		await page.reload();
+		await pageReady(page);
+		await expect(page.getByRole('status').filter({ hasText: 'The topics are unavailable.' })).toBeVisible();
+		await context.close();
+	});
+}
+
 const RUN = Date.now().toString(36);
 
 /** Holds every request matching `url` until the returned function runs, then answers it with `answer`, or lets it through. */
@@ -188,6 +223,7 @@ async function hold(page: Page, url: string, answer?: Parameters<Page['route']>[
 const GAMES_PAGES = [
 	{ game: 'Letter Tracing', path: '/g/letterjoin/', api: '**/api/g/letterjoin/session', loaded: (page: Page) => page.getByRole('heading', { name: 'Choose an activity' }) },
 	{ game: 'Draw Pad', path: '/g/drawpad/', api: '**/api/g/drawpad/session', loaded: (page: Page) => page.getByRole('heading', { name: /^What do you want to do/ }) },
+	{ game: 'Time Detectives', path: '/g/timedetectives/', api: '**/api/g/timedetectives/session', loaded: (page: Page) => page.getByRole('button', { name: 'Open the door to the past' }) },
 ] as const;
 
 for (const { game, path, api, loaded } of GAMES_PAGES) {
