@@ -76,6 +76,11 @@
           <h2 id="checks-heading">Worth a second look</h2>
           <p id="checks-intent"></p>
           <ul id="checks-list"></ul>
+          <div id="redraft" hidden>
+            <button id="r-redraft" type="button" aria-describedby="redraft-note redraft-hint">Redraft with AI using these notes</button>
+            <p id="redraft-note" class="note">The AI rewrites the words to fix these notes. The picture stays. This costs an AI call.</p>
+            <p id="redraft-hint" hidden>Save or undo your changes first</p>
+          </div>
         </section>
         <form id="retry-form" class="panel" hidden novalidate>
           <label>What should the AI write about this time? (optional)
