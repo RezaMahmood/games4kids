@@ -1,5 +1,6 @@
+import type { GameUsage } from './usage.ts';
 import type { AdminCaller, Caller, PortalUserId, Profile } from './identity.ts';
-import type { AzureService, GameId, GameManifest, Ownership, SettingSpec, Side, StorageDeclaration } from './manifest.ts';
+import type { AreaOf, AzureService, GameId, GameManifest, Ownership, SettingSpec, Side, StorageDeclaration } from './manifest.ts';
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -141,6 +142,8 @@ export type AdminPlatform<M extends GameManifest> = StorageFor<M, 'admin'> &
 		readonly settings: Settings<AdminPart<M>['settings']>;
 		readonly tokens: Tokens<AdminPart<M>['services'][number]>;
 		readonly roster: Roster;
+		/** The AI cost ledger. Only the admin part calls AI models, so a player platform has no usage. */
+		readonly usage: GameUsage<AreaOf<M>>;
 	};
 
 type WorkerOn<Q extends string> = { readonly queue: Q; readonly run: Worker };

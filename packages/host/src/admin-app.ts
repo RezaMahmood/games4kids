@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { HttpError, parsePortalUserId, type AdminApi, type AdminRoute, type CreateAdminApi, type GameId, type GameManifest, type Method, type Reply, type Roster, type Worker } from '@g4k/sdk';
 import {
 	ELEVATION_MAX_AGE_SECONDS,
@@ -15,19 +16,21 @@ import {
 } from './admin.ts';
 import { checkEntra, EntraRefused, syncEntra, type GraphFor, type OboGraph } from './entra.ts';
 import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type AppWorker, type HostReply, type HostRequest } from './http.ts';
-import { adminPlatform, requireGameId, type Env, type TokenSource } from './platform.ts';
+import { adminPlatform, areasOf, requireGameId, type Env, type TokenSource } from './platform.ts';
 import { rosterOf } from './portal-tables.ts';
 import type { Accounts } from './storage.ts';
 import { adminFunctionName, type Telemetry } from './telemetry.ts';
 import type { TrustedIssuer } from './token.ts';
+import { usageLedger, type UsageLedger } from './usage.ts';
 
-/** What the admin app lends a game's admin module: that game's account, its settings, tokens and roster. */
+/** What the admin app lends a game's admin module: that game's account, its settings, tokens, roster and AI cost ledger. */
 export type ModuleHost = {
 	readonly accounts: Accounts;
 	readonly env: Env;
 	readonly tokens: TokenSource;
 	readonly now: () => Date;
 	readonly roster: (game: GameId) => Roster;
+	readonly usage: UsageLedger;
 };
 
 /** What a mounted module hands the app: its routes, and its queue workers with the queue names widened so a list can hold them. */
@@ -41,7 +44,8 @@ export function adminModule<M extends GameManifest>(manifest: M, create: CreateA
 	return {
 		id,
 		mount(host) {
-			const api: AdminApi<M> = create(adminPlatform(manifest, id, { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now }, host.roster(id)));
+			const platformHost = { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now };
+			const api: AdminApi<M> = create(adminPlatform(manifest, id, platformHost, host.roster(id), host.usage.forGame(id, areasOf(manifest))));
 			return { routes: api.routes, workers: api.workers ?? [] };
 		},
 	};
@@ -199,7 +203,8 @@ export function createAdminApp(deps: AdminAppDeps): App {
 			},
 		},
 	];
-	const host = { accounts: deps.accounts, env: deps.env, tokens: deps.tokens, now: deps.now, roster: (game: GameId) => rosterOf(deps.store, game) };
+	const usage = usageLedger(deps.accounts.open('portal').table('aiusage'), { now: deps.now, newId: randomUUID, telemetry: deps.telemetry });
+	const host: ModuleHost = { accounts: deps.accounts, env: deps.env, tokens: deps.tokens, now: deps.now, roster: (game: GameId) => rosterOf(deps.store, game), usage };
 	const mounted = deps.modules.map((module) => ({ module, ...module.mount(host) }));
 	const games: readonly Entry[] = mounted.flatMap(({ module, routes }) =>
 		routes.map((route) => ({

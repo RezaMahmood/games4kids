@@ -12,8 +12,9 @@ import { ENTRA } from './token.ts';
  *   emails      PK 'email'     RK Email                      admin app; no games-side app reads it
  *   profiles    PK 'profile'   RK PortalUserId               portal app, on /welcome/ and /profile/
  *   admins      PK 'admin'     RK EntraObjectId              tools/bootstrap.mjs on the Mac
+ *   aiusage     PK `${GameId}|${UTC month}`  RK `${at}|${uuid}`  admin app, through platform.usage (usage.ts)
  */
-export type PortalTableName = 'members' | 'games' | 'identities' | 'emails' | 'profiles' | 'admins';
+export type PortalTableName = 'members' | 'games' | 'identities' | 'emails' | 'profiles' | 'admins' | 'aiusage';
 
 const identityKey = (issuer: string, subject: string) => `${issuer}|${subject}`;
 
