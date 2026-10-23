@@ -157,6 +157,7 @@ resource portalStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     resource emails 'tables' = { name: 'emails' }
     resource profiles 'tables' = { name: 'profiles' }
     resource admins 'tables' = { name: 'admins' }
+    resource aiusage 'tables' = { name: 'aiusage' }
   }
 }
 
@@ -275,6 +276,17 @@ resource identitiesWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' =
 resource emailsWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: portalStorage::tableService::emails
   name: guid(portalStorage::tableService::emails.id, adminIdentity.id, tableDataContributor)
+  properties: {
+    principalId: adminIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', tableDataContributor)
+  }
+}
+
+// The AI cost ledger. Only the admin app calls AI models, so it alone writes and reads it, and no player app gets a role.
+resource aiusageWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: portalStorage::tableService::aiusage
+  name: guid(portalStorage::tableService::aiusage.id, adminIdentity.id, tableDataContributor)
   properties: {
     principalId: adminIdentity.properties.principalId
     principalType: 'ServicePrincipal'

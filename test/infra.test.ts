@@ -58,9 +58,10 @@ function portalTableGrants(template: Template): string[] {
 	}).sort();
 }
 
-test('each portal table has one writer, and the portal app and every player app read what admission needs', { skip }, () => {
+test('each portal table has one writer, the AI cost ledger only the admin app, and the portal app and every player app read what admission needs', { skip }, () => {
 	assert.deepEqual(portalTableGrants(compile('infra/main.bicep')), [
 		'admins admin reader',
+		'aiusage admin writer',
 		'emails admin writer',
 		'games admin writer',
 		'games portal reader',
