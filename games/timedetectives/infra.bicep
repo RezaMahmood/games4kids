@@ -3,7 +3,6 @@ targetScope = 'resourceGroup'
 @description('The pipeline passes the same parameters to every game module.')
 param tags object
 // Foundry lives in foundryLocation, and the player app and the queue need nothing from this module.
-#disable-next-line no-unused-params
 param location string
 param storageAccountName string
 #disable-next-line no-unused-params
@@ -24,6 +23,7 @@ param deployments array = [
 ]
 
 var foundryName = 'ai-timedetectives-${uniqueString(resourceGroup().id)}'
+var keyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 var cognitiveServicesOpenAIUser = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 
 resource adminIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
@@ -64,10 +64,35 @@ resource adminCalls 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// Holds the TypeSafe API key for the round check. The operator adds the secret typesafe-api-key by hand, so no secret is declared here. 'kv-g4ktd-' and 13 characters of uniqueString make 22 of the 24 allowed.
+resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
+  name: 'kv-g4ktd-${uniqueString(resourceGroup().id)}'
+  location: location
+  tags: tags
+  properties: {
+    tenantId: tenant().tenantId
+    sku: { family: 'A', name: 'standard' }
+    enableRbacAuthorization: true
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+// The admin app reads the key through a Key Vault reference, so it needs to read secrets and nothing else.
+resource adminReadsSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: vault
+  name: guid(vault.id, adminPrincipalId, keyVaultSecretsUser)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUser)
+  }
+}
+
 output playSettings object = {}
 // The pipeline prefixes each name with TIMEDETECTIVES_. STORAGE__* is the identity-based connection of the drafts queue trigger, which the admin app signs in to as id-g4k-admin.
 output adminSettings object = {
   FOUNDRY_ENDPOINT: foundry.properties.endpoint
+  TYPESAFE_API_KEY: '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=typesafe-api-key)'
   STORAGE__queueServiceUri: 'https://${storageAccountName}.queue.${environment().suffixes.storage}'
   STORAGE__credential: 'managedidentity'
   STORAGE__clientId: adminIdentity.properties.clientId

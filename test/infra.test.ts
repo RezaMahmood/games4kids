@@ -160,10 +160,11 @@ test('timedetectives deploys its own Foundry with the models its worker names, n
 	assert.deepEqual(required(template).sort(), ['adminPrincipalId', 'location', 'playPrincipalId', 'queues', 'storageAccountName', 'tags']);
 	const deployed = (template.parameters['deployments']?.defaultValue as { name: string }[]).map((model) => model.name);
 	assert.deepEqual(deployed.sort(), [DRAFT_CHAT, IMAGE_DEPLOYMENT].sort());
-	assert.deepEqual(template.resources.map((resource) => resource.type).sort(), ['Microsoft.Authorization/roleAssignments', 'Microsoft.CognitiveServices/accounts', 'Microsoft.CognitiveServices/accounts/deployments']);
+	assert.deepEqual(template.resources.map((resource) => resource.type).sort(), ['Microsoft.Authorization/roleAssignments', 'Microsoft.Authorization/roleAssignments', 'Microsoft.CognitiveServices/accounts', 'Microsoft.CognitiveServices/accounts/deployments', 'Microsoft.KeyVault/vaults']);
 
 	const settings = Object.keys(prefixed('timedetectives', (template.outputs['adminSettings']?.value ?? {}) as Record<string, string>));
-	assert.deepEqual(settings.filter((name) => !name.includes('STORAGE__')), Object.keys(timedetectives.admin.settings).map((name) => `TIMEDETECTIVES_${name}`));
+	assert.deepEqual(settings.filter((name) => !name.includes('STORAGE__')), Object.keys(timedetectives.admin.settings).filter((name) => name !== 'TYPESAFE_ENDPOINT').map((name) => `TIMEDETECTIVES_${name}`));
+	assert.match(String((template.outputs['adminSettings']?.value as Record<string, unknown> | undefined)?.['TYPESAFE_API_KEY']), /@Microsoft\.KeyVault\(VaultName=.*;SecretName=typesafe-api-key\)/);
 	for (const name of ['queueServiceUri', 'credential', 'clientId']) assert.ok(settings.includes(`${workerConnection(gameId('timedetectives'))}__${name}`), `the worker connection needs ${name}`);
 });
 
