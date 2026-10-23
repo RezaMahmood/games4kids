@@ -62,10 +62,16 @@ function unchanged(state: Extract<AtWork, { kind: 'revising' }>, why: string): R
  * waited sees the rounds finished before it. Drafts can run at once on several instances, so this is not enough alone:
  * each draft without a focus also has its own angle.
  */
-async function covered(store: AdminStore, self: Round): Promise<Covered> {
-	const others = (await store.rounds()).rounds.map(({ round }) => round).filter((round) => round.topicId === self.topicId && round.id !== self.id);
+/** Enough recent titles to steer the model away from repeats, without the prompt growing with the topic. */
+const COVERED_MAX = 30;
+
+async function covered(store: AdminStore, self: Round, now: Date): Promise<Covered> {
+	const others = (await store.rounds()).rounds
+		.map((stored) => settleStale(stored, now).round)
+		.filter((round) => round.topicId === self.topicId && round.id !== self.id)
+		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	return {
-		titles: others.flatMap(({ state }) => ('content' in state && state.content ? [state.content.title] : [])),
+		titles: others.flatMap(({ state }) => ('content' in state && state.content ? [state.content.title] : [])).slice(0, COVERED_MAX),
 		drafting: others.flatMap(({ state }) => (state.kind === 'drafting' && !state.content && state.focus ? [state.focus] : [])),
 	};
 }
@@ -120,7 +126,7 @@ export async function runDraft(ctx: Ctx, id: RoundId): Promise<void> {
 		try {
 			const topic = await ctx.store.topic(found.round.topicId);
 			if (!topic) throw new AiFailure(false, 'The topic was deleted.');
-			const ask = { kind: 'new', topic: topic.topic, focus: state.focus, covered: await covered(ctx.store, found.round), ...(state.angle && { angle: state.angle }) } as const;
+			const ask = { kind: 'new', topic: topic.topic, focus: state.focus, covered: await covered(ctx.store, found.round, ctx.now), ...(state.angle && { angle: state.angle }) } as const;
 			written = await writeRound(ctx.foundry(subject), ask, ctx.typesafe(subject), onCheckError);
 		} catch (error) {
 			const { refused, why } = settle(error);
