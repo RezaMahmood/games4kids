@@ -2,7 +2,7 @@
  * @typedef {{ id: string, title: string, guidance: string, order: number, etag: string, rounds: number, published: number }} Topic
  * @typedef {{ kind: string, answer: string, decoys: string[], hint: string }} Question
  * @typedef {{ title: string, full: string, brief: string, pictureAlt: string, questions: Question[] }} Content
- * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content }
+ * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content, notice?: string }
  *   | { kind: 'failed', focus: string, source: string, reason: string }
  *   | { kind: 'draft', content: Content, source: string, notice?: string }
  *   | { kind: 'published', content: Content, source: string, publishedAt: string }} RoundState

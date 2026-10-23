@@ -18,7 +18,11 @@ export default defineGame({
 	},
 	admin: {
 		web: { kind: 'static' },
-		settings: { FOUNDRY_ENDPOINT: { kind: 'url', optional: true } },
+		settings: {
+			FOUNDRY_ENDPOINT: { kind: 'url', optional: true },
+			TYPESAFE_API_KEY: { kind: 'string', optional: true },
+			TYPESAFE_ENDPOINT: { kind: 'url', optional: true },
+		},
 		services: ['cognitiveServices'],
 	},
 });

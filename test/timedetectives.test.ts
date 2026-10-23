@@ -5,6 +5,7 @@ import { after, test } from 'node:test';
 import { adminModule, createAdminApp, createPlayerApp, storageFor, type Accounts, type App, type Env } from '@g4k/host';
 import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
 import { startFakeFoundry, VIKING_ROUND } from '../dev/fake-foundry.ts';
+import { startFakeTypeSafe } from '../dev/fake-typesafe.ts';
 import { createAdminApi } from '../games/timedetectives/admin/api/index.ts';
 import { MAX_ATTEMPTS, PICTURE_REFUSED, STALE_AFTER_MS, STOPPED, WORDS_REFUSED } from '../games/timedetectives/admin/api/worker.ts';
 import { REQUEST_TIMEOUT_MS, RETRY_MAX_SECONDS } from '../games/timedetectives/admin/api/foundry.ts';
@@ -24,6 +25,8 @@ import { ROUND } from './timedetectives/lindisfarne.ts';
 const idp = await fakeIdp();
 const foundry = await startFakeFoundry();
 after(() => foundry.close());
+const typesafe = await startFakeTypeSafe();
+after(() => typesafe.close());
 const timedetectives = gameId('timedetectives');
 const TODAY = NOW.toISOString().slice(0, 10);
 
@@ -437,6 +440,90 @@ test('an answer that is not a usable round is asked for once more, then fails th
 	assert.equal(failed.state.kind, 'failed');
 	assert.match((failed.state as { reason: string }).reason, /not usable: picturePrompt must not be empty/);
 	assert.deepEqual(callsSince(before), [CHAT, CHAT]);
+});
+
+const checked = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin, TIMEDETECTIVES_TYPESAFE_API_KEY: 'ts-key', TIMEDETECTIVES_TYPESAFE_ENDPOINT: typesafe.origin };
+const BRIEF_GIVEAWAY = 'the brief gives away the who answer "Vikings"';
+const checkDown = 'The automatic check could not run, so read this round carefully before publishing.';
+
+test('a clean round is checked once with the key and is a draft with no notice, and without a key nothing is checked', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const before = typesafe.calls.length;
+	const round = await drafted(s, topic);
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai' });
+	const calls = typesafe.calls.slice(before);
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0]?.key, 'ts-key');
+	assert.equal(calls[0]?.ids.length, 18);
+
+	const plain = await setup();
+	const again = typesafe.calls.length;
+	assert.equal((await drafted(plain, await adminTopic(plain))).state.kind, 'draft');
+	assert.equal(typesafe.calls.length, again);
+});
+
+test('a brief that gives the answer away is sent back to the chat model, and the better round has no notice', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	typesafe.setBad({ who_brief: 0.9 });
+	const round = await drafted(s, topic);
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai' });
+	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
+});
+
+test('a failure that outlasts the second ask leaves a draft whose notice names it, and the notice survives the picture step', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	typesafe.setBad({ who_brief: 0.9 }, 2);
+	const round = await drafted(s, topic);
+	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: `Check this round before publishing: ${BRIEF_GIVEAWAY}.` });
+
+	typesafe.setBad({ who_brief: 0.9 }, 2);
+	foundry.refuseNext(1);
+	const unpictured = await drafted(s, topic);
+	assert.deepEqual([unpictured.state.kind, unpictured.hasPicture], ['draft', false]);
+	assert.equal((unpictured.state as { notice: string }).notice, `Check this round before publishing: ${BRIEF_GIVEAWAY}. ${PICTURE_REFUSED}`);
+
+	const published = await s.asAdmin('PUT', `rounds/${unpictured.id}`, { json: { content: ROUND, etag: unpictured.etag } });
+	assert.equal((published.data as { state: { notice?: string } }).state.notice, undefined, 'an admin edit clears the notice');
+});
+
+test('an uncertain decoy gives a draft with a notice and no new ask', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	const before = foundry.calls.length;
+	typesafe.setBad({ where_decoy_2: 0.5 });
+	const round = await drafted(s, topic);
+	assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
+	assert.equal(round.state.kind, 'draft');
+	assert.equal((round.state as { notice: string }).notice, 'Check this round before publishing: the story supports the where decoy "Stonehenge", so it is not clearly wrong.');
+});
+
+test('a check that cannot run leaves a draft with a notice and neither retries nor fails the round', async () => {
+	for (const status of [500, 401]) {
+		const s = await setup(checked);
+		const topic = await adminTopic(s);
+		const before = foundry.calls.length;
+		const calls = typesafe.calls.length;
+		typesafe.failNext(1, status);
+		const round = await drafted(s, topic);
+		assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
+		assert.equal(typesafe.calls.length - calls, 1);
+		assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: checkDown });
+		assert.ok(s.logs.some((line) => line.includes('could not be checked') && line.includes(String(status))));
+	}
+});
+
+test('a key that is still a Key Vault reference makes no check', async () => {
+	const s = await setup({ ...checked, TIMEDETECTIVES_TYPESAFE_API_KEY: '@Microsoft.KeyVault(VaultName=kv;SecretName=typesafe-api-key)' });
+	const before = typesafe.calls.length;
+	const round = await drafted(s, await adminTopic(s));
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', });
+	assert.equal(typesafe.calls.length, before);
 });
 
 test('a round written by hand needs a picture to publish, stays published through an edit, and refuses a stale edit', async () => {

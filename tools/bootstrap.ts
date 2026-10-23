@@ -10,7 +10,7 @@ export const STEPS = ['providers', 'entra-apps', 'identities', 'azure-roles', 'a
 export type StepName = (typeof STEPS)[number];
 export const DEFAULT_STEPS: readonly StepName[] = ['providers', 'entra-apps', 'identities', 'azure-roles', 'admin-account', 'github'];
 
-export const PROVIDERS = ['Microsoft.Authorization', 'Microsoft.CognitiveServices', 'Microsoft.EventGrid', 'Microsoft.Insights', 'Microsoft.ManagedIdentity', 'Microsoft.OperationalInsights', 'Microsoft.Resources', 'Microsoft.Storage', 'Microsoft.Web'];
+export const PROVIDERS = ['Microsoft.Authorization', 'Microsoft.CognitiveServices', 'Microsoft.EventGrid', 'Microsoft.Insights', 'Microsoft.KeyVault', 'Microsoft.ManagedIdentity', 'Microsoft.OperationalInsights', 'Microsoft.Resources', 'Microsoft.Storage', 'Microsoft.Web'];
 
 export const INFRA_IDENTITY = 'id-g4k-infra';
 export const DEPLOY_IDENTITY = 'id-g4k-deploy';
@@ -59,6 +59,7 @@ export const AZURE_ROLES = {
 	cognitiveServicesUser: 'a97b65f3-24c7-4388-baec-2e87135dc908',
 	cognitiveServicesOpenAiUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd',
 	monitoringMetricsPublisher: '3913510d-42f4-4e42-8a64-420c390055eb',
+	keyVaultSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6',
 } as const;
 
 /** What id-g4k-infra may assign to any service principal. */
@@ -74,6 +75,7 @@ export const ASSIGNABLE_TO_ANY = [
 	AZURE_ROLES.cognitiveServicesUser,
 	AZURE_ROLES.cognitiveServicesOpenAiUser,
 	AZURE_ROLES.monitoringMetricsPublisher,
+	AZURE_ROLES.keyVaultSecretsUser,
 ] as const;
 
 /** What id-g4k-infra may assign to id-g4k-deploy and to no other principal. */

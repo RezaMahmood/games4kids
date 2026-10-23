@@ -1,4 +1,5 @@
 import { isRecord, KINDS, parseRoundContent, type RoundContent } from '../../data/index.ts';
+import { checkRound, type TypeSafeDeps, type Verdicts } from './check.ts';
 import { AiFailure, chatJson, generateImage, type FoundryDeps } from './foundry.ts';
 
 export const CHAT_DEPLOYMENT = 'gpt-5.4-mini';
@@ -44,7 +45,10 @@ const SCHEMA = {
 /** Every picture gets these rules, so one drawn from a hand-written round's alt text is as safe as one the AI described. */
 const PICTURE_RULES = 'A painterly illustration for a children\'s history book. No text, letters or numbers anywhere in the image, no modern objects, no recognisable real faces.';
 
-export type Written = { content: RoundContent; picturePrompt: string };
+/** `notice` is what the admin should know before publishing: a check that failed or was unsure, or could not run. */
+export type Written = { content: RoundContent; picturePrompt: string; notice?: string };
+
+export const CHECK_DOWN = 'The automatic check could not run, so read this round carefully before publishing.';
 
 /** The admin's words go in as quoted data, so they shape the round without becoming instructions. */
 function ask(topic: { title: string; guidance: string }, focus: string): string {
@@ -55,8 +59,18 @@ function ask(topic: { title: string; guidance: string }, focus: string): string 
 	].filter(Boolean).join('\n');
 }
 
-/** Asks the chat model for a round, and once more with the problems when its answer does not parse. */
-export async function writeRound(deps: FoundryDeps, topic: { title: string; guidance: string }, focus: string): Promise<Written> {
+/**
+ * Asks the chat model for a round, and once more with the problems when its answer does not parse or TypeSafe's check
+ * fails it. A check never fails the round: what is still wrong on the last ask, or unsure, or could not be checked,
+ * becomes a notice. `onCheckError` hears why a check could not run.
+ */
+export async function writeRound(
+	deps: FoundryDeps,
+	topic: { title: string; guidance: string },
+	focus: string,
+	typesafe?: TypeSafeDeps,
+	onCheckError: (error: unknown) => void = () => {},
+): Promise<Written> {
 	const messages: unknown[] = [
 		{ role: 'system', content: SYSTEM },
 		{ role: 'user', content: ask(topic, focus) },
@@ -66,10 +80,32 @@ export async function writeRound(deps: FoundryDeps, topic: { title: string; guid
 		const parsed = parseRoundContent(answer);
 		const picturePrompt = isRecord(answer) && typeof answer['picturePrompt'] === 'string' ? answer['picturePrompt'].trim() : '';
 		const problems = [...(parsed.ok ? [] : parsed.problems), ...(picturePrompt ? [] : ['picturePrompt must not be empty'])];
-		if (parsed.ok && problems.length === 0) return { content: parsed.value, picturePrompt };
+		if (parsed.ok && problems.length === 0) {
+			const verdicts = typesafe ? await checked(typesafe, parsed.value, onCheckError) : CLEAN;
+			if (verdicts && verdicts.fails.length > 0 && asked < ASKS) problems.push(...verdicts.fails);
+			else return { content: parsed.value, picturePrompt, ...noticeFor(verdicts) };
+		}
 		if (asked === ASKS) throw new AiFailure(false, `The AI's round was not usable: ${problems.slice(0, 3).join('; ')}`);
 		messages.push({ role: 'assistant', content: JSON.stringify(answer) }, { role: 'user', content: `That round has problems: ${problems.join('; ')}. Write it again, fixing them.` });
 	}
+}
+
+const CLEAN: Verdicts = { fails: [], unsure: [] };
+
+/** The verdicts, or null when the check could not run. */
+async function checked(typesafe: TypeSafeDeps, content: RoundContent, onError: (error: unknown) => void): Promise<Verdicts | null> {
+	try {
+		return await checkRound(typesafe, content);
+	} catch (error) {
+		onError(error);
+		return null;
+	}
+}
+
+function noticeFor(verdicts: Verdicts | null): { notice?: string } {
+	if (!verdicts) return { notice: CHECK_DOWN };
+	const items = [...verdicts.fails, ...verdicts.unsure];
+	return items.length > 0 ? { notice: `Check this round before publishing: ${items.join('; ')}.` } : {};
 }
 
 export function drawPicture(deps: FoundryDeps, scene: string): Promise<Uint8Array> {

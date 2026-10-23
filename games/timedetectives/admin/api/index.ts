@@ -19,6 +19,7 @@ import {
 	type TopicId,
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
+import type { TypeSafeDeps } from './check.ts';
 import { AiFailure, type FoundryDeps } from './foundry.ts';
 import { parseDraftMessage, runDraft, settleStale, type DraftMessage } from './worker.ts';
 
@@ -53,6 +54,13 @@ function foundryFor(platform: AdminPlatform<typeof manifest>): FoundryDeps {
 	const endpoint = platform.settings.FOUNDRY_ENDPOINT;
 	if (!endpoint) throw new AiFailure(false, 'Drafting with AI is not set up.');
 	return { endpoint, token: platform.tokens.cognitiveServices };
+}
+
+/** Undefined turns the check off. App Service leaves a Key Vault reference's text in the setting until the secret exists, which is not a key. */
+function typesafeFor(platform: AdminPlatform<typeof manifest>): TypeSafeDeps | undefined {
+	const apiKey = platform.settings.TYPESAFE_API_KEY;
+	if (!apiKey || apiKey.startsWith('@Microsoft.KeyVault(')) return undefined;
+	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/' };
 }
 
 export const createAdminApi = defineAdminApi(manifest, (platform) => {
@@ -368,7 +376,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run(message, { now, log, dequeueCount }) {
 					const draft = parseDraftMessage(message);
 					if (!draft) return log('ignored a queue message that names no round');
-					await runDraft({ store, foundry: () => foundryFor(platform), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
+					await runDraft({ store, foundry: () => foundryFor(platform), typesafe: () => typesafeFor(platform), newPicture: () => newId(pictureId), now, log, dequeueCount }, draft.roundId);
 				},
 			},
 		],
