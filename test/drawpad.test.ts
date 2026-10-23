@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { adminModule, createAdminApp, createPlayerApp, type App, type Env } from '@g4k/host';
+import { adminModule, createAdminApp, createPlayerApp, type Accounts, type App, type Env } from '@g4k/host';
 import { deliverQueues, MAX_DEQUEUE_COUNT } from '@g4k/host/node';
 import { readFileSync } from 'node:fs';
 import { MAX_ATTEMPTS } from '../games/drawpad/admin/api/worker.ts';
@@ -24,7 +24,21 @@ const ID = '3f2a9c-1';
 async function setup(env: Env = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1' }, timeZone = 'Europe/London') {
 	const w = world();
 	const apps: App[] = [];
-	const accounts = deliverQueues(w.accounts, () => apps);
+	const delivering = deliverQueues(w.accounts, () => apps);
+	/** Storage faults a test switches on: says whether the next AI cost ledger write throws. */
+	const faults = { ledger: () => false };
+	const accounts: Accounts = {
+		open(owner) {
+			const account = delivering.open(owner);
+			return {
+				...account,
+				table(name) {
+					const table = account.table(name);
+					return owner === 'portal' && name === 'aiusage' ? { ...table, insertIfAbsent: (row) => (faults.ledger() ? Promise.reject(new Error('storage is down')) : table.insertIfAbsent(row)) } : table;
+				},
+			};
+		},
+	};
 	const tokens = async (service: string) => `tok-${service}`;
 	const common = { telemetry: w.telemetry, now: w.now };
 	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, accounts, tokens, env: {} });
@@ -47,8 +61,10 @@ async function setup(env: Env = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAW
 	const kid = await seedPlayer(w, idp, { games: [drawpad], profile: { displayName: 'Ada', timeZone } });
 	const asKid = (method: string, path: string, send: Send = {}) => call(player, method, `/api/g/drawpad/${path}`, { token: kid.token, ...send });
 	const asAdmin = (method: string, path: string, send: Send = {}) => call(admin, method, `/api/admin/g/drawpad/${path}`, { token: adminToken, ...send });
-	const settled = () => accounts.idle();
-	return { w, player, kid, asKid, asAdmin, settled, queue: accounts.open(drawpad).queue('stencil-jobs'), account: w.accounts.open(drawpad), exceptions: w.telemetry.exceptions };
+	const settled = () => delivering.idle();
+	/** Each ledger row as `area item cost`, sorted, since rows written in the same instant sort by their random id. */
+	const ledger = async () => (await w.accounts.open('portal').table('aiusage').list()).map((row) => `${String(row['area'])} ${String(row['item'])} ${String(row['microUsd'])}`).sort();
+	return { w, player, kid, asKid, asAdmin, settled, ledger, faults, queue: accounts.open(drawpad).queue('stencil-jobs'), account: w.accounts.open(drawpad), exceptions: w.telemetry.exceptions };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -401,4 +417,71 @@ test('the admin app runs the queue one message at a time and gives up after the 
 	assert.equal(host.extensions.queues['newBatchThreshold'], 0);
 	assert.equal(host.extensions.queues['maxDequeueCount'], MAX_ATTEMPTS);
 	assert.equal(MAX_DEQUEUE_COUNT, MAX_ATTEMPTS, 'the dev stack tries a message as often as Azure does');
+});
+
+/** What the fakes bill, in micro-USD at list prices: a chat reply, a generated picture, and an edit of a photo by each image model. */
+const COST = { chat: 800 * 0.75 + 200 * 0.075 + 500 * 4.5, scene: 50 * 2 + 1000 * 8, editStandard: 50 * 2 + 300 * 2.5 + 1000 * 8, editBest: 50 * 5 + 300 * 8 + 1000 * 30 };
+const sorted = (rows: string[]) => [...rows].sort();
+
+test('a photo job bills its titles and each redraw to the job, and a later redraw adds one more row', async () => {
+	const s = await setup();
+	const job = (await s.asAdmin('POST', 'jobs/photo?width=30&height=20&wants=best&titles=1', { jpeg: JPEG })).data as { id: string };
+	await s.settled();
+	assert.deepEqual(await s.ledger(), sorted([`titles ${job.id} ${COST.chat}`, `redraw ${job.id} ${COST.editBest}`]));
+	assert.equal(statusOf(await s.asAdmin('POST', `jobs/${job.id}/redraw`, { json: { quality: 'standard' } })), 'queued');
+	await s.settled();
+	assert.deepEqual(await s.ledger(), sorted([`titles ${job.id} ${COST.chat}`, `redraw ${job.id} ${COST.editBest}`, `redraw ${job.id} ${COST.editStandard}`]));
+	assert.deepEqual(s.exceptions, []);
+});
+
+test('a job that only asks for titles bills one chat reply', async () => {
+	const s = await setup();
+	const job = (await s.asAdmin('POST', 'jobs/photo?width=30&height=20&wants=&titles=1', { jpeg: JPEG })).data as { id: string };
+	await s.settled();
+	assert.deepEqual(await s.ledger(), [`titles ${job.id} ${COST.chat}`]);
+});
+
+test('a scene job bills the rewrite asked twice after a banned word, and then each of its three pictures', async () => {
+	const s = await setup();
+	foundry.answerNextScenePrompts(['a fox on a paint by numbers sheet', 'a fox', 'a fox'], ['a fox in a field', 'a fox by a tree', 'a fox in a den']);
+	const job = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	assert.equal(statusOf(await s.asAdmin('GET', `jobs/${job.id}`)), 'done');
+	assert.deepEqual(await s.ledger(), sorted([...Array(2).fill(`scene-prompts ${job.id} ${COST.chat}`), ...Array(3).fill(`scene ${job.id} ${COST.scene}`)]));
+});
+
+test('a 500 bills nothing and the queue\'s retry bills only the step it repeats', async () => {
+	const s = await setup();
+	foundry.failNext(1);
+	const job = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	assert.deepEqual(await s.ledger(), sorted([`scene-prompts ${job.id} ${COST.chat}`, ...Array(3).fill(`scene ${job.id} ${COST.scene}`)]), 'four requests answered, one failed, and the prompts were not paid for twice');
+});
+
+test('a reply with no usage finishes the job, bills nothing for it, and reports each one unmetered', async () => {
+	const s = await setup();
+	foundry.omitUsageNext(1, 'chat');
+	foundry.omitUsageNext(1);
+	const before = s.exceptions.length;
+	const job = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	assert.equal(statusOf(await s.asAdmin('GET', `jobs/${job.id}`)), 'done');
+	assert.deepEqual(await s.ledger(), sorted(Array(2).fill(`scene ${job.id} ${COST.scene}`)), 'only the two pictures that reported usage are billed');
+	const reports = s.exceptions.slice(before).map(String);
+	assert.equal(reports.length, 2);
+	assert.equal(reports.filter((line) => line.includes(`drawpad scene-prompts call to gpt-5.4-mini for ${job.id} was billed but reported no usage`)).length, 1);
+	assert.equal(reports.filter((line) => line.includes(`drawpad scene call to gpt-image-1-mini for ${job.id} was billed but reported no usage`)).length, 1);
+});
+
+test('a ledger that cannot be written neither fails nor retries a job, and reports each lost entry', async () => {
+	const s = await setup();
+	s.faults.ledger = () => true;
+	const before = foundry.calls.length;
+	const job = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	const done = (await s.asAdmin('GET', `jobs/${job.id}`)).data as { status: string; steps: { state: string }[] };
+	assert.deepEqual([done.status, ...done.steps.map((step) => step.state)], ['done', 'done', 'done', 'done', 'done']);
+	assert.equal(foundry.calls.length - before, 4, 'nothing was asked for twice');
+	assert.equal(s.exceptions.length, 4);
+	assert.deepEqual(await s.ledger(), []);
 });

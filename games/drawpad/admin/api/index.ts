@@ -299,7 +299,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 				async run(message, { log, dequeueCount }) {
 					const jobId = jobIdOf(message);
 					if (!jobId) return log('ignored a queue message that is not the BlobCreated event of a job ready blob');
-					await runJob(jobs, { foundry: () => foundryFor(platform), log }, jobId, dequeueCount);
+					await runJob(jobs, { foundry: (subject) => foundryFor(platform, subject), log }, jobId, dequeueCount);
 				},
 			},
 		],
