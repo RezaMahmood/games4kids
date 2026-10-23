@@ -3,11 +3,18 @@ import { fieldsOf } from '../../shared/ids.ts';
 export type CostBy = 'day' | 'month' | 'year';
 export const COST_BYS: readonly CostBy[] = ['day', 'month', 'year'];
 
+/** Which app made the calls: the admin app's AI drafts content, and the games app's runs while a child plays. */
+export type App = 'admin' | 'play';
+const APPS: readonly App[] = ['admin', 'play'];
+export const APP_NAMES: Readonly<Record<App, string>> = { admin: 'Admin app', play: 'Games app' };
+
 export type Cost = { readonly microUsd: number; readonly calls: number; readonly text: string };
-export type AreaCost = Cost & { readonly game: string; readonly area: string; readonly label: string };
+export type AppCost = Cost & { readonly side: App };
+export type AreaCost = Cost & { readonly side: App; readonly game: string; readonly area: string; readonly label: string };
 export type GameCost = Cost & { readonly game: string; readonly title: string };
-export type PeriodCost = { readonly period: string; readonly total: Cost; readonly games: readonly GameCost[]; readonly areas: readonly AreaCost[] };
-export type CostReport = { readonly by: CostBy; readonly from: string; readonly to: string; readonly total: Cost; readonly games: readonly GameCost[]; readonly areas: readonly AreaCost[]; readonly periods: readonly PeriodCost[] };
+type Breakdown = { readonly apps: readonly AppCost[]; readonly games: readonly GameCost[]; readonly areas: readonly AreaCost[] };
+export type PeriodCost = Breakdown & { readonly period: string; readonly total: Cost };
+export type CostReport = Breakdown & { readonly by: CostBy; readonly from: string; readonly to: string; readonly total: Cost; readonly periods: readonly PeriodCost[] };
 
 function parseCost(raw: unknown): Cost | null {
 	const { microUsd, calls, text } = fieldsOf(raw);
@@ -20,14 +27,25 @@ const gameCost = (entry: Record<string, unknown>): GameCost | null => {
 	const cost = parseCost(entry);
 	return cost && typeof entry['game'] === 'string' && typeof entry['title'] === 'string' ? { ...cost, game: entry['game'], title: entry['title'] } : null;
 };
+const sideOf = (raw: unknown): App | undefined => APPS.find((one) => one === raw);
+const appCost = (entry: Record<string, unknown>): AppCost | null => {
+	const cost = parseCost(entry);
+	const side = sideOf(entry['side']);
+	return cost && side ? { ...cost, side } : null;
+};
 const areaCost = (entry: Record<string, unknown>): AreaCost | null => {
 	const cost = parseCost(entry);
-	return cost && typeof entry['game'] === 'string' && typeof entry['area'] === 'string' && typeof entry['label'] === 'string' ? { ...cost, game: entry['game'], area: entry['area'], label: entry['label'] } : null;
+	const side = sideOf(entry['side']);
+	return cost && side && typeof entry['game'] === 'string' && typeof entry['area'] === 'string' && typeof entry['label'] === 'string'
+		? { ...cost, side, game: entry['game'], area: entry['area'], label: entry['label'] }
+		: null;
 };
+const breakdown = (entry: Record<string, unknown>): Breakdown => ({ apps: list(entry['apps'], appCost), games: list(entry['games'], gameCost), areas: list(entry['areas'], areaCost) });
 
 /** GET portal/costs. A reply the page cannot read is a failure, not an empty report. */
 export function parseCostReport(raw: unknown): CostReport {
-	const { by, from, to, total, games, areas, periods } = fieldsOf(raw);
+	const fields = fieldsOf(raw);
+	const { by, from, to, total, periods } = fields;
 	const sum = parseCost(total);
 	const known = COST_BYS.find((one) => one === by);
 	if (!known || typeof from !== 'string' || typeof to !== 'string' || !sum) throw new Error('GET costs answered something the page cannot read');
@@ -36,11 +54,10 @@ export function parseCostReport(raw: unknown): CostReport {
 		from,
 		to,
 		total: sum,
-		games: list(games, gameCost),
-		areas: list(areas, areaCost),
+		...breakdown(fields),
 		periods: list(periods, (entry): PeriodCost | null => {
 			const cost = parseCost(entry['total']);
-			return cost && typeof entry['period'] === 'string' ? { period: entry['period'], total: cost, games: list(entry['games'], gameCost), areas: list(entry['areas'], areaCost) } : null;
+			return cost && typeof entry['period'] === 'string' ? { period: entry['period'], total: cost, ...breakdown(entry) } : null;
 		}),
 	};
 }

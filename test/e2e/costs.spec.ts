@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, collectProblems, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, collectProblems, GAMES, namedChild, pageReady, signInAtFakeEntra } from './support.ts';
 
 const SHOTS = process.env['G4K_SHOTS'];
 const SIZES = [
@@ -31,10 +31,51 @@ async function spendSomething(page: Page): Promise<void> {
 	await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
 }
 
+/** Has a child write a line in hard mode, so the games app's ledger holds one handwriting read. */
+async function readSomeHandwriting(browser: Browser): Promise<void> {
+	const run = Date.now().toString(36);
+	const title = `Costs ${run}`;
+	const admin = await adminPage(browser, {});
+	answerPopups(admin);
+	const kid = await namedChild(browser, admin, `costs-${run}@example.com`, `Cal${run}`, 'Letter Tracing', { viewport: { width: 1024, height: 1366 }, hasTouch: true });
+	await admin.goto(`${ADMIN}/g/letterjoin/`);
+	await adminReady(admin);
+	await admin.locator('#new-activity').click();
+	await admin.locator('#f-type').selectOption('sentence');
+	await admin.locator('#f-title').fill(title);
+	await admin.locator('#f-status').selectOption('published');
+	await admin.locator('#f-sentence').fill('Cats nap.');
+	await admin.locator('#f-save').click();
+	await expect(admin.getByRole('dialog')).toBeHidden();
+
+	await kid.goto(`${GAMES}/g/letterjoin/`);
+	await pageReady(kid);
+	await kid.locator('.card-slot', { hasText: title }).locator('.hard-toggle').click();
+	await kid.locator('.activity-card', { hasText: title }).click();
+	await expect(kid.locator('#write-screen')).toBeVisible();
+	const pad = (await kid.locator('#write-pad').boundingBox())!;
+	await kid.mouse.move(pad.x + 60, pad.y + pad.height / 2);
+	await kid.mouse.down();
+	await kid.mouse.move(pad.x + 160, pad.y + pad.height / 2 - 30);
+	await kid.mouse.move(pad.x + 260, pad.y + pad.height / 2);
+	await kid.mouse.up();
+	const read = kid.waitForResponse((response) => /\/activities\/[^/]+\/read$/.test(response.url()) && response.request().method() === 'POST');
+	await kid.locator('#write-done').click();
+	await kid.getByRole('dialog', { name: 'Finished writing?' }).getByRole('button', { name: "Yes, I've finished" }).click();
+	expect((await read).status()).toBe(200);
+	await kid.context().close();
+	await admin.context().close();
+}
+
+test.beforeAll(async ({ browser }) => {
+	test.setTimeout(120_000);
+	await readSomeHandwriting(browser);
+});
+
 const london = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', ...options }).format(new Date());
 
 for (const { name, options } of SIZES) {
-	test(`${name}, the AI costs page shows what a drafted round cost by day, month and year, and by area`, async ({ browser }) => {
+	test(`${name}, the AI costs page shows what a drafted round and a child's handwriting read cost by day, month and year, and by app and area`, async ({ browser }) => {
 		const page = await adminPage(browser, options);
 		const problems = collectProblems([page]);
 		await spendSomething(page);
@@ -43,15 +84,26 @@ for (const { name, options } of SIZES) {
 		await adminReady(page);
 		await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Costs' }).click();
 		await adminReady(page);
-		await expect(page.getByRole('heading', { name: 'AI costs', level: 1 })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'AI costs in both apps', level: 1 })).toBeVisible();
+		await expect(page.locator('.lead')).toContainText('the admin app and the games app');
 		await expect(page.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.locator('#total')).toHaveText(/^est\. [$<][\d.]+ · \d+ AI calls?, /);
-		await expect(page.getByText('Estimated from token counts and Azure list prices; your Azure bill is the final word.')).toBeVisible();
+		await expect(page.getByText('Estimated from token and transaction counts at list prices; your Azure bill is the final word.')).toBeVisible();
 
+		const apps = page.getByRole('list', { name: 'Cost by app' });
+		await expect(apps.locator('li')).toHaveCount(2);
+		await expect(apps.getByText('Admin app')).toBeVisible();
+		await expect(apps.getByText('Games app')).toBeVisible();
 		const areas = page.getByRole('list', { name: 'Cost by area' });
 		await expect(areas.getByText('Story words')).toBeVisible();
 		await expect(areas.getByText('Pictures')).toBeVisible();
-		await expect(page.getByRole('list', { name: 'Cost by game' }).getByText('Time Detectives')).toBeVisible();
+		const reads = areas.locator('li', { hasText: 'Handwriting reading' });
+		await expect(reads).toContainText('Letter Tracing · Games app');
+		await expect(reads).toContainText(/est\. \$0\.00\d/);
+		await expect(areas.locator('li', { hasText: 'Story words' })).toContainText('Time Detectives · Admin app');
+		const games = page.getByRole('list', { name: 'Cost by game' });
+		await expect(games.getByText('Time Detectives')).toBeVisible();
+		await expect(games.getByText('Letter Tracing')).toBeVisible();
 
 		const today = london({ day: 'numeric', month: 'short', year: 'numeric' });
 		const days = page.locator('#periods > li');

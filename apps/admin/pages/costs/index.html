@@ -11,8 +11,8 @@
 <body aria-busy="true">
 	<admin-bar></admin-bar>
 	<main class="page" inert>
-		<h1 id="title">AI costs</h1>
-		<p class="lead">What the games' AI calls cost, by day, month or year and by area. Days are UK days.</p>
+		<h1 id="title">AI costs in both apps</h1>
+		<p class="lead">Every AI call the admin app and the games app made, and what it cost, by day, month or year. Each is broken down by app, game and area. Days are UK days.</p>
 		<div id="by" class="segmented" role="group" aria-label="Group by">
 			<button type="button" class="g4k-button quiet" data-by="day" aria-pressed="true">Day</button>
 			<button type="button" class="g4k-button quiet" data-by="month" aria-pressed="false">Month</button>
@@ -23,6 +23,8 @@
 			<p id="total" class="total"></p>
 			<p id="empty" class="empty" hidden>No AI spend yet in this range.</p>
 			<div id="breakdown">
+				<h2>By app</h2>
+				<ul id="apps" class="costs" aria-label="Cost by app"></ul>
 				<h2>By game</h2>
 				<ul id="games" class="costs" aria-label="Cost by game"></ul>
 				<h2>By area</h2>
@@ -32,7 +34,7 @@
 			<ul id="periods" class="costs" aria-labelledby="periods-title"></ul>
 			<p id="quiet" class="quiet" hidden></p>
 		</section>
-		<p class="note">Estimated from token counts and Azure list prices; your Azure bill is the final word.</p>
+		<p class="note">Estimated from token and transaction counts at list prices; your Azure bill is the final word.</p>
 	</main>
 	<script type="module" src="/costs.js"></script>
 </body>

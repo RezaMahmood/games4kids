@@ -1,6 +1,6 @@
 import { ApiFailure, enterAdmin, ready, report, whileLoading } from '../shell/v1/index.ts';
 import { el } from '../../shared/dom.ts';
-import { barPercent, callsLabel, COST_BYS, parseCostReport, periodName, quietLine, spentPeriods, totalLine, type AreaCost, type CostBy, type CostReport } from './costs-model.ts';
+import { APP_NAMES, barPercent, callsLabel, COST_BYS, parseCostReport, periodName, quietLine, spentPeriods, totalLine, type AreaCost, type CostBy, type CostReport } from './costs-model.ts';
 
 const { api } = await enterAdmin({ game: null });
 
@@ -27,9 +27,10 @@ const costLine = (cost: { readonly text: string; readonly calls: number }) => el
 
 let titles: ReadonlyMap<string, string> = new Map();
 
-/** The area rows read "Story words" with the game beneath, since two games may each have a "Pictures". */
+/** The area rows read "Story words" with the game and app beneath, since two games may each have a "Pictures". */
 function areaRow(area: AreaCost): HTMLLIElement {
-	return el('li', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, area.label), el('span', { class: 'sub' }, titles.get(area.game) ?? area.game)), costLine(area));
+	const where = `${titles.get(area.game) ?? area.game} · ${APP_NAMES[area.side]}`;
+	return el('li', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, area.label), el('span', { class: 'sub' }, where)), costLine(area));
 }
 
 function periodRow(period: CostReport['periods'][number], by: CostBy, most: number): HTMLLIElement {
@@ -49,6 +50,7 @@ function draw(data: CostReport): void {
 	const spent = data.total.calls > 0;
 	byId('empty').hidden = spent;
 	byId('breakdown').hidden = !spent;
+	byId('apps').replaceChildren(...data.apps.map((app) => el('li', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, APP_NAMES[app.side])), costLine(app))));
 	byId('games').replaceChildren(
 		...data.games.map((game) => el('li', { class: 'cost-row' }, el('span', { class: 'what' }, el('span', { class: 'name' }, game.title)), costLine(game))),
 	);
