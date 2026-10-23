@@ -21,6 +21,14 @@ export type FakeTypeSafe = {
 const PASSING_SUPPORT = { answer: 0.95, decoy: 0.02 };
 const PASSING_NOUL = 0.05;
 
+type Question = { answer?: string; hint?: string };
+
+/** A hint that names its answer gives it away, as Jev would see it, unless a test set the odds itself. */
+function giveaway(id: string, questions: Readonly<Record<string, Question>>): number | undefined {
+	const { answer, hint } = questions[/^(\w+)_hint$/.exec(id)?.[1] ?? ''] ?? {};
+	return answer && hint?.toLowerCase().includes(answer.toLowerCase()) ? 0.9 : undefined;
+}
+
 /** How Jev answers one question of a round check, by the id the check gave it. */
 function answerOf(id: string, bad: number | undefined): object {
 	if (id.endsWith('_answer') || /_decoy_\d$/.test(id)) {
@@ -44,7 +52,7 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		for await (const chunk of req) chunks.push(Buffer.from(chunk));
 		const json = (status: number, value: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(value));
 		if (req.method !== 'POST' || new URL(req.url ?? '/', 'http://localhost').pathname !== '/v1/systemone') return json(404, { detail: 'not found' });
-		const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { questions?: Record<string, unknown> };
+		const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { questions?: Record<string, unknown>; state?: { questions?: Record<string, Question> } };
 		const ids = Object.keys(body.questions ?? {});
 		calls.push({ key: /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? null, ids });
 		if (failing.count > 0) {
@@ -53,7 +61,7 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		}
 		const values = bad.count > 0 ? bad.values : {};
 		if (bad.count > 0) bad.count -= 1;
-		const answers = Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id])]));
+		const answers = Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id] ?? giveaway(id, body.state?.questions ?? {}))]));
 		if (omitting > 0) {
 			omitting -= 1;
 			return json(200, { model: 'jev-latest', answers });

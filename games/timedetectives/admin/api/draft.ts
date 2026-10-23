@@ -1,6 +1,6 @@
-import { isRecord, KINDS, parseRoundContent, type Checks, type Finding, type RoundContent } from '../../data/index.ts';
+import { isRecord, KINDS, parseRoundContent, type Checks, type Finding, type Parsed, type RoundContent } from '../../data/index.ts';
 import { checkRound, forWriter, type TypeSafeDeps } from './check.ts';
-import { AiFailure, chatJson, generateImage, type FoundryDeps } from './foundry.ts';
+import { AiFailure, chatJson, generateImage, type Area, type FoundryDeps } from './foundry.ts';
 
 export const CHAT_DEPLOYMENT = 'gpt-5.4-mini';
 export const IMAGE_DEPLOYMENT = 'gpt-image-1-mini';
@@ -45,16 +45,58 @@ const SCHEMA = {
 /** Every picture gets these rules, so one drawn from a hand-written round's alt text is as safe as one the AI described. */
 const PICTURE_RULES = 'A painterly illustration for a children\'s history book. No text, letters or numbers anywhere in the image, no modern objects, no recognisable real faces.';
 
-/** `checks` is what the automatic check found still wrong or was unsure of, or that it could not run. None when it was off or found nothing. */
-export type Written = { content: RoundContent; picturePrompt: string; checks?: Checks };
+/**
+ * `checks` is what the automatic check found still wrong or was unsure of, or that it could not run. None when it was
+ * off or found nothing. A redraft has no `picturePrompt`, since its picture stays.
+ */
+export type Written = { content: RoundContent; picturePrompt?: string; checks?: Checks };
 
-/** The admin's words go in as quoted data, so they shape the round without becoming instructions. */
-function ask(topic: { title: string; guidance: string }, focus: string): string {
-	return [
-		`Topic: ${JSON.stringify(topic.title)}`,
-		topic.guidance && `Guidance from the teacher: ${JSON.stringify(topic.guidance)}`,
-		focus ? `Write the round about: ${JSON.stringify(focus)}` : 'Choose a well-known moment from this topic.',
-	].filter(Boolean).join('\n');
+/**
+ * What the chat model is asked for: a new round about a focus, or a redraft that fixes what the check found in a round.
+ * A redraft keeps the picture, so it is asked for neither a picture prompt nor alt text, and keeps the alt text it had.
+ */
+export type Ask =
+	| { kind: 'new'; topic: { title: string; guidance: string }; focus: string }
+	| { kind: 'redraft'; content: RoundContent; findings: readonly Finding[] };
+
+const { pictureAlt: _alt, picturePrompt: _prompt, ...WORDS } = SCHEMA.properties;
+const REDRAFT_SCHEMA = { ...SCHEMA, required: SCHEMA.required.filter((key) => key !== 'pictureAlt' && key !== 'picturePrompt'), properties: WORDS };
+
+type Reading = { parsed: Parsed<RoundContent>; picturePrompt?: string; problems: string[] };
+type Request = { area: Area; name: string; schema: object; first: string; read: (answer: unknown) => Reading };
+
+/** How each ask is billed, put and read back. The admin's words, and the round's, go in as quoted data, so they shape the round without becoming instructions. */
+function requestFor(ask: Ask): Request {
+	if (ask.kind === 'redraft') {
+		const { pictureAlt, ...words } = ask.content;
+		return {
+			area: 'redraft',
+			name: 'redraft',
+			schema: REDRAFT_SCHEMA,
+			first: [
+				`Here is a round, as JSON: ${JSON.stringify(words)}`,
+				'An automatic check read it and found these problems:',
+				...ask.findings.map((finding) => `- ${forWriter(finding, ask.content)}`),
+				'Rewrite the round to fix exactly these problems. Keep everything else as it is, including the story\'s facts and the answers, unless a problem is about an answer.',
+				`The picture stays as it is, so keep the story true to it: ${JSON.stringify(pictureAlt)}`,
+			].join('\n'),
+			read: (answer) => ({ parsed: parseRoundContent(isRecord(answer) ? { ...answer, pictureAlt } : answer), problems: [] }),
+		};
+	}
+	return {
+		area: 'words',
+		name: 'round',
+		schema: SCHEMA,
+		first: [
+			`Topic: ${JSON.stringify(ask.topic.title)}`,
+			ask.topic.guidance && `Guidance from the teacher: ${JSON.stringify(ask.topic.guidance)}`,
+			ask.focus ? `Write the round about: ${JSON.stringify(ask.focus)}` : 'Choose a well-known moment from this topic.',
+		].filter(Boolean).join('\n'),
+		read: (answer) => {
+			const picturePrompt = isRecord(answer) && typeof answer['picturePrompt'] === 'string' ? answer['picturePrompt'].trim() : '';
+			return { parsed: parseRoundContent(answer), picturePrompt, problems: picturePrompt ? [] : ['picturePrompt must not be empty'] };
+		},
+	};
 }
 
 /**
@@ -62,27 +104,21 @@ function ask(topic: { title: string; guidance: string }, focus: string): string 
  * fails it. A check never fails the round: what is still wrong on the last ask, or unsure, or could not be checked,
  * becomes the round's checks. `onCheckError` hears why a check could not run.
  */
-export async function writeRound(
-	deps: FoundryDeps,
-	topic: { title: string; guidance: string },
-	focus: string,
-	typesafe?: TypeSafeDeps,
-	onCheckError: (error: unknown) => void = () => {},
-): Promise<Written> {
+export async function writeRound(deps: FoundryDeps, ask: Ask, typesafe?: TypeSafeDeps, onCheckError: (error: unknown) => void = () => {}): Promise<Written> {
+	const { first, read, ...request } = requestFor(ask);
 	const messages: unknown[] = [
 		{ role: 'system', content: SYSTEM },
-		{ role: 'user', content: ask(topic, focus) },
+		{ role: 'user', content: first },
 	];
 	for (let asked = 1; ; asked++) {
-		const answer = await chatJson(deps, { area: 'words', model: CHAT_DEPLOYMENT, messages, name: 'round', schema: SCHEMA });
-		const parsed = parseRoundContent(answer);
-		const picturePrompt = isRecord(answer) && typeof answer['picturePrompt'] === 'string' ? answer['picturePrompt'].trim() : '';
-		const problems = [...(parsed.ok ? [] : parsed.problems), ...(picturePrompt ? [] : ['picturePrompt must not be empty'])];
+		const answer = await chatJson(deps, { ...request, model: CHAT_DEPLOYMENT, messages });
+		const { parsed, picturePrompt, ...reading } = read(answer);
+		const problems = [...(parsed.ok ? [] : parsed.problems), ...reading.problems];
 		if (parsed.ok && problems.length === 0) {
 			const checks = typesafe ? await checked(typesafe, parsed.value, onCheckError) : [];
 			const fails = checks === 'not-run' ? [] : checks.filter(({ sure }) => sure);
 			if (fails.length > 0 && asked < ASKS) problems.push(...fails.map((finding) => forWriter(finding, parsed.value)));
-			else return { content: parsed.value, picturePrompt, ...((checks === 'not-run' || checks.length > 0) && { checks }) };
+			else return { content: parsed.value, ...(picturePrompt && { picturePrompt }), ...((checks === 'not-run' || checks.length > 0) && { checks }) };
 		}
 		if (asked === ASKS) throw new AiFailure(false, `The AI's round was not usable: ${problems.slice(0, 3).join('; ')}`);
 		messages.push({ role: 'assistant', content: JSON.stringify(answer) }, { role: 'user', content: `That round has problems: ${problems.join('; ')}. Write it again, fixing them.` });

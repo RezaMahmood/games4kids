@@ -24,6 +24,6 @@ export default defineGame({
 			TYPESAFE_ENDPOINT: { kind: 'url', optional: true },
 		},
 		services: ['cognitiveServices'],
-		ai: { words: 'Story words', picture: 'Pictures', check: 'Story checks' },
+		ai: { words: 'Story words', picture: 'Pictures', check: 'Story checks', redraft: 'Story redrafts' },
 	},
 });

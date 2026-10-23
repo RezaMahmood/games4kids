@@ -7,6 +7,7 @@
  *   `problem` follows "seems to" when `sure`, else "might".
  * @typedef {Finding[] | 'not-run'} Checks The check's findings, or `not-run` when it could not give a verdict.
  * @typedef {{ kind: 'drafting', focus: string, source: string, content?: Content, checks?: Checks }
+ *   | { kind: 'revising', content: Content, findings: Finding[], source: string }
  *   | { kind: 'failed', focus: string, source: string, reason: string }
  *   | { kind: 'draft', content: Content, source: string, notice?: string, checks?: Checks }
  *   | { kind: 'published', content: Content, source: string, publishedAt: string }} RoundState
@@ -16,7 +17,7 @@
  * @typedef {{ id: string, topicId: string, broken: string[] }} Broken A stored round the server can no longer read; it can only be deleted.
  */
 
-const STATES = ['drafting', 'failed', 'draft', 'published'];
+const STATES = ['drafting', 'revising', 'failed', 'draft', 'published'];
 
 /** @returns {Round | Broken} */
 function parseRound(raw) {
@@ -52,6 +53,8 @@ export function createApi(client) {
     publish: async (roundId, etag) => parseRound(await client.post(`rounds/${id(roundId)}/publish`, { etag })),
     unpublish: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/unpublish`, {})),
     redraw: async (roundId) => parseRound(await client.post(`rounds/${id(roundId)}/redraw`, {})),
+    /** Asks the AI to rewrite the words to fix the check's findings, only while the round is still at `etag`. */
+    redraft: async (roundId, etag) => parseRound(await client.post(`rounds/${id(roundId)}/redraft`, { etag })),
     /** Asks the AI again, about `focus`, or about whatever it chooses when that is empty. */
     retry: async (roundId, focus) => parseRound(await client.post(`rounds/${id(roundId)}/retry`, { focus })),
     /** @param {File} file a PNG or a JPEG */

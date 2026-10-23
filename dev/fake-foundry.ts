@@ -8,6 +8,8 @@ export type FoundryCall = {
 	readonly token: string | null;
 	/** What an image generation was asked to draw. */
 	readonly prompt: string | null;
+	/** What a chat completion was sent. */
+	readonly messages: readonly { role: string; content: string }[] | null;
 };
 
 export type FakeFoundry = {
@@ -24,7 +26,7 @@ export type FakeFoundry = {
 	omitUsageNext(count: number, on?: Kind): void;
 	/** The next `count` image calls answer 429 and ask to be tried again at once. */
 	rateLimitNext(count: number): void;
-	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
+	/** The next chat calls for a Time Detectives round or redraft answer with these, in order, instead of the Lindisfarne round. */
 	answerNextRounds(...replies: unknown[]): void;
 	/** The next chat calls that rewrite a drawpad description answer with these three prompts, in order, instead of the fox ones. */
 	answerNextScenePrompts(...replies: string[][]): void;
@@ -116,6 +118,10 @@ export const VIKING_ROUND = {
 	],
 };
 
+/** A focus that makes the model write the Lindisfarne round with a "who" hint that names the answer, until it is asked for a redraft. */
+export const GIVEAWAY_FOCUS = 'a hint that gives the answer away';
+const GIVEAWAY_ROUND = { ...VIKING_ROUND, questions: VIKING_ROUND.questions.map((q) => (q.kind === 'who' ? { ...q, hint: 'The Vikings sailed across the North Sea.' } : q)) };
+
 /**
  * The Foundry API as drawpad and Time Detectives call it: chat completions that answer a JSON schema, and image edits and generations that
  * answer a PNG. No network, no keys: it only wants a bearer token, as the real account does of the admin identity.
@@ -148,7 +154,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		if (req.method !== 'POST' || !path.startsWith('/openai/v1/')) return json(404, { error: 'not found' });
 		if (!token) return json(401, { error: 'no bearer token' });
 		const asJson = req.headers['content-type']?.startsWith('application/json') ? (JSON.parse(body.toString('utf8')) as Record<string, unknown>) : null;
-		calls.push({ path: path.slice('/openai/v1/'.length), model: typeof asJson?.['model'] === 'string' ? asJson['model'] : (/name="model"\r\n\r\n([^\r]+)/.exec(body.toString('latin1'))?.[1] ?? null), token, prompt: typeof asJson?.['prompt'] === 'string' ? asJson['prompt'] : null });
+		calls.push({ path: path.slice('/openai/v1/'.length), model: typeof asJson?.['model'] === 'string' ? asJson['model'] : (/name="model"\r\n\r\n([^\r]+)/.exec(body.toString('latin1'))?.[1] ?? null), token, prompt: typeof asJson?.['prompt'] === 'string' ? asJson['prompt'] : null, messages: Array.isArray(asJson?.['messages']) ? (asJson['messages'] as { role: string; content: string }[]) : null });
 
 		const kind: Kind = path.endsWith('/chat/completions') ? 'chat' : 'images';
 		/** Answers with the fault the test asked for, if any is left for this kind of call. */
@@ -170,7 +176,9 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		if (kind === 'chat') {
 			if (fault()) return;
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
-			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: scenePromptReplies.shift() ?? SCENE_PROMPTS, titles: TITLES };
+			const asked = Array.isArray(asJson?.['messages']) ? JSON.stringify(asJson['messages'][1]) : '';
+			const round = () => roundReplies.shift() ?? (schema === 'round' && asked.includes(GIVEAWAY_FOCUS) ? GIVEAWAY_ROUND : VIKING_ROUND);
+			const content = schema === 'round' || schema === 'redraft' ? round() : schema === 'titles' ? { titles: TITLES } : { prompts: scenePromptReplies.shift() ?? SCENE_PROMPTS, titles: TITLES };
 			return json(200, reporting('chat', { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }], usage: CHAT_USAGE }));
 		}
 		if (held) {

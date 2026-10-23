@@ -28,6 +28,7 @@ console.log(`dev: api          ${stack.apiOrigin}/api/`);
 console.log(`dev: fake IdP     ${stack.idp.origin}/   (self-signed certificate, accept it once in the browser)`);
 console.log(`dev: fake Foundry ${stack.foundry.origin}/   (no keys: it only wants a bearer token)`);
 console.log(`dev: fake Vision  ${stack.vision.origin}/   (no keys: it only wants a bearer token)`);
+console.log(`dev: fake TypeSafe ${stack.typesafe.origin}/   (no keys: it only wants a bearer token)`);
 console.log(`dev: storage      ${azuriteConnectionString ? 'Azurite' : 'memory'}${values.fixtures ? ', fixture games' : ''}`);
 console.log('dev: ready');
 

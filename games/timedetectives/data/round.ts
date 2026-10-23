@@ -55,13 +55,18 @@ export function keptChecks(checks: Checks | undefined, before: RoundContent, aft
  * write the words leaves a `failed` round with nothing in it. The AI failing to draw a picture never loses the words
  * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came, kept
  * until the admin acts. `checks` is the automatic check's view of the words. It stays through edits and redraws, and
- * publishing ends it.
+ * publishing ends it. `revising` is queued like `drafting`: the AI rewrites the words to fix `findings`, the checks the
+ * draft had, and the round goes back to a draft either way, with the old words and findings when the AI could not.
  */
 export type RoundState =
 	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent; checks?: Checks }
+	| { kind: 'revising'; content: RoundContent; findings: readonly Finding[]; source: Source }
 	| { kind: 'failed'; focus: string; source: Source; reason: string }
 	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string; checks?: Checks }
 	| { kind: 'published'; content: RoundContent; source: Source; publishedAt: string };
+/** A round the worker has queued, which counts toward the cap and is stale once its messages are over. */
+export type AtWork = Extract<RoundState, { kind: 'drafting' | 'revising' }>;
+export const atWork = (state: RoundState): state is AtWork => state.kind === 'drafting' || state.kind === 'revising';
 /** A round whose words are written and that the AI is not working on: it can be edited, published or given a picture. */
 export type Settled = Extract<RoundState, { kind: 'draft' | 'published' }>;
 
