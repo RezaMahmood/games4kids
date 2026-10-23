@@ -40,13 +40,14 @@ function fakeFetch(respond: () => Response | Promise<Response>) {
   }) as unknown as typeof globalThis.fetch;
   return { sent, fetch };
 }
+const noBill = async () => {};
 const json = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 test('the reader posts the PNG with a bearer token and returns the words with boxes', async () => {
   const { sent, fetch } = fakeFetch(json(200, ANALYSIS));
   const png = makePng();
   const reader = createVisionReader({ endpoint: ENDPOINT, token: async () => 'mi-token', fetch });
-  const result = await reader.read(png);
+  const result = await reader.read(png, noBill);
   assert.deepEqual(result.words.map((w) => w.text), ['The', 'cat', 'sot', 'on'], 'every word of every line, in reading order');
   assert.deepEqual(result.words[0], { text: 'The', confidence: 0.993, box: { x: 40, y: 60, w: 141, h: 130 } });
   assert.equal(sent.length, 1);
@@ -59,7 +60,7 @@ test('the reader posts the PNG with a bearer token and returns the words with bo
 test('an image with no writing reads as no words', async () => {
   for (const body of [{ modelVersion: 'x', metadata: {}, readResult: { blocks: [] } }, { modelVersion: 'x', metadata: {} }]) {
     const { fetch } = fakeFetch(json(200, body));
-    assert.deepEqual(await createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng()), { words: [] });
+    assert.deepEqual(await createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng(), noBill), { words: [] });
   }
 });
 
@@ -73,14 +74,28 @@ test('an outage, a busy service or an answer that is not a reading is ReaderUnav
     'words without boxes': json(200, { readResult: { blocks: [{ lines: [{ words: [{ text: 'cat', confidence: 1 }] }] }] } }),
     'blocks not a list': json(200, { readResult: { blocks: 'none' } }),
   };
+  const billedFor: string[] = [];
   for (const [name, respond] of Object.entries(cases)) {
     const { fetch } = fakeFetch(respond);
-    await assert.rejects(createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng()), ReaderUnavailable, name);
+    await assert.rejects(createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng(), async () => void billedFor.push(name)), ReaderUnavailable, name);
   }
+  assert.deepEqual(billedFor, ['not json', 'words without boxes', 'blocks not a list'], 'Azure bills a 2xx whatever its body, and nothing else');
+});
+
+test('a read the service answered is billed once, and the reading waits for the bill', async () => {
+  const { fetch } = fakeFetch(json(200, ANALYSIS));
+  const order: string[] = [];
+  const result = await createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng(), async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    order.push('billed');
+  });
+  order.push('read');
+  assert.equal(result.words.length, 4);
+  assert.deepEqual(order, ['billed', 'read']);
 });
 
 test('a request the service refuses as wrong is a plain error, not an outage', async () => {
   const { fetch } = fakeFetch(json(401, { error: { code: '401' } }));
-  const err: unknown = await createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng()).catch((e: unknown) => e);
+  const err: unknown = await createVisionReader({ endpoint: ENDPOINT, token: async () => 'k', fetch }).read(makePng(), noBill).catch((e: unknown) => e);
   assert.ok(err instanceof Error && !(err instanceof ReaderUnavailable));
 });

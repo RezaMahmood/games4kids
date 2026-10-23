@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { adminModule, createAdminApp, createPlayerApp, type Env } from '@g4k/host';
+import { randomUUID } from 'node:crypto';
+import { PLAY_LEDGER_TABLE } from '@g4k/sdk';
+import { adminModule, createAdminApp, createPlayerApp, type Accounts, type Env } from '@g4k/host';
 import { startFakeVision } from '../dev/fake-vision.ts';
 import { createAdminApi } from '../games/letterjoin/admin/api/index.ts';
 import type { ActivityInput } from '../games/letterjoin/data/activity.ts';
@@ -24,12 +26,26 @@ const PNG = makePng();
 
 type Problems = { problems: string[] };
 
-async function setup(env: Env = { VISION_ENDPOINT: vision.origin }) {
+async function setup(env: Env = { VISION_ENDPOINT: vision.origin, VISION_TIER: 'S1' }) {
 	const w = world();
 	const tokens = async (service: string) => `tok-${service}`;
 	const clock = { at: NOW };
 	const common = { telemetry: w.telemetry, now: () => clock.at };
-	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, accounts: w.accounts, tokens, env });
+	/** Says whether the next write to the player app's AI cost ledger throws. */
+	const faults = { ledger: () => false };
+	const accounts: Accounts = {
+		open(owner) {
+			const account = w.accounts.open(owner);
+			return {
+				...account,
+				table(name) {
+					const table = account.table(name);
+					return owner === letterjoin && name === PLAY_LEDGER_TABLE ? { ...table, insertIfAbsent: (row) => (faults.ledger() ? Promise.reject(new Error('storage is down')) : table.insertIfAbsent(row)) } : table;
+				},
+			};
+		},
+	};
+	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, accounts, tokens, env });
 	const admin = createAdminApp({
 		...common,
 		issuer: idp.admin,
@@ -50,7 +66,7 @@ async function setup(env: Env = { VISION_ENDPOINT: vision.origin }) {
 	const as = (token: string) => (method: string, path: string, send: Send = {}) => call(player, method, `/api/g/letterjoin/${path}`, { token, ...send });
 	const asAdmin = (method: string, path: string, send: Send = {}) => call(admin, method, `/api/admin/g/letterjoin/${path}`, { token: adminToken, ...send });
 	const ada = await child('Ada');
-	return { w, clock, adminId, ada, child, asAda: as(ada.token), as, asAdmin, account: w.accounts.open(letterjoin), exceptions: w.telemetry.exceptions };
+	return { w, clock, faults, adminId, ada, child, asAda: as(ada.token), as, asAdmin, account: w.accounts.open(letterjoin), exceptions: w.telemetry.exceptions };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -427,27 +443,62 @@ test('the admin lists copies by child and activity with a page cursor, reviews t
 test('handwriting is read by the vision service with the platform token, and every failure says what it is', async () => {
 	const s = await setup();
 	vision.say([{ text: 'The' }, { text: 'cat', confidence: 0.5 }]);
-	const read = await s.asAda('POST', 'read', { png: PNG.subarray(0, 20) });
+	const path = `activities/${randomUUID()}/read`;
+	const read = await s.asAda('POST', path, { png: PNG.subarray(0, 20) });
 	assert.equal(read.status, 400, 'a PNG signature is not enough');
 	const image = makePng();
-	const found = await s.asAda('POST', 'read', { png: image });
+	const found = await s.asAda('POST', path, { png: image });
 	assert.equal(found.status, 200);
 	assert.deepEqual((found.data as { words: { text: string; confidence: number }[] }).words.map((w) => [w.text, w.confidence]), [['The', 0.99], ['cat', 0.5]]);
 	const lastCall = vision.calls.at(-1);
 	assert.deepEqual([lastCall?.token, lastCall?.bytes], ['tok-cognitiveServices', image.length]);
-	assert.equal((await s.asAda('POST', 'read', { png: image, headers: { 'content-type': 'image/jpeg' } })).status, 415);
+	assert.equal((await s.asAda('POST', path, { png: image, headers: { 'content-type': 'image/jpeg' } })).status, 415);
+	assert.equal((await s.asAda('POST', 'activities/not-a-guid/read', { png: image })).status, 404);
 
 	vision.failNext(1, 503);
-	const outage = await s.asAda('POST', 'read', { png: image });
+	const outage = await s.asAda('POST', path, { png: image });
 	assert.deepEqual([outage.status, codeOf(outage)], [502, 'reader_unavailable']);
 	vision.failNext(1, 401);
-	const refused = await s.asAda('POST', 'read', { png: image });
+	const refused = await s.asAda('POST', path, { png: image });
 	assert.equal(refused.status, 500, 'a request the service refuses as wrong is not an outage');
 	assert.equal(s.exceptions.length, 2, 'the outage and the refusal are both faults to look into');
 
 	const off = await setup({});
-	const none = await off.asAda('POST', 'read', { png: image });
+	const none = await off.asAda('POST', path, { png: image });
 	assert.deepEqual([none.status, codeOf(none)], [503, 'reader_off']);
+});
+
+test("each handwriting read is one row in letterjoin's own ledger, for the child's activity, and a failed read or a lost row costs the child nothing", async () => {
+	const s = await setup();
+	const ledger = async () => (await s.account.table(PLAY_LEDGER_TABLE).list()).map((row) => ({ area: row['area'], model: row['model'], item: row['item'], group: row['group'], microUsd: row['microUsd'], tokens: row['tokens'] }));
+	const activity = randomUUID();
+	vision.say([{ text: 'cat' }]);
+	const portalWritesBefore = s.w.accounts.ops.filter((op) => op.account === 'portal' && op.write).length;
+	assert.equal((await s.asAda('POST', `activities/${activity}/read`, { png: makePng() })).status, 200);
+	const rows = await ledger();
+	assert.deepEqual(rows, [{ area: 'handwriting', model: 'azure-vision-read', item: activity, group: s.ada.userId, microUsd: 1500, tokens: '{"transactions":1}' }]);
+	assert.doesNotMatch(JSON.stringify(await s.account.table(PLAY_LEDGER_TABLE).list()), /Ada|@/, 'no name or email, only opaque ids');
+	assert.equal(s.w.accounts.ops.filter((op) => op.account === 'portal' && op.write).length, portalWritesBefore, 'the player app never writes the portal ledger');
+
+	for (const status of [429, 503]) {
+		vision.failNext(1, status);
+		assert.equal((await s.asAda('POST', `activities/${activity}/read`, { png: makePng() })).status, 502);
+	}
+	assert.equal((await ledger()).length, 1, 'a busy or broken service billed nothing, so it adds no row');
+
+	s.faults.ledger = () => true;
+	const exceptionsBefore = s.exceptions.length;
+	const despite = await s.asAda('POST', `activities/${activity}/read`, { png: makePng() });
+	assert.deepEqual([despite.status, (despite.data as { words: { text: string }[] }).words.map((w) => w.text)], [200, ['cat']], 'the child still gets the reading');
+	assert.equal((await ledger()).length, 1);
+	assert.equal(s.exceptions.length, exceptionsBefore + 1, 'the lost row is an exception to look into');
+	s.faults.ledger = () => false;
+
+	const free = await setup({ VISION_ENDPOINT: vision.origin, VISION_TIER: 'F0' });
+	assert.equal((await free.asAda('POST', `activities/${activity}/read`, { png: makePng() })).status, 200);
+	const freeRows = await free.account.table(PLAY_LEDGER_TABLE).list();
+	assert.deepEqual(freeRows.map((row) => [row['model'], row['microUsd']]), [['azure-vision-read-free', 0]], 'a free account bills nothing');
+	await assert.rejects(setup({ VISION_ENDPOINT: vision.origin }), /VISION_TIER must be F0 or S1/, 'an endpoint with no tier does not start');
 });
 
 test('the admin app reads the children from the roster, with names only', async () => {

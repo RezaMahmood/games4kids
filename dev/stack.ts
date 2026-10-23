@@ -166,7 +166,8 @@ export async function startDevStack(options: StackOptions = {}): Promise<DevStac
 	const table = (name: PortalTableName) => portalAccount.table(name);
 	const common = { telemetry, now: () => new Date() };
 	const tokens = async (service: string) => `dev-${service}-token`;
-	const playEnv = { VISION_ENDPOINT: vision.origin };
+	// S1, so the dev Costs page shows a read at its list price rather than the free account's nothing.
+	const playEnv = { VISION_ENDPOINT: vision.origin, VISION_TIER: 'S1' };
 	const adminEnv = { DRAWPAD_FOUNDRY_ENDPOINT: foundry.origin, DRAWPAD_LOCAL_JOB_EVENTS: '1', TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin };
 
 	const playerApps = registry.map((entry) =>

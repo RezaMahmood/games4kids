@@ -1,7 +1,8 @@
 export type Box = { x: number; y: number; w: number; h: number };
 export type RecognisedWord = { text: string; confidence: number; box: Box };
 export type RecognitionResult = { words: RecognisedWord[] };
-export type Reader = { read(png: Uint8Array): Promise<RecognitionResult> };
+/** `billed` hears each call the service answered with a 2xx, which Azure bills as one transaction whatever the body says. */
+export type Reader = { read(png: Uint8Array, billed: () => Promise<void>): Promise<RecognitionResult> };
 
 /** The service could not be reached, was busy or broken, or answered with something that is not a reading. */
 export class ReaderUnavailable extends Error {
@@ -45,7 +46,7 @@ export function parseReadResult(raw: unknown): RecognitionResult {
 export function createVisionReader({ endpoint, token, fetch: send = fetch }: { endpoint: string; token: () => Promise<string>; fetch?: typeof fetch }): Reader {
 	const url = `${endpoint.replace(/\/+$/, '')}/computervision/imageanalysis:analyze?api-version=2024-02-01&features=read`;
 	return {
-		async read(png) {
+		async read(png, billed) {
 			let res: Response;
 			try {
 				res = await send(url, { method: 'POST', headers: { authorization: `Bearer ${await token()}`, 'content-type': 'application/octet-stream' }, body: png as BodyInit });
@@ -54,13 +55,18 @@ export function createVisionReader({ endpoint, token, fetch: send = fetch }: { e
 			}
 			if (res.status === 429 || res.status >= 500) throw new ReaderUnavailable(`The reading service answered ${res.status}.`);
 			if (!res.ok) throw new Error(`The reading service refused the request with ${res.status}.`);
-			let body: unknown;
+			const metered = billed();
 			try {
-				body = await res.json();
-			} catch {
-				throw new ReaderUnavailable('The reading service sent something that is not JSON.');
+				let body: unknown;
+				try {
+					body = await res.json();
+				} catch {
+					throw new ReaderUnavailable('The reading service sent something that is not JSON.');
+				}
+				return parseReadResult(body);
+			} finally {
+				await metered;
 			}
-			return parseReadResult(body);
 		},
 	};
 }

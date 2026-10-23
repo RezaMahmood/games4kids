@@ -161,20 +161,20 @@ test('the activities a child lists carry their own result, and the admin list ca
   assert.equal((await admin.activities())[0].etag, 'W/"1"');
 });
 
-test('readHandwriting posts the PNG of a line and returns the words read with their boxes', async () => {
+test('readHandwriting posts the PNG of a line to its activity and returns the words read with their boxes', async () => {
   const words = [{ text: 'cat', confidence: 0.98, box: { x: 10, y: 20, w: 90, h: 60 } }];
   const { sent, play } = recorded(BASE, () => json(200, { words }));
   const png = new Blob([makePng()], { type: 'image/png' });
-  assert.deepEqual(await play.readHandwriting(png), { words });
-  assert.deepEqual([sent[0].method, sent[0].url, sent[0].headers['content-type'], sent[0].body], ['POST', `${BASE}/read`, 'image/png', png]);
+  assert.deepEqual(await play.readHandwriting('a1', png), { words });
+  assert.deepEqual([sent[0].method, sent[0].url, sent[0].headers['content-type'], sent[0].body], ['POST', `${BASE}/activities/a1/read`, 'image/png', png]);
 });
 
 test('readHandwriting refuses a reading it does not understand, and passes on a reader outage', async () => {
   let answer = () => json(200, { words: [{ text: 'cat', confidence: 1 }] });
   const { play } = recorded(BASE, () => answer());
   const png = new Blob([makePng()], { type: 'image/png' });
-  assert.equal((await play.readHandwriting(png).catch((e) => e)).status, 502);
+  assert.equal((await play.readHandwriting('a1', png).catch((e) => e)).status, 502);
   answer = () => refusal(503, 'Reading handwriting is not switched on.');
-  const err = await play.readHandwriting(png).catch((e) => e);
+  const err = await play.readHandwriting('a1', png).catch((e) => e);
   assert.deepEqual([err.status, err.message], [503, 'Reading handwriting is not switched on.']);
 });
