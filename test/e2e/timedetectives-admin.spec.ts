@@ -538,3 +538,40 @@ for (const { name, width, options } of SIZES) {
 		await page.context().close();
 	});
 }
+
+test('while the AI works on one round, the other cards keep their pictures on screen through every poll', async ({ browser }) => {
+	const page = await adminPage(browser);
+	const problems = collectProblems([page]);
+	await newTopic(page);
+	await draftedRound(page);
+	await page.getByRole('link', { name: 'Back to the topic' }).click();
+	const thumb = page.locator('#rounds img.thumb');
+	const ROUNDS_API = /\/api\/admin\/g\/timedetectives\/topics\/[0-9a-f-]{36}\/rounds$/;
+	await page.route(ROUNDS_API, async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const reply = await route.fetch();
+		const body = (await reply.json()) as { rounds: Record<string, unknown>[] };
+		const drawing = { ...body.rounds[0], id: '00000000-0000-4000-8000-000000000001', hasPicture: false, state: { kind: 'drafting', focus: 'Jorvik', source: 'ai' } };
+		return route.fulfill({ response: reply, json: { rounds: [...body.rounds, drawing] } });
+	});
+	let pictureFetches = 0;
+	page.on('request', (request) => {
+		if (/\/rounds\/[0-9a-f-]{36}\/picture$/.test(request.url())) pictureFetches++;
+	});
+	let polls = 0;
+	page.on('response', (response) => {
+		if (ROUNDS_API.test(response.url())) polls++;
+	});
+
+	await page.reload();
+	await adminReady(page);
+	await expect(thumb).toHaveAttribute('src', /^blob:/);
+	await thumb.evaluate((img) => ((img as HTMLImageElement & { marked?: boolean }).marked = true));
+	const fetchesAfterLoad = pictureFetches;
+	await expect.poll(() => polls, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
+	expect(await thumb.evaluate((img) => Boolean((img as HTMLImageElement & { marked?: boolean }).marked)), 'the same picture element survives each poll').toBe(true);
+	expect(await thumb.evaluate((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0), 'the picture stayed loaded').toBe(true);
+	expect(pictureFetches - fetchesAfterLoad, 'an unchanged round is not fetched again on a poll').toBe(0);
+	await page.unroute(ROUNDS_API);
+	expect(problems).toEqual([]);
+});

@@ -219,14 +219,27 @@ const roundCost = (id) => {
   return cost?.calls ? `AI cost so far: ${cost.text} (${plural(cost.calls, 'AI call', 'AI calls')})` : '';
 };
 
+/**
+ * Each card's picture element by round, with the `updatedAt` it shows. The list is redrawn on every poll while the AI
+ * works, so a card reuses its element, which keeps the picture on screen, and fetches again only for a changed round.
+ */
+const thumbs = new Map();
+
+function thumbFor(round) {
+  const known = thumbs.get(round.id);
+  if (known?.updatedAt === round.updatedAt) return known.img;
+  const img = known?.img ?? h('img', { className: 'thumb', alt: '' });
+  thumbs.set(round.id, { img, updatedAt: round.updatedAt });
+  api.picture(round.id).then((url) => (img.src = url), () => {});
+  return img;
+}
+
 function roundCard(round) {
-  const thumb = h('img', { className: 'thumb', alt: '' });
-  if (round.hasPicture) api.picture(round.id).then((url) => (thumb.src = url), () => {});
   const kind = kindOf(round);
   const href = `#round/${round.id}`;
   const action = ROUND_ACTIONS[kind];
   return h('li', { className: 'card round-card' },
-    round.hasPicture ? thumb : h('span', { className: 'thumb empty', ariaHidden: 'true' }),
+    round.hasPicture ? thumbFor(round) : h('span', { className: 'thumb empty', ariaHidden: 'true' }),
     h('div', { className: 'round-body' },
       h('a', { className: 'card-title', href, textContent: roundTitle(round) }),
       h('p', { className: `badge ${kind}`, textContent: roundStatus(round) }),
