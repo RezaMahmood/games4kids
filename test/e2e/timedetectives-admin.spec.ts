@@ -392,3 +392,67 @@ for (const { name, width, options } of SIZES) {
 		await page.context().close();
 	});
 }
+
+const COSTS_API = /\/api\/admin\/g\/timedetectives\/costs$/;
+const ESTIMATE_NOTE = 'Estimated from token counts and Azure list prices; your Azure bill is the final word.';
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, the AI cost shows on the topic list, the topic page and the round, and a redraw raises the round's`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const problems = collectProblems([page]);
+		const topic = await newTopic(page);
+		await expect(page.locator('#topic-cost')).toBeHidden();
+		await draftedRound(page);
+		const roundCost = page.locator('#round-cost');
+		// One chat reply (800 input, 200 cached, 500 output at 0.75, 0.075, 4.5) is 2865 micro-USD; one picture (50 text, 1000 output at 2, 8) is 8100.
+		await expect(roundCost).toHaveText('AI cost so far: est. $0.011 (2 AI calls)');
+		await shot(page, `costs-round-${width}`);
+		const before = 'AI cost so far: est. $0.011 (2 AI calls)';
+
+		await page.getByRole('button', { name: 'Redraw with AI' }).click();
+		await expect(roundCost).not.toHaveText(before);
+		await expect(page.locator('#round-badge')).toHaveText('Draft');
+		await expect(page.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
+		const after = 'AI cost so far: est. $0.019 (3 AI calls)';
+		await expect(roundCost).toHaveText(after);
+
+		await page.getByRole('link', { name: 'Back to the topic' }).click();
+		await expect(page.locator('#topic-cost-total')).toHaveText(after.replace(/ \(.*/, ''));
+		await expect(page.locator('#topic-cost')).toContainText(ESTIMATE_NOTE);
+		await expect(page.locator('#topic-cost-deleted')).toBeHidden();
+		await expect(page.locator('#rounds .card')).toContainText(after);
+		await shot(page, `costs-topic-${width}`);
+
+		await page.getByRole('link', { name: 'All topics' }).click();
+		await expect(page.locator('#topics .card', { hasText: topic })).toContainText(`AI cost: ${after.replace(/^AI cost so far: | \(.*/g, '')}`);
+		await shot(page, `costs-topics-${width}`);
+
+		await page.getByRole('link', { name: topic, exact: true }).click();
+		await page.getByRole('link', { name: 'Review and publish' }).click();
+		await page.getByRole('button', { name: 'Delete round' }).click();
+		await expect(page.locator('#rounds-empty')).toBeVisible();
+		await expect(page.locator('#topic-cost-total')).toHaveText('AI cost so far: est. $0.019');
+		await shot(page, `costs-topic-deleted-${width}`);
+		await expect(page.locator('#topic-cost-deleted')).toHaveText('Includes est. $0.019 spent on rounds since deleted.');
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+}
+
+test('a costs request that fails leaves every page working, with no cost text', async ({ browser }) => {
+	const page = await adminPage(browser);
+	await page.route(COSTS_API, (route) => route.fulfill({ status: 500, json: { error: { message: 'no costs today' } } }));
+	await page.reload();
+	await adminReady(page);
+	await newTopic(page);
+	await draftedRound(page);
+	await expect(page.locator('#round-cost')).toBeHidden();
+	await page.getByRole('link', { name: 'Back to the topic' }).click();
+	await expect(page.locator('#rounds .card')).toHaveCount(1);
+	await expect(page.locator('#topic-cost')).toBeHidden();
+	await expect(page.locator('#rounds .card')).not.toContainText('AI cost');
+	await page.getByRole('link', { name: 'All topics' }).click();
+	await expect(page.locator('#topics .card').first()).toBeVisible();
+	await expect(page.locator('#topics')).not.toContainText('AI cost');
+	await page.context().close();
+});

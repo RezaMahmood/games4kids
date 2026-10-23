@@ -51,6 +51,18 @@ function refocus(...targets) {
 
 /** @type {import('./api.js').Topic[]} */
 let topics = [];
+/** @type {import('./api.js').Costs} */
+let costs = { topics: {}, rounds: {} };
+
+/** Asks what the AI has cost. A reply that fails leaves the figures as they were, so the page never waits on it or breaks. */
+const loadCosts = () => api.costs().then((latest) => { costs = latest; }, () => {});
+
+/** Mirrors the server's estimate wording, for the deleted-rounds part that only the page can work out. */
+function estimateText(microUsd) {
+  if (microUsd < 1_000) return 'est. <$0.001';
+  const usd = microUsd / 1_000_000;
+  return `est. $${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`;
+}
 /** The topic being added or edited, or null for a new one. */
 let editingTopic = null;
 /** @type {import('./api.js').Topic | null} */
@@ -102,11 +114,15 @@ function counts(t) {
   ].join(', ');
 }
 
+/** The topic's AI cost so far, or nothing when the AI has not been asked yet. */
+const topicCost = (id) => (costs.topics[id]?.calls ? [`AI cost: ${costs.topics[id].text}`] : []);
+
 function topicCard(t) {
   const href = `#topic/${t.id}`;
   return h('li', { className: 'card' },
     h('a', { className: 'card-title', href, textContent: t.title }),
     h('span', { className: 'meta', textContent: counts(t) }),
+    ...topicCost(t.id).map((textContent) => h('span', { className: 'cost', textContent })),
     ...(t.guidance ? [h('p', { className: 'note', textContent: t.guidance })] : []),
     h('div', { className: 'actions' },
       h('a', { className: 'button primary', href, textContent: t.rounds === 0 ? 'Add rounds' : 'Open', ariaLabel: `${t.rounds === 0 ? 'Add rounds to' : 'Open'} ${t.title}` }),
@@ -120,7 +136,7 @@ function renderTopics() {
 }
 
 async function loadTopics() {
-  topics = await api.topics();
+  [topics] = await Promise.all([api.topics(), loadCosts()]);
   renderTopics();
 }
 
@@ -195,6 +211,11 @@ function roundStatus(round) {
 /** What to press on a round's card to move it along. */
 const ROUND_ACTIONS = { draft: 'Review and publish', published: 'View', failed: 'Try again', broken: 'Open' };
 
+const roundCost = (id) => {
+  const cost = costs.rounds[id];
+  return cost?.calls ? `AI cost so far: ${cost.text} (${plural(cost.calls, 'AI call', 'AI calls')})` : '';
+};
+
 function roundCard(round) {
   const thumb = h('img', { className: 'thumb', alt: '' });
   if (round.hasPicture) api.picture(round.id).then((url) => (thumb.src = url), () => {});
@@ -206,13 +227,28 @@ function roundCard(round) {
     h('div', { className: 'round-body' },
       h('a', { className: 'card-title', href, textContent: roundTitle(round) }),
       h('p', { className: `badge ${kind}`, textContent: roundStatus(round) }),
+      ...(roundCost(round.id) ? [h('p', { className: 'cost', textContent: roundCost(round.id) })] : []),
       ...(round.state?.source === 'human' ? [h('p', { className: 'meta', textContent: 'Edited by hand' })] : [])),
     ...(action ? [h('a', { className: `button${kind === 'published' ? '' : ' primary'}`, href, textContent: action, ariaLabel: `${action}: ${roundTitle(round)}` })] : []));
 }
 
+/** The topic's total in its header, with what part of it went on rounds that are gone. */
+function renderTopicCost(rounds) {
+  const total = costs.topics[topic.id];
+  const shown = Boolean(total?.calls);
+  $('topic-cost').hidden = !shown;
+  if (!shown) return;
+  const live = rounds.reduce((sum, round) => sum + (costs.rounds[round.id]?.microUsd ?? 0), 0);
+  const deleted = total.microUsd - live;
+  $('topic-cost-total').textContent = `AI cost so far: ${total.text}`;
+  $('topic-cost-deleted').hidden = deleted <= 0;
+  $('topic-cost-deleted').textContent = `Includes ${estimateText(deleted)} spent on rounds since deleted.`;
+}
+
 async function loadRounds() {
-  const rounds = await api.rounds(topic.id);
+  const [rounds] = await Promise.all([api.rounds(topic.id), loadCosts()]);
   $('rounds').replaceChildren(...rounds.map(roundCard));
+  renderTopicCost(rounds);
   $('rounds-empty').hidden = rounds.length > 0;
   return rounds;
 }
@@ -227,6 +263,7 @@ async function openTopic(id) {
   }
   $('topic-heading').textContent = topic.title;
   $('topic-guidance').textContent = topic.guidance;
+  $('topic-cost').hidden = true;
   show('topic-view');
   const rounds = await whileLoading(loadRounds());
   if (drafting(rounds)) pollWhile(loadRounds, drafting);
@@ -355,6 +392,11 @@ async function showPicture(round) {
   $('r-picture').alt = round.state.content?.pictureAlt ?? '';
 }
 
+function renderRoundCost(round) {
+  $('round-cost').textContent = round ? roundCost(round.id) : '';
+  $('round-cost').hidden = !$('round-cost').textContent;
+}
+
 function renderRound(round) {
   editing.round = round;
   const kind = round ? kindOf(round) : 'new';
@@ -372,6 +414,7 @@ function renderRound(round) {
     broken: kind === 'broken' ? damage(round) : '',
     draft: round?.state?.notice ?? (round?.hasPicture ? 'Draft: only you can see this. When you are happy, press Publish at the bottom.' : 'Add a picture, then press Publish at the bottom.'),
   };
+  renderRoundCost(round);
   $('round-note').hidden = !notes[kind];
   $('round-note').textContent = notes[kind] ?? '';
   $('round-note').dataset.tone = kind === 'failed' || kind === 'broken' || round?.state?.notice ? 'error' : '';
@@ -400,14 +443,15 @@ function renderRound(round) {
 
 async function openRound(id) {
   show('round-view');
-  const round = await whileLoading(api.round(id));
+  const [round] = await whileLoading(Promise.all([api.round(id), loadCosts()]));
   editing = { topicId: round.topicId, round };
   $('round-back').href = `#topic/${round.topicId}`;
   renderRound(round);
   if (round.state?.kind === 'drafting') {
     pollWhile(async () => {
-      const latest = await api.round(id);
+      const [latest] = await Promise.all([api.round(id), loadCosts()]);
       if (latest.state?.kind !== 'drafting') renderRound(latest);
+      else renderRoundCost(latest);
       return latest;
     }, (latest) => latest.state?.kind === 'drafting');
   }

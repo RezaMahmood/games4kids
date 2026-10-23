@@ -39,6 +39,11 @@
         <a href="#" class="back">All topics</a>
         <h1 id="topic-heading" tabindex="-1"></h1>
         <p id="topic-guidance" class="note"></p>
+        <div id="topic-cost" hidden>
+          <p id="topic-cost-total" class="cost"></p>
+          <p id="topic-cost-deleted" class="cost" hidden></p>
+          <p class="note">Estimated from token counts and Azure list prices; your Azure bill is the final word.</p>
+        </div>
         <ol class="steps" aria-label="How a round gets to the children">
           <li>Draft a round with AI or write one.</li>
           <li>Check it and give it a picture.</li>
@@ -65,6 +70,7 @@
           <h1 id="round-heading" tabindex="-1"></h1>
           <span id="round-badge" class="badge"></span>
         </div>
+        <p id="round-cost" class="cost" hidden></p>
         <p id="round-note" class="panel note" hidden></p>
         <section id="round-checks" class="panel" aria-labelledby="checks-heading" hidden>
           <h2 id="checks-heading">Worth a second look</h2>

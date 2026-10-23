@@ -32,7 +32,7 @@ label .note { font-weight: 400; }
 .card { display: grid; gap: 4px; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card); background: var(--color-surface); border: 2px solid var(--color-line); }
 .card .note { margin: 0; }
 .card-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--color-ink); }
-.meta { color: var(--color-muted); }
+.meta, .cost { color: var(--color-muted); }
 .round-card { grid-template-columns: 120px 1fr auto; align-items: center; gap: var(--space-sm); }
 .thumb { width: 120px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 12px; background: var(--color-desk); }
 .round-body { display: grid; gap: 4px; }
