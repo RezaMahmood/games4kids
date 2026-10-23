@@ -25,8 +25,13 @@
         <ul id="topics" class="topics"></ul>
         <p id="topics-status" class="status" role="status" hidden></p>
         <button id="topics-retry" type="button" class="quiet" hidden>Try again</button>
+        <button id="board-open" type="button" class="quiet board-open">Friends board</button>
       </section>
     </main>
+
+    <section id="board-screen" class="screen" hidden>
+      <button id="board-back" type="button" class="quiet">Back</button>
+    </section>
 
     <section id="sure-screen" class="screen" hidden aria-labelledby="sure-heading">
       <p class="eyebrow" id="sure-topic"></p>
@@ -63,8 +68,8 @@
       </div>
       <ul id="result-answers" class="result-answers"></ul>
       <p id="result-today" class="today"></p>
-      <section class="board" aria-labelledby="board-heading">
-        <h3 id="board-heading">Friends board</h3>
+      <section id="board" class="board" aria-labelledby="board-heading">
+        <h2 id="board-heading" tabindex="-1">Friends board</h2>
         <button id="board-switch" type="button" class="switch" role="switch" aria-checked="false" hidden>
           <span class="switch-track" aria-hidden="true"></span>
           <span>Show my scores on the board</span>

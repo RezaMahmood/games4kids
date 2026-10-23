@@ -174,3 +174,40 @@ for (const width of [390, 820]) {
 		await kid.unroute(BOARD_API);
 	});
 }
+
+for (const width of [390, 820]) {
+	test(`at ${width}px, a child opens the Friends board from the start screen before playing, and still sees it after a round`, async () => {
+		await home(width);
+		await expect(kid.getByRole('button', { name: 'Friends board' })).toBeHidden();
+		await kid.getByRole('button', { name: 'Open the door to the past' }).click();
+		await expect(kid.getByRole('button', { name: new RegExp(TOPIC) })).toBeVisible();
+		await shot('play-board-open', width);
+
+		await kid.getByRole('button', { name: 'Friends board' }).click();
+		await expect(kid.getByRole('heading', { name: 'Friends board' })).toBeFocused();
+		const toggle = kid.getByRole('switch', { name: 'Show my scores on the board' });
+		await expect(toggle).toHaveAttribute('aria-checked', 'false');
+		await expect(kid.locator('#board-explain')).toBeVisible();
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-checked', 'true');
+		await expect(kid.locator('#board-status')).toHaveText('Your points count from now on. Play a round to get on the board!');
+		await shot('play-board-screen', width);
+
+		await kid.getByRole('button', { name: 'Back', exact: true }).click();
+		await expect(kid.locator('#topics-heading')).toBeFocused();
+		await expect(kid.getByRole('button', { name: new RegExp(TOPIC) })).toBeVisible();
+		await expect(kid.getByRole('switch')).toBeHidden();
+
+		await kid.getByRole('button', { name: new RegExp(TOPIC) }).click();
+		await kid.getByRole('button', { name: /I know a bit about the subject/ }).click();
+		await kid.getByRole('button', { name: "I've read it" }).click();
+		await answerAll();
+		await kid.getByRole('button', { name: 'See my points' }).click();
+		await expect(kid.locator('#result-screen').getByRole('heading', { name: 'Friends board' })).toBeVisible();
+		await expect(kid.getByRole('switch', { name: 'Show my scores on the board' })).toHaveAttribute('aria-checked', 'true');
+		await expect(kid.locator('#board-table')).toBeVisible();
+		await expect(kid.locator('#board-rows tr.me')).toContainText(`Alfred${RUN}`);
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-checked', 'false');
+	});
+}
