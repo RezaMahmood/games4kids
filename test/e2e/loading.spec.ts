@@ -128,6 +128,54 @@ for (const { name, options } of SIZES) {
 	});
 }
 
+const COSTS_API = '**/api/admin/portal/costs?*';
+
+for (const { name, options } of SIZES) {
+	test(`${name}, the admin AI costs page stays greyed out until its first report loads or fails, then lifts, and switching to Month greys it out again`, async ({ browser }) => {
+		const context = await browser.newContext(options);
+		const page = await context.newPage();
+		await signedInAdmin(page);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		await page.route(COSTS_API, async (route) => {
+			await held;
+			return route.continue();
+		});
+
+		try {
+			await page.goto(`${ADMIN}/costs/`);
+			await expect(page.getByRole('status')).toHaveText('Loading costs.');
+			await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
+			expect(await overlay(page), 'a grey layer and a spinning ring cover the page').toEqual({ shown: true, coversViewport: true, spinning: true });
+		} finally {
+			release();
+		}
+
+		await pageReady(page);
+		expect((await overlay(page)).shown, 'the grey layer is gone').toBe(false);
+		await page.unroute(COSTS_API);
+
+		let releaseMonth!: () => void;
+		const heldMonth = new Promise<void>((resolve) => (releaseMonth = resolve));
+		await page.route(COSTS_API, async (route) => {
+			await heldMonth;
+			return route.continue();
+		});
+		await page.getByRole('button', { name: 'Month' }).click();
+		await expect(page.locator('body')).toHaveAttribute('aria-busy', 'true');
+		releaseMonth();
+		await pageReady(page);
+		await expect(page.locator('#periods-title')).toHaveText('By month');
+		await page.unroute(COSTS_API);
+
+		await page.route(COSTS_API, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The costs are unavailable.' }) }));
+		await page.reload();
+		await pageReady(page);
+		await expect(page.getByRole('status')).toHaveText('The costs are unavailable.');
+		await context.close();
+	});
+}
+
 const DRAWPAD_API = '**/api/admin/g/drawpad/**';
 
 for (const { name, options } of SIZES) {

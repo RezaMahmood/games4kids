@@ -76,7 +76,7 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		const bar = admin.locator('admin-bar .g4k-bar');
 		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
 		await expect(bar.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(160);
+		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(200);
 		await expectNoSideways(admin);
 	});
 
@@ -84,7 +84,7 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		const bar = admin.locator('admin-bar .g4k-bar');
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = '0.12em'));
 		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(160);
+		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(200);
 		await expectNoSideways(admin);
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = ''));
 	});

@@ -14,6 +14,7 @@ import {
 	type AdminStore,
 	type GameState,
 } from './admin.ts';
+import { costReport, parseCostQuery } from './costs.ts';
 import { checkEntra, EntraRefused, syncEntra, type GraphFor, type OboGraph } from './entra.ts';
 import { apiError, failure, json, matcher, notFound, readJson, refuse, runRoute, toHostReply, underPrefix, type App, type AppWorker, type HostReply, type HostRequest } from './http.ts';
 import { adminPlatform, areasOf, requireGameId, type Env, type TokenSource } from './platform.ts';
@@ -37,12 +38,14 @@ export type ModuleHost = {
 export type MountedModule = { readonly routes: readonly AdminRoute[]; readonly workers: readonly { readonly queue: string; readonly run: Worker }[] };
 
 /** One game's admin part. The manifest's literal types stay inside `mount`, so the app can hold a list of them. */
-export type AdminModule = { readonly id: GameId; mount(host: ModuleHost): MountedModule };
+export type AdminModule = { readonly id: GameId; readonly title: string; readonly areas: Readonly<Record<string, string>>; mount(host: ModuleHost): MountedModule };
 
 export function adminModule<M extends GameManifest>(manifest: M, create: CreateAdminApi<M>): AdminModule {
 	const id = requireGameId(manifest);
 	return {
 		id,
+		title: manifest.title,
+		areas: manifest.admin?.ai ?? {},
 		mount(host) {
 			const platformHost = { account: host.accounts.open(id), env: host.env, tokens: host.tokens, now: host.now };
 			const api: AdminApi<M> = create(adminPlatform(manifest, id, platformHost, host.roster(id), host.usage.forGame(id, areasOf(manifest))));
@@ -103,6 +106,7 @@ function entraRefusal(error: EntraRefused): HostReply {
 export function createAdminApp(deps: AdminAppDeps): App {
 	const prefix = '/api/admin/' as const;
 	const known = deps.games;
+	const usage = usageLedger(deps.accounts.open('portal').table('aiusage'), { now: deps.now, newId: randomUUID, telemetry: deps.telemetry });
 	const portal: readonly Entry[] = [
 		{ owner: 'portal', name: 'health', method: 'GET', path: 'portal/health', target: { kind: 'health' } },
 		{
@@ -181,6 +185,20 @@ export function createAdminApp(deps: AdminAppDeps): App {
 		},
 		{
 			owner: 'portal',
+			name: 'costs',
+			method: 'GET',
+			path: 'portal/costs',
+			target: {
+				kind: 'console',
+				async run({ request }) {
+					const query = parseCostQuery(request.query, deps.now());
+					const billing = deps.modules.filter((module) => Object.keys(module.areas).length > 0);
+					return { status: 200, json: await costReport(usage, billing, query) };
+				},
+			},
+		},
+		{
+			owner: 'portal',
 			name: 'entra-check',
 			method: 'GET',
 			path: 'portal/entra',
@@ -203,7 +221,6 @@ export function createAdminApp(deps: AdminAppDeps): App {
 			},
 		},
 	];
-	const usage = usageLedger(deps.accounts.open('portal').table('aiusage'), { now: deps.now, newId: randomUUID, telemetry: deps.telemetry });
 	const host: ModuleHost = { accounts: deps.accounts, env: deps.env, tokens: deps.tokens, now: deps.now, roster: (game: GameId) => rosterOf(deps.store, game), usage };
 	const mounted = deps.modules.map((module) => ({ module, ...module.mount(host) }));
 	const games: readonly Entry[] = mounted.flatMap(({ module, routes }) =>
