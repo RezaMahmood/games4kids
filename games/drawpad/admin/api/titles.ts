@@ -45,7 +45,7 @@ export async function suggestTitles(deps: FoundryDeps, photo: Photo): Promise<st
 			],
 		},
 	];
-	const titles = cleanTitles(await chatJson(deps, { model: CHAT_DEPLOYMENT, messages, name: 'titles', schema: SCHEMA }, CODES));
+	const titles = cleanTitles(await chatJson(deps, { area: 'titles', model: CHAT_DEPLOYMENT, messages, name: 'titles', schema: SCHEMA }, CODES));
 	if (!titles.length) throw failure(CODES.failed, 'the reply had no usable titles');
 	return titles;
 }

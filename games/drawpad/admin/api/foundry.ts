@@ -1,4 +1,8 @@
+import { chatUse, type Meter, type Metered, type AreaOf, type BilledAs, type ChatTokens } from '@g4k/sdk';
 import type { AiErrorCode } from '../../data/types.ts';
+import type manifest from '../../manifest.ts';
+
+export type Area = AreaOf<typeof manifest>;
 
 const REFUSAL = /content_policy|content_filter|moderation_blocked|ResponsibleAIPolicyViolation/i;
 const RETRY_DEFAULT_SECONDS = 10;
@@ -28,6 +32,8 @@ export type FoundryDeps = {
 	token: () => Promise<string>;
 	fetch?: typeof fetch;
 	sleep?: (ms: number) => Promise<void>;
+	/** Hears every 2xx reply, billed whether or not the answer is usable: its tokens, or why it has none. */
+	meter?: Meter<Area>;
 };
 
 /** The error codes one kind of Foundry call reports. */
@@ -46,8 +52,15 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 /**
  * POSTs to the Foundry OpenAI v1 API and returns the parsed JSON reply. Waits out one 429 (back to back image
  * requests hit the per-minute limit), then reports any failure as `codes.failed` with the upstream status and text.
+ * A 2xx reply's usage is metered before the caller checks the answer, since an unusable answer is billed too.
  */
-export async function postFoundry(deps: FoundryDeps, path: string, init: { body: BodyInit; headers?: Record<string, string> }, codes: FoundryCodes): Promise<unknown> {
+export async function postFoundry(
+	deps: FoundryDeps,
+	path: string,
+	init: { body: BodyInit; headers?: Record<string, string> },
+	codes: FoundryCodes,
+	usageOf: (reply: unknown) => Metered<Area>,
+): Promise<unknown> {
 	const send = async () => {
 		try {
 			const token = await deps.token();
@@ -68,17 +81,20 @@ export async function postFoundry(deps: FoundryDeps, path: string, init: { body:
 	const text = await res.text().catch(() => '');
 	if (res.status === 400 && REFUSAL.test(text)) throw new AiFailure('refused', codes.refused);
 	if (!res.ok) throw failure(codes.failed, `${res.status}: ${text}`);
+	let reply: unknown;
 	try {
-		return JSON.parse(text) as unknown;
+		reply = JSON.parse(text);
 	} catch {
 		throw failure(codes.failed, 'the reply was not JSON');
 	}
+	await deps.meter?.(usageOf(reply));
+	return reply;
 }
 
 type ChatReply = { choices?: { finish_reason?: string; message?: { content?: unknown; refusal?: unknown } }[] };
 
 /** One chat completion whose answer must match a strict JSON schema. */
-export type ChatAsk = { model: string; messages: unknown[]; name: string; schema: object };
+export type ChatAsk = { area: Area; model: BilledAs<ChatTokens>; messages: unknown[]; name: string; schema: object };
 
 /**
  * Asks a Foundry chat model for JSON that matches `ask.schema` and returns it parsed. A content filter stop or a
@@ -92,7 +108,7 @@ export async function chatJson(deps: FoundryDeps, ask: ChatAsk, codes: FoundryCo
 		reasoning_effort: 'low',
 		max_completion_tokens: 4000,
 	});
-	const reply = (await postFoundry(deps, 'chat/completions', { body, headers: { 'content-type': 'application/json' } }, codes)) as ChatReply;
+	const reply = (await postFoundry(deps, 'chat/completions', { body, headers: { 'content-type': 'application/json' } }, codes, (raw) => chatUse(ask.area, ask.model, raw))) as ChatReply;
 	const choice = reply?.choices?.[0];
 	if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new AiFailure('refused', codes.refused);
 	if (choice?.finish_reason !== 'stop' || typeof choice.message?.content !== 'string') {

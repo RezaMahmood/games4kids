@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defineGame, definePlayApi, HttpError, parseEmail } from '@g4k/sdk';
-import { createPlayerApp, createPortalApp, EntraRefused, type GraphFor, type PortalTableName } from '@g4k/host';
+import { costMicroUsd, createAdminApp, createPlayerApp, createPortalApp, EntraRefused, MAX_RANGE_DAYS, usageLedger, type AdminModule, type GraphFor, type PortalTableName } from '@g4k/host';
 import { fixtureApps } from './support/apps.ts';
 import { fakeGraph } from './support/graph.ts';
 import { call, codeOf, PNG } from './support/http.ts';
@@ -411,4 +411,100 @@ test('telemetry sees the matched route template and the player, never a raw id o
 	await call(admin, 'PUT', '/api/admin/g/fixture/levels/zed', { token: me.console, json: { title: 'Zed' } });
 	assert.deepEqual(w.telemetry.routes, ['/api/g/fixture/scores/{levelId}', '/api/admin/g/fixture/levels/{id}']);
 	assert.deepEqual(w.telemetry.users, [kid.userId]);
+});
+
+type Period = { period: string; total: { microUsd: number; calls: number; text: string }; games: { game: string; microUsd: number }[]; areas: { game: string; area: string; label: string; microUsd: number; calls: number }[] };
+type Report = { by: string; from: string; to: string; total: { microUsd: number; calls: number; text: string }; games: { game: string; title: string; microUsd: number; calls: number }[]; areas: Period['areas']; periods: Period[] };
+
+const billing = (game: string, title: string, areas: Record<string, string>): AdminModule => ({ id: gameId(game), title, areas, mount: () => ({ routes: [], workers: [] }) });
+const words = { model: 'gpt-5.4-mini', tokens: { input: 1000, cachedInput: 0, output: 0 } } as const;
+const cents = costMicroUsd({ area: 'words', ...words });
+
+/** The admin app over a world whose ledger holds one call at each of these instants. */
+async function billedApp(calls: readonly { at: string; game: 'fixture' | 'other'; area: string }[]) {
+	const w = world();
+	const modules = [billing('fixture', 'Fixture', { words: 'Story words', pictures: 'Pictures' }), billing('other', 'Other', { quiz: 'Quiz marking' }), billing('quiet', 'Quiet', {})];
+	let now = NOW;
+	let next = 0;
+	const ledger = usageLedger(w.accounts.open('portal').table('aiusage'), { now: () => now, newId: () => `id-${++next}`, telemetry: w.telemetry });
+	for (const { at, game, area } of calls) {
+		now = new Date(at);
+		await ledger.forGame(gameId(game), [area]).record({ area, ...words, subject: { item: 'r1' } });
+	}
+	const admin = createAdminApp({ telemetry: w.telemetry, now: w.now, issuer: idp.admin, store: w.admin, graph: () => fakeGraph().graph, games: [id], modules, accounts: w.accounts, tokens, env: {}, gamesOrigin: 'https://games.example' });
+	return { w, admin, me: await owner(w) };
+}
+
+const costs = async (app: Awaited<ReturnType<typeof billedApp>>, query: string) => {
+	const reply = await call(app.admin, 'GET', `/api/admin/portal/costs?${query}`, { token: app.me.console });
+	return { status: reply.status, report: reply.data as Report };
+};
+
+const CALLS = [
+	{ at: '2026-03-28T23:30:00Z', game: 'fixture', area: 'words' }, // GMT, London 28 March
+	{ at: '2026-03-29T00:30:00Z', game: 'fixture', area: 'words' }, // the clocks go forward at 01:00 UTC; still GMT, London 29 March
+	{ at: '2026-06-30T23:30:00Z', game: 'fixture', area: 'pictures' }, // BST, London 1 July: the month edge
+	{ at: '2026-07-01T10:00:00Z', game: 'other', area: 'quiz' },
+	{ at: '2026-10-24T23:30:00Z', game: 'fixture', area: 'words' }, // BST, London 25 October, the day the clocks go back
+	{ at: '2026-10-25T00:30:00Z', game: 'other', area: 'quiz' }, // still BST, London 25 October
+	{ at: '2026-10-31T23:30:00Z', game: 'fixture', area: 'words' }, // GMT, London 31 October
+] as const;
+
+test('GET portal/costs sums by London day across a clock change, per game and per area, with the manifests\' labels', async () => {
+	const app = await billedApp(CALLS);
+	const { status, report } = await costs(app, 'by=day&from=2026-03-27&to=2026-03-30');
+	assert.equal(status, 200);
+	assert.deepEqual(report.periods.map((one) => [one.period, one.total.calls]), [['2026-03-30', 0], ['2026-03-29', 1], ['2026-03-28', 1], ['2026-03-27', 0]], 'newest first, quiet days as nothing');
+	assert.equal(report.total.microUsd, 2 * cents);
+	assert.match(report.total.text, /^est\. /);
+
+	const october = (await costs(app, 'by=day&from=2026-10-24&to=2026-10-26')).report;
+	const twentyFifth = october.periods.find((one) => one.period === '2026-10-25');
+	assert.equal(twentyFifth?.total.calls, 2, 'both calls around the change are one London day');
+	assert.deepEqual(twentyFifth?.games.map((one) => [one.game, one.microUsd]).sort(), [['fixture', cents], ['other', cents]]);
+	assert.deepEqual(twentyFifth?.areas.map((one) => [one.area, one.label]).sort(), [['quiz', 'Quiz marking'], ['words', 'Story words']]);
+	assert.equal(october.periods.find((one) => one.period === '2026-10-24')?.total.calls, 0, 'a call at 23:30 UTC in BST is already the 25th');
+});
+
+test('GET portal/costs groups by month at the BST edge and by year, summing every game and area', async () => {
+	const app = await billedApp(CALLS);
+	const month = (await costs(app, 'by=month&from=2026-03-01&to=2026-10-31')).report;
+	assert.deepEqual(month.periods.map((one) => [one.period, one.total.calls]), [['2026-10', 3], ['2026-09', 0], ['2026-08', 0], ['2026-07', 2], ['2026-06', 0], ['2026-05', 0], ['2026-04', 0], ['2026-03', 2]]);
+	const july = month.periods.find((one) => one.period === '2026-07');
+	assert.deepEqual(july?.areas.map((one) => `${one.game}/${one.area}`).sort(), ['fixture/pictures', 'other/quiz'], '23:30 UTC on 30 June counts in July');
+	assert.deepEqual(month.areas.map((one) => `${one.game}/${one.area}:${one.calls}`), ['fixture/words:4', 'other/quiz:2', 'fixture/pictures:1']);
+	assert.deepEqual(month.games.map((one) => [one.game, one.title, one.calls]), [['fixture', 'Fixture', 5], ['other', 'Other', 2]]);
+
+	const year = (await costs(app, 'by=year&from=2025-01-01&to=2026-12-31')).report;
+	assert.deepEqual(year.periods.map((one) => [one.period, one.total.calls]), [['2026', 7], ['2025', 0]]);
+	assert.equal(year.total.microUsd, 7 * cents);
+});
+
+test('GET portal/costs defaults to 31 days, 12 months, and everything since the ledger began', async () => {
+	const app = await billedApp([{ at: '2026-10-19T09:00:00Z', game: 'fixture', area: 'words' }]);
+	const day = (await costs(app, 'by=day')).report;
+	assert.deepEqual([day.from, day.to, day.periods.length, day.periods[0]?.period, day.periods[30]?.period], ['2026-09-19', '2026-10-19', 31, '2026-10-19', '2026-09-19']);
+	const month = (await costs(app, 'by=month')).report;
+	assert.deepEqual([month.from, month.periods.length, month.periods[0]?.period, month.periods[11]?.period], ['2025-11-01', 12, '2026-10', '2025-11']);
+	const year = (await costs(app, 'by=year')).report;
+	assert.deepEqual([year.from, year.periods.map((one) => one.period)], ['2026-10-01', ['2026']]);
+	assert.equal(year.total.calls, 1);
+});
+
+test('GET portal/costs with no spend answers zero and no breakdown', async () => {
+	const { report } = await costs(await billedApp([]), 'by=day');
+	assert.deepEqual([report.total.microUsd, report.games, report.areas], [0, [], []]);
+});
+
+test('GET portal/costs refuses a bad by, a bad date, a backwards or too wide range, and anyone who is not an admin', async () => {
+	const app = await billedApp([]);
+	for (const query of ['', 'by=week', 'by=day&from=2026-02-30', 'by=day&from=yesterday', 'by=day&to=20261019', 'by=day&from=2026-10-19&to=2026-10-18', 'by=day&from=2020-01-01&to=2026-10-19']) {
+		const reply = await call(app.admin, 'GET', `/api/admin/portal/costs?${query}`, { token: app.me.console });
+		assert.deepEqual([query, reply.status, codeOf(reply)], [query, 400, 'invalid']);
+	}
+	const widest = new Date(Date.parse('2026-10-19T00:00:00Z') - (MAX_RANGE_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
+	assert.equal((await costs(app, `by=month&from=${widest}&to=2026-10-19`)).status, 200, 'the widest range is allowed');
+	const kid = await seedPlayer(app.w, idp, { games: [id] });
+	assert.equal(codeOf(await call(app.admin, 'GET', '/api/admin/portal/costs?by=day', { token: kid.token })), 'invalid_token');
+	assert.equal(codeOf(await call(app.admin, 'GET', '/api/admin/portal/costs?by=day', { token: await idp.adminToken(newObjectId()) })), 'forbidden');
 });

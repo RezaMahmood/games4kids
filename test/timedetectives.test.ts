@@ -915,6 +915,25 @@ test('a failed request bills nothing, the queue\'s retry bills only the step it 
 	assert.equal((await s.costs()).rounds[refused.id], undefined, 'a 400 refusal reports no usage, so nothing is billed');
 });
 
+test('a reply with no usage finishes the draft, bills nothing for it, and reports each one unmetered', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	foundry.omitUsageNext(1, 'chat');
+	foundry.omitUsageNext(1);
+	typesafe.omitUsageNext(1);
+	const before = s.exceptions.length;
+	const round = await drafted(s, topic);
+	assert.equal(round.state.kind, 'draft');
+	assert.equal(round.hasPicture, true);
+	assert.deepEqual(await s.ledgerAreas(), []);
+	const reports = s.logs.filter((line) => line.startsWith('usage unmetered'));
+	assert.equal(reports.length, 3);
+	for (const [area, model] of [['words', 'gpt-5.4-mini'], ['picture', 'gpt-image-1-mini'], ['check', 'jev-1.14.0']]) {
+		assert.equal(reports.filter((line) => line.includes(`"area":"${area}","model":"${model}","item":"${round.id}"`)).length, 1, `${area} reported once`);
+	}
+	assert.equal(s.exceptions.length - before, 3);
+});
+
 test('a redraw bills one more picture to the same round', async () => {
 	const s = await setup();
 	const round = await drafted(s, await adminTopic(s));

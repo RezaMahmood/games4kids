@@ -189,6 +189,12 @@ export function usageLedger(table: Table, deps: { readonly now: () => Date; read
 					deps.telemetry.log('error', `usage entry lost, ${lost.message}: ${JSON.stringify(entry)}`);
 					deps.telemetry.exception(lost);
 				},
+				async unmetered({ area, model, subject, reason }) {
+					const undeclared = declared.has(area) ? '' : `, and area "${area}" is not in the manifest's admin.ai`;
+					const what = JSON.stringify({ game, area, model, ...subject, reason });
+					deps.telemetry.log('error', `usage unmetered, a billed call is missing from the ledger${undeclared}: ${what}`);
+					deps.telemetry.exception(new Error(`${game} ${area} call to ${model} for ${subject?.item} was billed but reported no usage: ${reason}`));
+				},
 				async spend() {
 					const byGroup = new Map<string, Spend>();
 					const byItem = new Map<string, Spend>();

@@ -71,6 +71,20 @@ test('a call outside the declared areas, with tokens the model does not bill on,
 	assert.equal(exceptions.length, 4);
 });
 
+test('a billed call with no usage adds no row, logs an exception naming the call, and an undeclared area is noted', async () => {
+	const { usage, table, lines, exceptions } = ledger({ now: new Date('2026-10-23T12:00:00Z') });
+	const mine = usage.forGame(timedetectives, ['words']);
+	await mine.unmetered({ area: 'words', model: 'gpt-5.4-mini', subject: { item: 'round-1', group: 'topic-1' }, reason: 'the reply carried no readable usage' });
+	assert.deepEqual(await table.list(), []);
+	assert.equal(lines.length, 1);
+	assert.match(lines[0] ?? '', /^usage unmetered, a billed call is missing from the ledger: \{"game":"timedetectives","area":"words","model":"gpt-5.4-mini","item":"round-1","group":"topic-1","reason":"the reply carried no readable usage"\}$/);
+	assert.equal(exceptions.length, 1);
+	assert.match(String(exceptions[0]), /timedetectives words call to gpt-5.4-mini for round-1 was billed but reported no usage/);
+	await (mine.unmetered as (call: unknown) => Promise<void>)({ area: 'nope', model: 'gpt-5.4-mini', subject: { item: 'round-1' }, reason: 'r' });
+	assert.match(lines[1] ?? '', /and area "nope" is not in the manifest's admin\.ai/);
+	assert.equal(exceptions.length, 2);
+});
+
 test('a ledger that throws loses the entry without failing the caller, and logs the whole entry', async () => {
 	const table = { ...memoryAccounts().open('portal').table('aiusage'), insertIfAbsent: () => Promise.reject(new Error('storage is down')) } as Table;
 	const { usage, lines, exceptions } = ledger({ now: new Date('2026-10-23T12:00:00Z') }, table);

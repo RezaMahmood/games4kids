@@ -1,4 +1,4 @@
-import { costView, defineAdminApi, HttpError, type AdminPlatform, type AdminRoute, type AiUse, type Spend, type UsageSubject } from '@g4k/sdk';
+import { costView, defineAdminApi, HttpError, meterTo, type AdminPlatform, type AdminRoute, type Spend, type UsageSubject } from '@g4k/sdk';
 import {
 	adminStore,
 	imageReply,
@@ -21,7 +21,7 @@ import {
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import type { TypeSafeDeps } from './check.ts';
-import { AiFailure, type Area, type FoundryDeps } from './foundry.ts';
+import { AiFailure, type FoundryDeps } from './foundry.ts';
 import { parseDraftMessage, runDraft, settleStale, type DraftMessage } from './worker.ts';
 
 /** About ten minutes of AI work, so a stuck page cannot fill the queue. */
@@ -54,19 +54,17 @@ const isBroken = (read: StoredRound | BrokenRound): read is BrokenRound => 'brok
 
 type Platform = AdminPlatform<typeof manifest>;
 
-const meterFor = (platform: Platform, subject: UsageSubject) => (use: AiUse<Area>) => platform.usage.record({ ...use, subject });
-
 function foundryFor(platform: Platform, subject: UsageSubject): FoundryDeps {
 	const endpoint = platform.settings.FOUNDRY_ENDPOINT;
 	if (!endpoint) throw new AiFailure(false, 'Drafting with AI is not set up.');
-	return { endpoint, token: platform.tokens.cognitiveServices, meter: meterFor(platform, subject) };
+	return { endpoint, token: platform.tokens.cognitiveServices, meter: meterTo(platform.usage, subject) };
 }
 
 /** Undefined turns the check off. App Service leaves a Key Vault reference's text in the setting until the secret exists, which is not a key. */
 function typesafeFor(platform: Platform, subject: UsageSubject): TypeSafeDeps | undefined {
 	const apiKey = platform.settings.TYPESAFE_API_KEY;
 	if (!apiKey || apiKey.startsWith('@Microsoft.KeyVault(')) return undefined;
-	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/', meter: meterFor(platform, subject) };
+	return { apiKey, endpoint: platform.settings.TYPESAFE_ENDPOINT ?? 'https://api.typesafe.ai/', meter: meterTo(platform.usage, subject) };
 }
 
 /** Only the ids still here, each with what the AI has cost it. */

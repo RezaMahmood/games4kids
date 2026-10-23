@@ -19,7 +19,7 @@ const pages = ['apps', 'games', 'test/fixtures/games']
 	.filter((path, index, all) => all.indexOf(path) === index);
 
 test('every page is found', () => {
-	for (const expected of ['apps/games/pages/index.html', 'apps/games/pages/welcome/index.html', 'apps/games/pages/profile/index.html', 'apps/admin/pages/index.html', 'games/letterjoin/play/web/index.html', 'games/drawpad/play/web/index.html']) {
+	for (const expected of ['apps/games/pages/index.html', 'apps/games/pages/welcome/index.html', 'apps/games/pages/profile/index.html', 'apps/admin/pages/index.html', 'apps/admin/pages/costs/index.html','games/letterjoin/play/web/index.html', 'games/drawpad/play/web/index.html']) {
 		assert.ok(pages.includes(expected), expected);
 	}
 });

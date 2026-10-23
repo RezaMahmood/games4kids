@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { startFakeFoundry } from '../../dev/fake-foundry.ts';
-import { AiFailure, generateImage, parseChatUsage, parseImageUsage } from '../../games/timedetectives/admin/api/foundry.ts';
+import { parseChatUsage, parseImageUsage } from '@g4k/sdk';
+import { AiFailure, generateImage } from '../../games/timedetectives/admin/api/foundry.ts';
 
 const foundry = await startFakeFoundry();
 after(() => foundry.close());
