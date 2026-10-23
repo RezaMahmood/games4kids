@@ -145,16 +145,21 @@ button { font: inherit; color: inherit; touch-action: manipulation; }
 #clock[data-state="waiting"], #write-clock[data-state="waiting"] { color: var(--muted); }
 #clock[data-state="warning"] { color: #fff; background: var(--low); border-radius: 12px; padding: 2px 12px; }
 
-#copy-model { margin: 0 16px; padding: 10px 16px; max-height: 5.4em; overflow-y: auto; font-size: 22px; line-height: 1.35; white-space: pre-wrap; background: var(--ok-soft); border: 3px dashed var(--ok); border-radius: 18px; -webkit-user-select: text; user-select: text; }
+#copy-model { margin: 10px 16px 6px; padding: 10px 16px; max-height: 5.4em; overflow-y: auto; font-size: 22px; line-height: 1.35; white-space: pre-wrap; background: var(--ok-soft); border: 3px dashed var(--ok); border-radius: 18px; -webkit-user-select: text; user-select: text; }
 #copy-model .label { font-family: var(--round); font-size: 16px; color: #8a5300; }
 
-/* The writing page: a sheet of paper lifted off the coloured desk. */
-#stage { flex: 1; min-height: 0; margin: 0 16px; background: var(--paper); border: 4px solid var(--accent); border-radius: 26px; box-shadow: 0 8px 0 var(--accent-soft); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+/* Tracing is the paper and one strip above it. The site and points bars go, and the paper runs edge to edge with the text at its top. */
+body:has(#trace-screen:not([hidden])) :is(portal-bar, .bar) { display: none; }
+#trace-screen { gap: 0; padding-top: 0; }
+#trace-screen .trace-bar { margin: 0; border: 0; border-bottom: 3px solid var(--accent-soft); border-radius: 0; }
+#stage { flex: 1; min-height: 0; background: var(--paper); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 #stage[data-clean] { background: #fff; }
 #stage[data-clean] [data-guide] { visibility: hidden; }
 /* A finger pans the sheet vertically; the pen draws (ink.js cancels Apple Pencil touches so they never scroll). */
 #sheet { display: block; width: 100%; height: auto; touch-action: pan-y; cursor: crosshair; }
 
+/* While the pencil is on the page the paper takes the results' space. The box stays for screen readers, so the score is announced when it arrives, and a failed save with its Retry still shows. */
+#result[data-writing]:not(:has(#save-status[data-tone="error"]:not([hidden]))) { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
 #result { display: flex; align-items: center; justify-content: center; gap: 20px; min-height: 84px; margin: 6px 16px 0; padding: 8px 24px; color: var(--muted); background: var(--paper); border: 3px solid var(--line); border-radius: 22px; }
 #score { font-family: var(--round); font-size: 52px; line-height: 1; min-width: 2ch; text-align: center; }
 #score:not(:empty) { display: grid; place-items: center; min-width: 96px; height: 96px; margin: -4px 0; border-radius: 50%; background: var(--muted); color: #fff; }
@@ -189,6 +194,11 @@ button { font: inherit; color: inherit; touch-action: manipulation; }
 .bar-actions button.primary { background: var(--good); border-color: var(--good-dark); color: #fff; }
 .bar-actions button:active:not(:disabled) { transform: translateY(3px); border-bottom-width: 3px; }
 .bar-actions button:disabled { opacity: 0.4; }
+.bar-actions small { display: block; margin-top: -4px; font-size: 13px; color: var(--muted); }
+/* Clear acts only when held. The fill sweeps across while the finger stays, and clears when it reaches the end. */
+.hold { position: relative; overflow: hidden; isolation: isolate; }
+.hold::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--low-soft); transform: scaleX(0); transform-origin: left; }
+.hold[data-holding]::before { transform: scaleX(1); transition: transform var(--hold) linear; }
 
 .confirm { padding: 0; border: 0; background: none; overflow: visible; }
 .confirm::backdrop { background: rgba(10, 14, 46, 0.82); }

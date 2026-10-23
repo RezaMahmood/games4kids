@@ -96,14 +96,15 @@
           <button id="size-up" type="button" aria-label="Bigger letters"><span class="size-a" aria-hidden="true">A</span>+</button>
         </div>
         <div id="controls" class="bar-actions" role="group" aria-label="Tracing" hidden>
-          <button id="clear" type="button">Clear</button>
+          <button id="clear" type="button" class="hold" aria-describedby="hold-hint">Clear<small aria-hidden="true">hold</small></button>
           <button id="finish" type="button" class="primary">Finish</button>
         </div>
         <div id="copy-controls" class="bar-actions" role="group" aria-label="Writing" hidden>
-          <button id="copy-clear" type="button">Clear</button>
+          <button id="copy-clear" type="button" class="hold" aria-describedby="hold-hint">Clear<small aria-hidden="true">hold</small></button>
           <button id="copy-done" type="button" class="primary">Done</button>
         </div>
         <div id="clock" data-state="waiting" aria-live="off"></div>
+        <span id="hold-hint" hidden>Press and hold to clear the page.</span>
       </div>
       <p id="copy-model" hidden><span class="label">Write this:</span> <span id="copy-text"></span></p>
       <div id="stage">

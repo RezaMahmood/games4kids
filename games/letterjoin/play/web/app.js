@@ -7,6 +7,7 @@ import { formatClock, formatTenths, shownScore, storedScore, timerLabel } from '
 import { FONT_REGISTRY, loadFace, startingStyle } from './fonts.js';
 import { startFireworks } from './fireworks.js';
 import { HARD_KEY, HARD_TYPES, createHardMode } from './hard-mode.js';
+import { holdToPress } from './hold.js';
 import { createApi } from './api.js';
 import { dayLabel as boardDayLabel, emptyLevelText, pointsText } from './board.js';
 import { createInk } from './ink.js';
@@ -601,8 +602,9 @@ function render() {
   renderClock();
   renderCopyStatus(state);
 
+  $('result').toggleAttribute('data-writing', tracing || phase === 'copying');
   if (tracing) {
-    show('idle', '', phase === 'tracing' ? 'Keep going, then press Finish.' : state.limitMs === null ? 'Start tracing when you are ready.' : 'The timer starts with your first stroke.', '', '');
+    show('idle', '', '', '', '');
     $('save-status').hidden = true;
     return;
   }
@@ -612,8 +614,7 @@ function render() {
   $('last-note').hidden = Boolean(next) || copyWaits;
   $('next-activity').classList.toggle('primary', phase !== 'unsent');
   if (copying) {
-    show(phase === 'sent' ? 'sent' : 'copy', '', phase === 'sent' ? 'Sent for review' : 'Now write it yourself',
-      phase === 'copying' ? 'No outline and no timer. Write it on the lines, then press Done.' : '', '');
+    show(phase === 'sent' ? 'sent' : 'copy', '', phase === 'sent' ? 'Sent for review' : 'Your writing', '', '');
     return;
   }
   const { result } = state;
@@ -682,7 +683,7 @@ $('finish').addEventListener('click', async () => {
   if (deadline.check(t)) return;
   if (await ask(QUESTIONS.finishTrace)) end('finish', t);
 });
-$('clear').addEventListener('click', () => ink.clear());
+holdToPress($('clear'), () => ink.clear());
 $('size-down').addEventListener('click', () => chooseSize(-1));
 $('size-up').addEventListener('click', () => chooseSize(1));
 $('guide-toggle').addEventListener('click', () => {
@@ -690,7 +691,7 @@ $('guide-toggle').addEventListener('click', () => {
   render();
 });
 $('start-copy').addEventListener('click', () => attempt.send({ type: 'startCopy' }));
-$('copy-clear').addEventListener('click', () => {
+holdToPress($('copy-clear'), () => {
   ink.clear();
   attempt.send({ type: 'clear' });
 });

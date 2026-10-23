@@ -29,8 +29,8 @@ export function stepSize(size, by) {
   return SIZE_STEPS[clamp(at + by, 0, SIZE_STEPS.length - 1)];
 }
 
-/** The stage width on an 11 inch iPad (1194 x 834 CSS px), less the stage margins. */
-export const IPAD_STAGE_WIDTH = { landscape: 1158, portrait: 798 };
+/** The stage width on an 11 inch iPad (1194 x 834 CSS px). The paper runs edge to edge. */
+export const IPAD_STAGE_WIDTH = { landscape: 1194, portrait: 834 };
 export const SHEET_MIN_WIDTH = 600;
 export const SHEET_MAX_WIDTH = 1400;
 /** Text that would run longer than this is set smaller, which bounds the scoring memory for any allowed text. */
