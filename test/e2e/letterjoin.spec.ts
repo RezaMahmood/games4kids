@@ -378,7 +378,7 @@ for (const [size, options] of Object.entries(DIALOG_SIZES)) {
 			await expect(page.locator('#status')).toHaveText(`Saved "${title}".`);
 			await expect(page.locator('#activities details[data-level="starter"] .card').last()).toContainText(title);
 			const header = (await page.locator('.sticky').boundingBox())!;
-			expect((await created.boundingBox())!.y).toBeGreaterThanOrEqual(header.y + header.height);
+			await expect.poll(async () => (await created.boundingBox())!.y, 'the smooth scroll settles with the card below the header').toBeGreaterThanOrEqual(header.y + header.height);
 			await expect(created).not.toHaveClass(/just-saved/);
 		});
 
