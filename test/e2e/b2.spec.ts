@@ -46,7 +46,7 @@ test('B2: a member is saved with one game, synced in a popup, plays only that ga
 		await signInAtFakeEntra(admin, ADMIN_EMAIL);
 		await adminReady(admin);
 		await expect(admin.getByRole('heading', { name: 'Members' })).toBeVisible();
-		await expect(admin.getByRole('navigation', { name: 'Admin' })).toContainText(ADMIN_EMAIL);
+		await expect(admin.getByRole('button', { name: `Account, signed in as ${ADMIN_EMAIL}` })).toBeVisible();
 	});
 
 	await test.step('a member is saved with one game ticked and nothing else', async () => {

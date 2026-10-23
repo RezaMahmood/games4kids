@@ -30,7 +30,7 @@ function pausedById(raw: unknown): ReadonlyMap<string, boolean> {
 }
 
 /** Updates the row in place, so the button keeps focus after a change. */
-function row(id: string, title: string, initial: boolean): HTMLLIElement {
+function row(id: string, title: string, initial: boolean, adminPath: string | null): HTMLLIElement {
 	let paused = initial;
 	const badge = el('span', { class: 'badge', id: `${id}-state` });
 	const toggle = el('button', { type: 'button', class: 'g4k-button quiet', 'aria-describedby': badge.id });
@@ -57,14 +57,16 @@ function row(id: string, title: string, initial: boolean): HTMLLIElement {
 		}
 	});
 	draw();
-	return el('li', { class: 'game' }, el('span', { class: 'title' }, title), badge, toggle);
+	const titleCell = el('span', { class: 'title', id: `${id}-title` }, title);
+	const open = adminPath ? [el('a', { class: 'g4k-button quiet open-admin', href: adminPath, 'aria-describedby': titleCell.id }, 'Open admin')] : [];
+	return el('li', { class: 'game' }, titleCell, badge, ...open, toggle);
 }
 
 try {
 	const paused = pausedById(await api.get<unknown>('games'));
 	const rows = catalog.flatMap((game) => {
 		const state = paused.get(game.id);
-		return state === undefined ? [] : [row(game.id, game.title, state)];
+		return state === undefined ? [] : [row(game.id, game.title, state, game.hasAdmin ? game.path : null)];
 	});
 	list.replaceChildren(...(rows.length > 0 ? rows : [el('li', { class: 'empty' }, 'No games are registered yet.')]));
 	say('');
