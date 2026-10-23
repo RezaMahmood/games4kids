@@ -9,18 +9,26 @@ export const HOLD_MS = 800;
  */
 export function holdToPress(button, run, ms = HOLD_MS) {
   let timer = 0;
+  let at = { x: 0, y: 0 };
   button.style.setProperty('--hold', `${ms}ms`);
   const stop = () => {
     clearTimeout(timer);
     button.removeAttribute('data-holding');
   };
+  // The page may change under a held finger: the timer ends the attempt, or a question opens over it.
+  const stillHeld = () => !button.disabled && button.contains(document.elementFromPoint(at.x, at.y));
   button.addEventListener('pointerdown', (event) => {
+    stop();
     if (button.disabled || event.button !== 0) return;
+    at = { x: event.clientX, y: event.clientY };
     button.setAttribute('data-holding', '');
     timer = setTimeout(() => {
       stop();
-      run();
+      if (stillHeld()) run();
     }, ms);
+  });
+  button.addEventListener('pointermove', (event) => {
+    at = { x: event.clientX, y: event.clientY };
   });
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, stop);
   button.addEventListener('contextmenu', (event) => event.preventDefault());

@@ -162,6 +162,8 @@ test('a child traces what an admin wrote and finds it in their progress, and the
 		expect(await strokeCount(kid), 'a tap on Clear keeps the writing').toBe(1);
 		await kid.locator('#clear').hover();
 		await kid.mouse.down();
+		await kid.waitForTimeout(400);
+		expect(await strokeCount(kid), 'Clear waits for the hold').toBe(1);
 		await expect.poll(() => strokeCount(kid), 'holding Clear wipes the page').toBe(0);
 		await kid.mouse.up();
 		await draw(kid, await outlineStrokes(kid));

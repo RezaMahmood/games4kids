@@ -602,9 +602,9 @@ function render() {
   renderClock();
   renderCopyStatus(state);
 
-  // While the pencil is on the page, the paper takes the space the results will need afterwards.
-  $('result').hidden = tracing || phase === 'copying';
+  $('result').toggleAttribute('data-writing', tracing || phase === 'copying');
   if (tracing) {
+    show('idle', '', '', '', '');
     $('save-status').hidden = true;
     return;
   }

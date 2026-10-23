@@ -158,6 +158,8 @@ body:has(#trace-screen:not([hidden])) :is(portal-bar, .bar) { display: none; }
 /* A finger pans the sheet vertically; the pen draws (ink.js cancels Apple Pencil touches so they never scroll). */
 #sheet { display: block; width: 100%; height: auto; touch-action: pan-y; cursor: crosshair; }
 
+/* While the pencil is on the page the paper takes the results' space. The box stays for screen readers, so the score is announced when it arrives, and a failed save with its Retry still shows. */
+#result[data-writing]:not(:has(#save-status[data-tone="error"]:not([hidden]))) { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
 #result { display: flex; align-items: center; justify-content: center; gap: 20px; min-height: 84px; margin: 6px 16px 0; padding: 8px 24px; color: var(--muted); background: var(--paper); border: 3px solid var(--line); border-radius: 22px; }
 #score { font-family: var(--round); font-size: 52px; line-height: 1; min-width: 2ch; text-align: center; }
 #score:not(:empty) { display: grid; place-items: center; min-width: 96px; height: 96px; margin: -4px 0; border-radius: 50%; background: var(--muted); color: #fff; }
