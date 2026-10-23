@@ -575,3 +575,159 @@ test('while the AI works on one round, the other cards keep their pictures on sc
 	await page.unroute(ROUNDS_API);
 	expect(problems).toEqual([]);
 });
+
+/** On a new topic's page, has the fake AI draft `count` rounds, which all come with a picture. */
+async function topicWithDrafts(page: Page, count: number): Promise<void> {
+	await newTopic(page);
+	for (let made = 1; made <= count; made++) {
+		await page.getByRole('button', { name: 'Draft with AI' }).click();
+		await expect(page.locator('#rounds .badge.draft')).toHaveCount(made);
+	}
+}
+
+const ROUNDS_LIST_API = /\/api\/admin\/g\/timedetectives\/topics\/[0-9a-f-]{36}\/rounds$/;
+const pickOf = (page: Page, index: number) => page.locator('#rounds .round-card').nth(index).locator('.pick input');
+const toolbar = (page: Page) => page.getByRole('group', { name: 'Actions for the chosen rounds' });
+const bulkButton = (page: Page, name: string) => toolbar(page).getByRole('button', { name, exact: true });
+
+for (const { name, width, options } of SIZES) {
+	test(`${name}, several rounds are published, unpublished and deleted together from the topic page`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		const problems = collectProblems([page]);
+		let dialogs = 0;
+		page.on('dialog', () => dialogs++);
+		await topicWithDrafts(page, 3);
+		await expect(bulkButton(page, 'Publish')).toBeDisabled();
+		await expect(bulkButton(page, 'Unpublish')).toBeDisabled();
+		await expect(page.locator('#bulk-delete')).toBeDisabled();
+		await expect(page.locator('#bulk-count')).toHaveText('None selected');
+		const target = await page.locator('#rounds .pick').first().boundingBox();
+		expect(target?.width).toBeGreaterThanOrEqual(44);
+		expect(target?.height).toBeGreaterThanOrEqual(44);
+		await expect(page.getByRole('checkbox', { name: 'Select The raid on Lindisfarne' })).toHaveCount(3);
+		await shot(page, `bulk/list-${width}`);
+
+		await pickOf(page, 0).check();
+		await pickOf(page, 1).check();
+		await expect(page.locator('#bulk-count')).toHaveText('2 selected');
+		await expect(bulkButton(page, 'Unpublish')).toBeDisabled();
+		await shot(page, `bulk/two-selected-${width}`);
+		await bulkButton(page, 'Publish').click();
+		await expect(page.getByRole('status')).toHaveText('Published 2.');
+		await expect(page.locator('#rounds .badge.published')).toHaveCount(2);
+		await expect(page.locator('#rounds .badge.draft')).toHaveCount(1);
+		await expect(page.locator('#bulk-count')).toHaveText('None selected');
+		await expect(pickOf(page, 0)).not.toBeChecked();
+		await shot(page, `bulk/published-${width}`);
+
+		await page.locator('#bulk-all').check();
+		await expect(page.locator('#bulk-count')).toHaveText('3 selected');
+		await expect(bulkButton(page, 'Publish')).toBeEnabled();
+		await expect(bulkButton(page, 'Unpublish')).toBeEnabled();
+		await page.locator('#bulk-all').uncheck();
+		await expect(page.locator('#bulk-count')).toHaveText('None selected');
+		await pickOf(page, 0).check();
+		await pickOf(page, 1).check();
+		await pickOf(page, 2).check();
+		await bulkButton(page, 'Unpublish').click();
+		await expect(page.getByRole('status')).toHaveText('Unpublished 2.');
+		await expect(page.locator('#rounds .badge.draft')).toHaveCount(3);
+
+		await pickOf(page, 0).check();
+		await pickOf(page, 2).check();
+		await page.locator('#bulk-delete').click();
+		await expect(page.getByText('Delete 2 rounds? This cannot be undone.')).toBeVisible();
+		await expect(page.locator('#bulk-delete')).toBeHidden();
+		await shot(page, `bulk/confirm-delete-${width}`);
+		await bulkButton(page, 'Cancel').click();
+		await expect(page.locator('#rounds .round-card')).toHaveCount(3);
+		await expect(page.locator('#bulk-count')).toHaveText('2 selected');
+		await expect(page.locator('#bulk-delete')).toBeVisible();
+
+		await page.locator('#bulk-delete').click();
+		await page.locator('#bulk-confirm-yes').click();
+		await expect(page.getByRole('status')).toHaveText('Deleted 2.');
+		await expect(page.locator('#rounds .round-card')).toHaveCount(1);
+		await expect(page.locator('#bulk-count')).toHaveText('None selected');
+		await shot(page, `bulk/deleted-${width}`);
+		await pickOf(page, 0).check();
+		await page.locator('#bulk-delete').click();
+		await page.locator('#bulk-confirm-yes').click();
+		await expect(page.locator('#rounds-empty')).toBeVisible();
+		await expect(toolbar(page)).toBeHidden();
+		expect(dialogs, 'no browser dialog').toBe(0);
+		expect(problems).toEqual([]);
+		await page.context().close();
+	});
+
+	test(`${name}, a bulk publish reports a draft without a picture and a round another admin changed, and still publishes the rest`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await topicWithDrafts(page, 3);
+		let unpictured = '';
+		await page.route(ROUNDS_LIST_API, async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			const reply = await route.fetch();
+			const body = (await reply.json()) as { rounds: { id: string; hasPicture: boolean }[] };
+			unpictured ||= body.rounds[0]?.id ?? '';
+			return route.fulfill({ response: reply, json: { rounds: body.rounds.map((round) => (round.id === unpictured ? { ...round, hasPicture: false } : round)) } });
+		});
+		await page.reload();
+		await adminReady(page);
+		await expect(page.locator('#rounds .round-card')).toHaveCount(3);
+		await expect(page.locator('#rounds .round-card').first()).toContainText('Needs a picture');
+		const other = await page.context().newPage();
+		await other.goto(page.url());
+		await adminReady(other);
+		await other.locator('#rounds .round-card').nth(1).getByRole('link', { name: /Review and publish/ }).click();
+		await other.locator('#r-brief').fill('A change nobody has checked.');
+		await other.getByRole('button', { name: 'Save', exact: true }).click();
+		await expect(other.getByRole('status')).toHaveText('Saved.');
+		await other.close();
+
+		await page.locator('#bulk-all').check();
+		await bulkButton(page, 'Publish').click();
+		const status = page.getByRole('status');
+		await expect(status).toContainText('Published 1. 2 were not published:');
+		await expect(status).toContainText('The raid on Lindisfarne needs a picture.');
+		await expect(status).toContainText('The raid on Lindisfarne: Someone else changed this since you loaded it.');
+		await expect(page.locator('#rounds .badge.published')).toHaveCount(1);
+		await shot(page, `bulk/reported-${width}`);
+		await page.unroute(ROUNDS_LIST_API);
+		await page.context().close();
+	});
+
+	test(`${name}, the chosen rounds stay chosen through the list's polls, and a round the AI is working on cannot be chosen`, async ({ browser }) => {
+		const page = await adminPage(browser, options);
+		await topicWithDrafts(page, 2);
+		await page.route(ROUNDS_LIST_API, async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			const reply = await route.fetch();
+			const body = (await reply.json()) as { rounds: Record<string, unknown>[] };
+			const drawing = { ...body.rounds[0], id: '00000000-0000-4000-8000-000000000001', hasPicture: false, state: { kind: 'drafting', focus: 'Jorvik', source: 'ai' } };
+			return route.fulfill({ response: reply, json: { rounds: [...body.rounds, drawing] } });
+		});
+		let polls = 0;
+		page.on('response', (response) => {
+			if (ROUNDS_LIST_API.test(response.url())) polls++;
+		});
+		await page.reload();
+		await adminReady(page);
+		await expect(page.locator('#rounds .round-card')).toHaveCount(3);
+		await expect(pickOf(page, 2)).toBeDisabled();
+		await pickOf(page, 1).check();
+		await pickOf(page, 1).focus();
+		const thumb = page.locator('#rounds img.thumb').first();
+		await thumb.evaluate((img) => ((img as HTMLImageElement & { marked?: boolean }).marked = true));
+		const seen = polls;
+		await expect.poll(() => polls, { timeout: 15_000 }).toBeGreaterThanOrEqual(seen + 2);
+		await expect(pickOf(page, 1)).toBeChecked();
+		await expect(pickOf(page, 1)).toBeFocused();
+		await expect(page.locator('#bulk-count')).toHaveText('1 selected');
+		expect(await thumb.evaluate((img) => Boolean((img as HTMLImageElement & { marked?: boolean }).marked)), 'the same picture element survives each poll').toBe(true);
+		await page.locator('#bulk-all').check();
+		await expect(page.locator('#bulk-count')).toHaveText('2 selected');
+		await shot(page, `bulk/after-poll-${width}`);
+		await page.unroute(ROUNDS_LIST_API);
+		await page.context().close();
+	});
+}

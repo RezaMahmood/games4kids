@@ -239,6 +239,7 @@ function roundCard(round) {
   const href = `#round/${round.id}`;
   const action = ROUND_ACTIONS[kind];
   return h('li', { className: 'card round-card' },
+    pickBox(round),
     round.hasPicture ? thumbFor(round) : h('span', { className: 'thumb empty', ariaHidden: 'true' }),
     h('div', { className: 'round-body' },
       h('a', { className: 'card-title', href, textContent: roundTitle(round) }),
@@ -261,9 +262,117 @@ function renderTopicCost(rounds) {
   $('topic-cost-deleted').textContent = `Includes ${estimateText(deleted)} spent on rounds since deleted.`;
 }
 
+/* Choosing several rounds to publish, unpublish or delete together */
+
+/** @type {(import('./api.js').Round | import('./api.js').Broken)[]} */
+let listed = [];
+/** Ids of the chosen rounds. Kept across the list's redraws, and emptied after an action. */
+const selected = new Set();
+let confirmingDelete = false;
+let bulkBusy = false;
+const BATCH = 3;
+
+const pickable = (round) => !atWork(round);
+const chosen = () => listed.filter((round) => selected.has(round.id));
+
+function pickBox(round) {
+  const input = h('input', { type: 'checkbox', checked: selected.has(round.id), disabled: !pickable(round) || bulkBusy, ariaLabel: `Select ${roundTitle(round)}` });
+  input.addEventListener('change', () => {
+    selected[input.checked ? 'add' : 'delete'](round.id);
+    renderBulk();
+  });
+  input.dataset.roundId = round.id;
+  return h('label', { className: 'pick' }, input);
+}
+
+function renderBulk() {
+  const mine = chosen();
+  const all = listed.filter(pickable);
+  if (mine.length === 0) confirmingDelete = false;
+  $('bulk-bar').hidden = listed.length === 0;
+  const selectAll = $('bulk-all');
+  selectAll.disabled = all.length === 0 || bulkBusy;
+  selectAll.checked = all.length > 0 && mine.length === all.length;
+  selectAll.indeterminate = mine.length > 0 && mine.length < all.length;
+  $('bulk-count').textContent = mine.length ? `${mine.length} selected` : 'None selected';
+  const can = (test) => !bulkBusy && mine.some(test);
+  $('bulk-publish').disabled = !can((round) => round.state?.kind === 'draft' && round.hasPicture);
+  $('bulk-unpublish').disabled = !can((round) => round.state?.kind === 'published');
+  $('bulk-delete').disabled = !can(() => true);
+  $('bulk-delete').hidden = confirmingDelete;
+  $('bulk-confirm').hidden = !confirmingDelete;
+  $('bulk-confirm-text').textContent = `Delete ${plural(mine.length, 'round', 'rounds')}? This cannot be undone.`;
+  $('bulk-confirm-yes').disabled = bulkBusy;
+  $('bulk-confirm-no').disabled = bulkBusy;
+}
+
+/** Runs `work` on every item, `BATCH` at a time. Each result says whether that item worked, and why not when it did not. */
+async function inBatches(items, work) {
+  const results = [];
+  for (let i = 0; i < items.length; i += BATCH) {
+    results.push(...(await Promise.all(items.slice(i, i + BATCH).map((item) => work(item).then(() => ({ item }), (error) => ({ item, error }))))));
+  }
+  return results;
+}
+
+const BULK = {
+  publish: {
+    applies: (round) => round.state?.kind === 'draft',
+    done: 'Published',
+    not: 'published',
+    run: async (round) => {
+      if (!round.hasPicture) throw new Error(`${roundTitle(round)} needs a picture.`);
+      await api.publish(round.id, round.etag);
+    },
+  },
+  unpublish: { applies: (round) => round.state?.kind === 'published', done: 'Unpublished', not: 'unpublished', run: (round) => api.unpublish(round.id) },
+  delete: { applies: () => true, done: 'Deleted', not: 'deleted', run: (round) => api.remove(round.id) },
+};
+
+/** One line naming how many worked and, for each round that did not, which and why. */
+function bulkOutcome({ done, not }, results) {
+  const failed = results.filter((result) => result.error);
+  const worked = results.length - failed.length;
+  const reasons = failed.map(({ item, error }) => (error.message.startsWith(roundTitle(item)) ? error.message : `${roundTitle(item)}: ${error.message}`));
+  return {
+    text: [worked ? `${done} ${worked}.` : '', failed.length ? `${failed.length} ${failed.length === 1 ? 'was' : 'were'} not ${not}: ${reasons.join(' ')}` : ''].filter(Boolean).join(' '),
+    tone: failed.length ? 'error' : 'ok',
+  };
+}
+
+async function bulk(action) {
+  const rule = BULK[action];
+  const targets = chosen().filter(rule.applies);
+  if (targets.length === 0 || bulkBusy) return;
+  bulkBusy = true;
+  confirmingDelete = false;
+  renderBulk();
+  try {
+    const results = await whileLoading(inBatches(targets, rule.run));
+    selected.clear();
+    const { text, tone } = bulkOutcome(rule, results);
+    await loadRounds().catch((err) => status(err.message, 'error'));
+    status(text, tone);
+  } finally {
+    bulkBusy = false;
+    renderRoundList();
+    refocus($('bulk-all'), $('topic-heading'));
+  }
+}
+
+/** Redraws the cards and the toolbar from the last list, keeping focus on the same round's checkbox. */
+function renderRoundList() {
+  const focused = document.activeElement?.dataset?.roundId;
+  $('rounds').replaceChildren(...listed.map(roundCard));
+  renderBulk();
+  if (focused) $('rounds').querySelector(`input[data-round-id="${focused}"]`)?.focus();
+}
+
 async function loadRounds() {
   const [rounds] = await Promise.all([api.rounds(topic.id), loadCosts()]);
-  $('rounds').replaceChildren(...rounds.map(roundCard));
+  listed = rounds;
+  for (const id of selected) if (!listed.some((round) => round.id === id && pickable(round))) selected.delete(id);
+  renderRoundList();
   renderTopicCost(rounds);
   $('rounds-empty').hidden = rounds.length > 0;
   return rounds;
@@ -280,6 +389,10 @@ async function openTopic(id) {
   $('topic-heading').textContent = topic.title;
   $('topic-guidance').textContent = topic.guidance;
   $('topic-cost').hidden = true;
+  selected.clear();
+  listed = [];
+  confirmingDelete = false;
+  renderBulk();
   show('topic-view');
   const rounds = await whileLoading(loadRounds());
   if (drafting(rounds)) pollWhile(loadRounds, drafting);
@@ -603,6 +716,23 @@ $('t-cancel').addEventListener('click', () => {
 });
 $('topic-form').addEventListener('submit', saveTopic);
 $('draft-form').addEventListener('submit', draftRound);
+$('bulk-all').addEventListener('change', () => {
+  const method = $('bulk-all').checked ? 'add' : 'delete';
+  for (const round of listed.filter(pickable)) selected[method](round.id);
+  renderRoundList();
+});
+for (const action of ['publish', 'unpublish']) $(`bulk-${action}`).addEventListener('click', () => bulk(action));
+$('bulk-delete').addEventListener('click', () => {
+  confirmingDelete = true;
+  renderBulk();
+  $('bulk-confirm-no').focus();
+});
+$('bulk-confirm-yes').addEventListener('click', () => bulk('delete'));
+$('bulk-confirm-no').addEventListener('click', () => {
+  confirmingDelete = false;
+  renderBulk();
+  $('bulk-delete').focus();
+});
 $('write').addEventListener('click', () => (location.hash = `#new/${topic.id}`));
 $('round-form').addEventListener('submit', saveRound);
 $('round-form').addEventListener('input', () => {

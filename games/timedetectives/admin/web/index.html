@@ -60,6 +60,20 @@
           </div>
         </form>
         <h2>Rounds</h2>
+        <div id="bulk-bar" class="panel" role="group" aria-label="Actions for the chosen rounds" hidden>
+          <label class="pick-all"><input id="bulk-all" type="checkbox"> Select all</label>
+          <span id="bulk-count" aria-live="polite"></span>
+          <div class="actions">
+            <button id="bulk-publish" type="button" class="primary">Publish</button>
+            <button id="bulk-unpublish" type="button">Unpublish</button>
+            <button id="bulk-delete" type="button" class="danger">Delete</button>
+            <div id="bulk-confirm" class="actions" hidden>
+              <p id="bulk-confirm-text"></p>
+              <button id="bulk-confirm-yes" type="button" class="danger">Delete</button>
+              <button id="bulk-confirm-no" type="button">Cancel</button>
+            </div>
+          </div>
+        </div>
         <ul id="rounds" class="cards"></ul>
         <p id="rounds-empty" class="note" hidden>No rounds yet.</p>
       </section>
