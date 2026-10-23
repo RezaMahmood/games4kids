@@ -330,11 +330,12 @@ test('an admin drafts a round with AI through the worker, with the platform toke
 	const picture = await s.asAdmin('GET', `rounds/${round.id}/picture`);
 	assert.equal(picture.headers['content-type'], 'image/png');
 	assert.deepEqual([...(picture.body as Uint8Array).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
-	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number; published: number }[] }).topics.map(({ title, rounds, published }) => [title, rounds, published]), [['Vikings', 1, 0]]);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { title: string; rounds: number; published: number; drafts: number }[] }).topics.map(({ title, rounds, published, drafts }) => [title, rounds, published, drafts]), [['Vikings', 1, 0, 1]]);
 
 	assert.deepEqual((await s.asAda('GET', 'topics')).data, { topics: [] });
 	assert.equal((await s.asAda('GET', `rounds/${round.id}/picture`)).status, 404);
 	assert.equal((await s.publish(round.id)).status, 200);
+	assert.deepEqual(((await s.asAdmin('GET', 'topics')).data as { topics: { published: number; drafts: number }[] }).topics.map(({ published, drafts }) => [published, drafts]), [[1, 0]]);
 	assert.deepEqual(((await s.asAda('GET', 'topics')).data as { topics: { title: string }[] }).topics.map((t) => t.title), ['Vikings']);
 	assert.equal(((await s.asAda('GET', `topics/${topic}/next?confidence=easy`)).data as View).id, round.id);
 	assert.deepEqual(s.exceptions, []);
@@ -443,8 +444,7 @@ test('an answer that is not a usable round is asked for once more, then fails th
 });
 
 const checked = { TIMEDETECTIVES_FOUNDRY_ENDPOINT: foundry.origin, TIMEDETECTIVES_TYPESAFE_API_KEY: 'ts-key', TIMEDETECTIVES_TYPESAFE_ENDPOINT: typesafe.origin };
-const BRIEF_GIVEAWAY = 'the brief gives away the who answer "Vikings"';
-const checkDown = 'The automatic check could not run, so read this round carefully before publishing.';
+const BRIEF_GIVEAWAY = { field: 'brief', problem: 'give away the answer to "Who is it?"', sure: true };
 
 test('a clean round is checked once with the key and is a draft with no notice, and without a key nothing is checked', async () => {
 	const s = await setup(checked);
@@ -473,37 +473,60 @@ test('a brief that gives the answer away is sent back to the chat model, and the
 	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
 });
 
-test('a failure that outlasts the second ask leaves a draft whose notice names it, and the notice survives the picture step', async () => {
+test('a failure that outlasts the second ask leaves a draft with a sure finding on its field, kept apart from a picture notice', async () => {
 	const s = await setup(checked);
 	const topic = await adminTopic(s);
 	const before = foundry.calls.length;
 	typesafe.setBad({ who_brief: 0.9 }, 2);
 	const round = await drafted(s, topic);
 	assert.deepEqual(callsSince(before), [CHAT, CHAT, IMAGE]);
-	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: `Check this round before publishing: ${BRIEF_GIVEAWAY}.` });
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [BRIEF_GIVEAWAY] });
 
 	typesafe.setBad({ who_brief: 0.9 }, 2);
 	foundry.refuseNext(1);
 	const unpictured = await drafted(s, topic);
-	assert.deepEqual([unpictured.state.kind, unpictured.hasPicture], ['draft', false]);
-	assert.equal((unpictured.state as { notice: string }).notice, `Check this round before publishing: ${BRIEF_GIVEAWAY}. ${PICTURE_REFUSED}`);
+	assert.deepEqual([unpictured.state, unpictured.hasPicture], [{ kind: 'draft', content: ROUND, source: 'ai', notice: PICTURE_REFUSED, checks: [BRIEF_GIVEAWAY] }, false]);
 
-	const published = await s.asAdmin('PUT', `rounds/${unpictured.id}`, { json: { content: ROUND, etag: unpictured.etag } });
-	assert.equal((published.data as { state: { notice?: string } }).state.notice, undefined, 'an admin edit clears the notice');
+	const saved = await s.asAdmin('PUT', `rounds/${unpictured.id}`, { json: { content: VIKING_ROUND, etag: unpictured.etag } });
+	assert.deepEqual((saved.data as AdminRound).state, { kind: 'draft', content: ROUND, source: 'human', checks: [BRIEF_GIVEAWAY] }, 'an admin edit clears the notice and keeps the finding');
 });
 
-test('an uncertain decoy gives a draft with a notice and no new ask', async () => {
+test('a finding goes when the admin changes its field, the others stay through edits, uploads and redraws, and publishing ends them', async () => {
+	const s = await setup(checked);
+	const topic = await adminTopic(s);
+	typesafe.setBad({ who_hint: 0.9, where_hint: 0.5 }, 2);
+	const round = await drafted(s, topic);
+	const whereHint = { field: 'where-hint', problem: 'give the answer away', sure: false };
+	assert.deepEqual((round.state as { checks: unknown }).checks, [{ field: 'who-hint', problem: 'give the answer away', sure: true }, whereHint]);
+
+	const content = { ...VIKING_ROUND, questions: VIKING_ROUND.questions.map((q) => (q.kind === 'who' ? { ...q, hint: 'Who came over the sea?' } : q)) };
+	const edited = (await s.asAdmin('PUT', `rounds/${round.id}`, { json: { content, etag: round.etag } })).data as AdminRound;
+	assert.deepEqual((edited.state as { checks: unknown }).checks, [whereHint]);
+	const uploaded = (await s.asAdmin('POST', `rounds/${round.id}/picture/png`, { png: PNG })).data as AdminRound;
+	assert.deepEqual((uploaded.state as { checks: unknown }).checks, [whereHint], 'an upload keeps the findings');
+	assert.equal((await s.asAdmin('POST', `rounds/${round.id}/redraw`)).status, 202);
+	await s.settled();
+	const redrawn = await s.adminRound(round.id);
+	assert.deepEqual((redrawn.state as { checks: unknown }).checks, [whereHint], 'a redraw keeps the findings');
+
+	const live = (await s.publish(round.id)).data as AdminRound;
+	assert.equal(live.state.kind, 'published');
+	assert.equal('checks' in live.state, false);
+	const back = (await s.asAdmin('POST', `rounds/${round.id}/unpublish`)).data as AdminRound;
+	assert.deepEqual(back.state, { kind: 'draft', content: (live.state as { content: RoundContent }).content, source: 'human' }, 'unpublishing does not bring them back');
+});
+
+test('an uncertain decoy gives a draft with an unsure finding and no new ask', async () => {
 	const s = await setup(checked);
 	const topic = await adminTopic(s);
 	const before = foundry.calls.length;
 	typesafe.setBad({ where_decoy_2: 0.5 });
 	const round = await drafted(s, topic);
 	assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
-	assert.equal(round.state.kind, 'draft');
-	assert.equal((round.state as { notice: string }).notice, 'Check this round before publishing: the story supports the where decoy "Stonehenge", so it is not clearly wrong.');
+	assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: [{ field: 'where-decoy-1', problem: 'be true in the story too, so it is not clearly wrong', sure: false }] });
 });
 
-test('a check that cannot run leaves a draft with a notice and neither retries nor fails the round', async () => {
+test('a check that cannot run leaves a draft marked not-run with no notice, and neither retries nor fails the round', async () => {
 	for (const status of [500, 401]) {
 		const s = await setup(checked);
 		const topic = await adminTopic(s);
@@ -513,7 +536,7 @@ test('a check that cannot run leaves a draft with a notice and neither retries n
 		const round = await drafted(s, topic);
 		assert.deepEqual(callsSince(before), [CHAT, IMAGE]);
 		assert.equal(typesafe.calls.length - calls, 1);
-		assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', notice: checkDown });
+		assert.deepEqual(round.state, { kind: 'draft', content: ROUND, source: 'ai', checks: 'not-run' });
 		assert.ok(s.logs.some((line) => line.includes('could not be checked') && line.includes(String(status))));
 	}
 });

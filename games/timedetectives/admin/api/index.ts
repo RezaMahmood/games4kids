@@ -2,6 +2,7 @@ import { defineAdminApi, HttpError, type AdminPlatform, type AdminRoute } from '
 import {
 	adminStore,
 	imageReply,
+	keptChecks,
 	nothingHere,
 	parseFocus,
 	parseRoundContent,
@@ -30,8 +31,8 @@ const CHANGED = 'Someone else changed this since you loaded it. Reload to see th
 const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', 'The request is not valid.', problems);
 const changed = () => new HttpError(412, 'changed', CHANGED);
 const busy = () => new HttpError(409, 'busy', 'The AI is still working on this round, or could not write it.');
-/** The admin acted on the round, so a notice about the AI's last picture no longer applies. */
-const acted = (state: Settled): Settled => (state.kind === 'draft' ? { kind: 'draft', content: state.content, source: state.source } : state);
+/** The admin acted on the round, so a notice about the AI's last picture no longer applies. The check's findings stay. */
+const acted = (state: Settled): Settled => (state.kind === 'draft' ? { kind: 'draft', content: state.content, source: state.source, ...(state.checks && { checks: state.checks }) } : state);
 const field = (body: unknown, name: string): unknown => (typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined);
 
 function etagOf(body: unknown, what: string): string {
@@ -43,7 +44,8 @@ function etagOf(body: unknown, what: string): string {
 const topicView = ({ topic, etag }: StoredTopic, { rounds, broken }: RoundRows) => {
 	const mine = rounds.filter(({ round }) => round.topicId === topic.id);
 	const damaged = broken.filter((round) => round.topicId === topic.id).length;
-	return { ...topic, etag, rounds: mine.length + damaged, published: mine.filter(({ round }) => round.state.kind === 'published').length };
+	const count = (kind: RoundState['kind']) => mine.filter(({ round }) => round.state.kind === kind).length;
+	return { ...topic, etag, rounds: mine.length + damaged, published: count('published'), drafts: count('draft') };
 };
 
 const roundView = ({ round: { picturePrompt: _prompt, picture, ...round }, etag }: StoredRound) => ({ ...round, hasPicture: picture !== undefined, etag });
@@ -269,7 +271,10 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const state = settled(found);
 					const content = parseRoundContent(field(body, 'content'));
 					if (!content.ok) throw invalid(content.problems);
-					const next: RoundState = { ...acted(state), content: content.value, source: 'human' };
+					const checks = state.kind === 'draft' ? keptChecks(state.checks, state.content, content.value) : undefined;
+					const next: RoundState = state.kind === 'draft'
+						? { kind: 'draft', content: content.value, source: 'human', ...(checks && { checks }) }
+						: { ...state, content: content.value, source: 'human' };
 					// Once the admin rewrites the picture description, the next redraw draws from it instead of the AI's own prompt.
 					const { picturePrompt: _prompt, ...rest } = found.round;
 					const kept = content.value.pictureAlt === state.content.pictureAlt ? found.round : rest;
@@ -322,7 +327,7 @@ export const createAdminApi = defineAdminApi(manifest, (platform) => {
 					const state = settled(found);
 					if (state.kind === 'published') throw new HttpError(409, 'published', 'Unpublish the round before redrawing its picture, so children only see a picture you have checked.');
 					await guardDrafting(now);
-					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content };
+					const next: RoundState = { kind: 'drafting', focus: '', source: state.source, content: state.content, ...(state.checks && { checks: state.checks }) };
 					const saved = await replaced({ ...found.round, state: next, updatedAt: now.toISOString() }, found.etag);
 					return { status: 202, json: roundView(await queue(saved, found.round)) };
 				},

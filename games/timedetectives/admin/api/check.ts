@@ -1,4 +1,4 @@
-import { isRecord, KINDS, QUESTION_KINDS, type QuestionKind, type RoundContent } from '../../data/index.ts';
+import { fieldText, isRecord, KINDS, QUESTION_KINDS, type FieldRef, type Finding, type QuestionKind, type RoundContent } from '../../data/index.ts';
 
 /** A check at or above this chance of being bad is sent back to the writer. */
 export const FAIL_AT = 0.7;
@@ -13,9 +13,8 @@ export type TypeSafeDeps = { endpoint: string; apiKey: string; timeoutMs?: numbe
 export class CheckFailure extends Error {}
 
 export type Answer = { type: 'noul'; noul: number } | { type: 'choice'; probabilities: Record<string, number> };
-/** One check: the question sent, how to read a "this is bad" probability out of its answer, and the words for the problem. */
-export type Check = { id: string; question: object; bad: (answer: Answer) => number; problem: string };
-export type Verdicts = { fails: string[]; unsure: string[] };
+/** One check: the field it reads, the question sent, how to read a "this is bad" probability out of its answer, and the problem in words that follow "seems to" or "might". */
+export type Check = { id: string; field: FieldRef; question: object; bad: (answer: Answer) => number; problem: string };
 
 const RELATION = { supports: 'the story says it is true', contradicts: 'the story says it is false', says_nothing: 'the story does not mention it' };
 /** Without these, Jev reads a hint that points at the story ("the story names the island") as giving the answer away. */
@@ -55,45 +54,57 @@ function checksOfKind(kind: QuestionKind, content: RoundContent): Check[] {
 	const path = `questions.${kind}`;
 	const claim = (at: string) => `the answer to "${label}" is \`${at}\``;
 	return [
-		{ id: `${kind}_answer`, question: relation(claim(`${path}.answer`)), bad: (a) => 1 - supports(a), problem: `the story never says the ${kind} answer "${question.answer}"` },
-		...question.decoys.map((decoy, i): Check => ({
+		{ id: `${kind}_answer`, field: `${kind}-answer`, question: relation(claim(`${path}.answer`)), bad: (a) => 1 - supports(a), problem: 'be missing from the story' },
+		...([0, 1, 2] as const).map((i): Check => ({
 			id: `${kind}_decoy_${i + 1}`,
+			field: `${kind}-decoy-${i}`,
 			question: relation(claim(`${path}.decoys[${i}]`)),
 			bad: supports,
-			problem: `the story supports the ${kind} decoy "${decoy}", so it is not clearly wrong`,
+			problem: 'be true in the story too, so it is not clearly wrong',
 		})),
 		{
 			id: `${kind}_brief`,
+			field: 'brief',
 			question: { type: 'noul', instructions: `Does \`brief\` name or directly reveal \`${path}.answer\`, the answer to "${label}"?` },
 			bad: gives,
-			problem: `the brief gives away the ${kind} answer "${question.answer}"`,
+			problem: `give away the answer to "${label}"`,
 		},
 		{
 			id: `${kind}_hint`,
+			field: `${kind}-hint`,
 			question: { type: 'noul', instructions: `Does \`${path}.hint\` give away \`${path}.answer\`, the answer to "${label}"?`, criteria: HINT },
 			bad: gives,
-			problem: `the ${kind} hint gives away the answer "${question.answer}"`,
+			problem: 'give the answer away',
 		},
 	];
 }
 
 export const checksFor = (content: RoundContent): Check[] => KINDS.flatMap((kind) => checksOfKind(kind, content));
 
-/** Reads each check's answer by its id. A missing or malformed answer is a failed check run, never a pass. */
-export function judge(checks: Check[], answers: unknown): Verdicts {
-	const verdicts: Verdicts = { fails: [], unsure: [] };
+/**
+ * Reads each check's answer by its id, and gives a Finding for each check at or above UNSURE_AT, `sure` from FAIL_AT. A
+ * missing or malformed answer is a failed check run, never a pass.
+ */
+export function judge(checks: Check[], answers: unknown): Finding[] {
+	const findings: Finding[] = [];
 	for (const check of checks) {
 		const answer = isRecord(answers) ? parseAnswer(answers[check.id]) : undefined;
 		if (!answer) throw new CheckFailure(`the reply had no usable answer for ${check.id}`);
 		const bad = check.bad(answer);
-		if (bad >= FAIL_AT) verdicts.fails.push(check.problem);
-		else if (bad >= UNSURE_AT) verdicts.unsure.push(check.problem);
+		if (bad >= UNSURE_AT) findings.push({ field: check.field, problem: check.problem, sure: bad >= FAIL_AT });
 	}
-	return verdicts;
+	return findings;
+}
+
+/** A sure finding in words the chat model can act on, naming the field as its JSON names it. */
+export function forWriter({ field, problem }: Finding, content: RoundContent): string {
+	if (field === 'full' || field === 'brief') return `the ${field} seems to ${problem}`;
+	const [kind, part] = field.split('-');
+	return `the ${kind} ${part} "${fieldText(content, field)}" seems to ${problem}`;
 }
 
 /** Asks Jev all the checks of a round in one request. */
-export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Promise<Verdicts> {
+export async function checkRound(deps: TypeSafeDeps, content: RoundContent): Promise<Finding[]> {
 	const checks = checksFor(content);
 	const state = {
 		full: content.full,

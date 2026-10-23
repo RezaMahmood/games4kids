@@ -1,20 +1,66 @@
-import { CONFIDENCE, CONFIDENCES, isRecord, offeredChoices, QUESTION_KINDS, text, type Confidence, type Parsed, type QuestionKind, type RoundContent } from './content.ts';
+import { CONFIDENCE, CONFIDENCES, isRecord, KINDS, offeredChoices, QUESTION_KINDS, text, type Confidence, type Parsed, type QuestionKind, type RoundContent } from './content.ts';
 import type { PictureId, RoundId, TopicId } from './ids.ts';
 
 export type Topic = { id: TopicId; title: string; guidance: string; order: number };
 
 export type Source = 'ai' | 'human';
 
+/** A form field the admin can fix, named as the admin page names its inputs. */
+export type FieldRef = 'full' | 'brief' | `${QuestionKind}-answer` | `${QuestionKind}-hint` | `${QuestionKind}-decoy-${0 | 1 | 2}`;
+export const FIELD_REFS: readonly FieldRef[] = [
+	'full',
+	'brief',
+	...KINDS.flatMap((kind) => [`${kind}-answer`, `${kind}-hint`, `${kind}-decoy-0`, `${kind}-decoy-1`, `${kind}-decoy-2`] as const),
+];
+export const fieldRef = (raw: unknown): FieldRef | undefined => FIELD_REFS.find((field) => field === raw);
+
+export function fieldText(content: RoundContent, field: FieldRef): string {
+	if (field === 'full' || field === 'brief') return content[field];
+	const [kind, part, index] = field.split('-') as [QuestionKind, 'answer' | 'hint' | 'decoy', string?];
+	const question = content.questions.find((one) => one.kind === kind);
+	if (!question) return '';
+	return part === 'decoy' ? (question.decoys[Number(index)] ?? '') : question[part];
+}
+
+/**
+ * What the automatic check thinks might spoil the quiz in one field. `problem` follows "seems to" when `sure`, and
+ * "might" when not, as in "give the answer away".
+ */
+export type Finding = { field: FieldRef; problem: string; sure: boolean };
+/** The check's findings, or `not-run` when it could not give a verdict. A round never checked has none. */
+export type Checks = readonly Finding[] | 'not-run';
+
+export function parseChecks(raw: unknown): Checks | undefined {
+	if (raw === 'not-run') return raw;
+	if (!Array.isArray(raw)) return undefined;
+	const findings: Finding[] = [];
+	for (const item of raw) {
+		const field = isRecord(item) ? fieldRef(item['field']) : undefined;
+		if (!field || typeof item['problem'] !== 'string' || typeof item['sure'] !== 'boolean') return undefined;
+		findings.push({ field, problem: item['problem'], sure: item['sure'] });
+	}
+	return findings;
+}
+
+/** The findings that still apply after an edit: one whose field the admin changed is theirs to judge now. */
+export function keptChecks(checks: Checks | undefined, before: RoundContent, after: RoundContent): Checks | undefined {
+	if (checks === undefined || checks === 'not-run') return checks;
+	const kept = checks.filter(({ field }) => fieldText(before, field) === fieldText(after, field));
+	return kept.length > 0 ? kept : undefined;
+}
+
 /**
  * Where a round is in its life. The AI job lives here too, so there is no jobs table: `drafting` is queued for the
  * worker, and once it has content the words are written and only the picture is left to draw. The AI failing to
  * write the words leaves a `failed` round with nothing in it. The AI failing to draw a picture never loses the words
- * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came. A `notice` on `drafting` is the automatic check's finding on the words, kept until the draft is made.
+ * or the picture already there: the round is a `draft` again, with a `notice` that says why no new picture came, kept
+ * until the admin acts. `checks` is the automatic check's view of the words. It stays through edits and redraws, and
+ * publishing ends it.
  */
 export type RoundState =
-	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent; notice?: string }
+	| { kind: 'drafting'; focus: string; source: Source; content?: RoundContent; checks?: Checks }
 	| { kind: 'failed'; focus: string; source: Source; reason: string }
-	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string }
+	| { kind: 'draft'; content: RoundContent; source: Source; notice?: string; checks?: Checks }
 	| { kind: 'published'; content: RoundContent; source: Source; publishedAt: string };
 /** A round whose words are written and that the AI is not working on: it can be edited, published or given a picture. */
 export type Settled = Extract<RoundState, { kind: 'draft' | 'published' }>;

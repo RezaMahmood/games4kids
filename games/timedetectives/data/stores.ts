@@ -3,7 +3,7 @@ import type manifest from '../manifest.ts';
 import type { BoardEntry, Played } from './board.ts';
 import { isRecord, KINDS, parseRoundContent, type Confidence, type QuestionKind, type RoundContent } from './content.ts';
 import { pictureId, roundId, topicId, type PictureId, type RoundId, type TopicId } from './ids.ts';
-import type { Round, RoundState, Source, Topic } from './round.ts';
+import { parseChecks, type Checks, type Round, type RoundState, type Source, type Topic } from './round.ts';
 import type { AnswerLog } from './score.ts';
 
 type TimeDetectives = typeof manifest;
@@ -37,6 +37,7 @@ type RoundRow = {
 	focus?: string;
 	reason?: string;
 	notice?: string;
+	checks?: string;
 	content?: string;
 	publishedAt?: string;
 	picture?: string;
@@ -75,6 +76,20 @@ function storedContent(row: Row, problems: string[]): RoundContent | undefined {
 	return undefined;
 }
 
+function storedChecks(row: Row, problems: string[]): { checks?: Checks } {
+	const raw = row['checks'];
+	if (raw === undefined) return {};
+	let json: unknown = null;
+	try {
+		if (typeof raw === 'string') json = JSON.parse(raw);
+	} catch {
+		// Stays null, which parseChecks refuses.
+	}
+	const checks = parseChecks(json);
+	if (!checks) problems.push('checks must be a list of findings or "not-run"');
+	return checks ? { checks } : {};
+}
+
 function storedState(row: Row, problems: string[]): RoundState | undefined {
 	const kind = STATES.find((state) => state === row['state']);
 	const source = SOURCES.find((one) => one === row['source']);
@@ -88,15 +103,14 @@ function storedState(row: Row, problems: string[]): RoundState | undefined {
 	}
 	if (!source) return undefined;
 	switch (kind) {
-		case 'drafting': {
-			const notice = optionalText(row, 'notice', problems);
-			return { kind, focus, source, ...kept, ...(notice && { notice }) };
-		}
+		case 'drafting':
+			return { kind, focus, source, ...kept, ...storedChecks(row, problems) };
 		case 'failed':
 			return { kind, focus, source, reason: optionalText(row, 'reason', problems) ?? '' };
 		case 'draft': {
 			const notice = optionalText(row, 'notice', problems);
-			if (content) return { kind, content, source, ...(notice && { notice }) };
+			const checks = storedChecks(row, problems);
+			if (content) return { kind, content, source, ...(notice && { notice }), ...checks };
 			problems.push('a draft needs content');
 			return undefined;
 		}
@@ -144,7 +158,8 @@ function roundRow({ id, topicId, state, picture, picturePrompt, updatedAt }: Rou
 		source: state.source,
 		...job,
 		...(state.kind === 'failed' && { reason: state.reason }),
-		...((state.kind === 'draft' || state.kind === 'drafting') && state.notice && { notice: state.notice }),
+		...(state.kind === 'draft' && state.notice && { notice: state.notice }),
+		...((state.kind === 'draft' || state.kind === 'drafting') && state.checks && { checks: JSON.stringify(state.checks) }),
 		...content,
 		...(state.kind === 'published' && { publishedAt: state.publishedAt }),
 		...(picture && { picture }),
