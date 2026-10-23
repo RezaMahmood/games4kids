@@ -1,4 +1,4 @@
-import { definePlayApi, HttpError } from '@g4k/sdk';
+import { definePlayApi, HttpError, type UsageSubject } from '@g4k/sdk';
 import { buildBoard, daysEndingAt, isGuid, isPng, KEEP_PER_ACTIVITY, MAX_IMAGE_BYTES, newSubmission, parsePracticeInput, parsePracticeQuery, parseBoardInput, parseResultInput, playStore, PROGRESS_DAYS, DAY_MS, toAttempt, type Activity } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
 import { createVisionReader, ReaderUnavailable } from './reader.ts';
@@ -19,6 +19,18 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 	const endpoint = platform.settings.VISION_ENDPOINT;
 	const reader = endpoint ? createVisionReader({ endpoint, token: platform.tokens.cognitiveServices }) : null;
 	const model = endpoint ? visionModel(platform.settings.VISION_TIER) : null;
+
+	async function readHandwriting(body: Uint8Array, subject: UsageSubject) {
+		if (!reader || !model) throw new HttpError(503, 'reader_off', 'Reading handwriting is not switched on.');
+		if (!isPng(body)) throw invalid(['the body must be a PNG image']);
+		const billed = () => platform.usage.record({ area: 'handwriting', model, tokens: { transactions: 1 }, subject });
+		try {
+			return { status: 200 as const, json: { words: (await reader.read(body, billed)).words } };
+		} catch (error) {
+			if (error instanceof ReaderUnavailable) throw new HttpError(502, 'reader_unavailable', 'The handwriting reader is not available right now. Try again later.');
+			throw error;
+		}
+	}
 
 	async function published(rawId: string | undefined): Promise<Activity> {
 		const activity = isGuid(rawId) ? await store.activity(rawId) : undefined;
@@ -93,18 +105,18 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				path: 'activities/{id}/read',
 				body: 'png',
 				async run({ caller, params, body }) {
-					if (!reader || !model) throw new HttpError(503, 'reader_off', 'Reading handwriting is not switched on.');
 					const activityId = params['id'];
 					if (!isGuid(activityId)) throw noActivity();
-					if (!isPng(body)) throw invalid(['the body must be a PNG image']);
-					const billed = () => platform.usage.record({ area: 'handwriting', model, tokens: { transactions: 1 }, subject: { item: activityId, group: caller.userId } });
-					try {
-						return { status: 200, json: { words: (await reader.read(body, billed)).words } };
-					} catch (error) {
-						if (error instanceof ReaderUnavailable) throw new HttpError(502, 'reader_unavailable', 'The handwriting reader is not available right now. Try again later.');
-						throw error;
-					}
+					return readHandwriting(body, { item: activityId, group: caller.userId });
 				},
+			},
+			{
+				// A page loaded before activities/{id}/read existed still posts here until the child reloads it, so the read is billed to the child alone.
+				name: 'readHandwritingUnattributed',
+				method: 'POST',
+				path: 'read',
+				body: 'png',
+				run: ({ caller, body }) => readHandwriting(body, { item: caller.userId }),
 			},
 			{
 				name: 'practice',

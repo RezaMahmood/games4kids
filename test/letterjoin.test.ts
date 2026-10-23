@@ -501,6 +501,15 @@ test("each handwriting read is one row in letterjoin's own ledger, for the child
 	await assert.rejects(setup({ VISION_ENDPOINT: vision.origin }), /VISION_TIER must be F0 or S1/, 'an endpoint with no tier does not start');
 });
 
+test('a page loaded before reads named their activity still reads handwriting, billed to the child', async () => {
+	const s = await setup();
+	vision.say([{ text: 'dog' }]);
+	const read = await s.asAda('POST', 'read', { png: makePng() });
+	assert.deepEqual([read.status, (read.data as { words: { text: string }[] }).words.map((w) => w.text)], [200, ['dog']]);
+	const rows = await s.account.table(PLAY_LEDGER_TABLE).list();
+	assert.deepEqual(rows.map((row) => [row['area'], row['item'], row['group'] ?? null]), [['handwriting', s.ada.userId, null]]);
+});
+
 test('the admin app reads the children from the roster, with names only', async () => {
 	const s = await setup();
 	await s.child('Zed');
