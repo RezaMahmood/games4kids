@@ -1,4 +1,4 @@
-import { chatUse, type AiUse, type AreaOf, type BilledAs, type ChatTokens } from '@g4k/sdk';
+import { chatUse, type Meter, type Metered, type AreaOf, type BilledAs, type ChatTokens } from '@g4k/sdk';
 import type { AiErrorCode } from '../../data/types.ts';
 import type manifest from '../../manifest.ts';
 
@@ -32,8 +32,8 @@ export type FoundryDeps = {
 	token: () => Promise<string>;
 	fetch?: typeof fetch;
 	sleep?: (ms: number) => Promise<void>;
-	/** Hears the tokens of every 2xx reply that reported them, billed whether or not the answer is usable. */
-	meter?: (use: AiUse<Area>) => Promise<void>;
+	/** Hears every 2xx reply, billed whether or not the answer is usable: its tokens, or why it has none. */
+	meter?: Meter<Area>;
 };
 
 /** The error codes one kind of Foundry call reports. */
@@ -59,7 +59,7 @@ export async function postFoundry(
 	path: string,
 	init: { body: BodyInit; headers?: Record<string, string> },
 	codes: FoundryCodes,
-	usageOf: (reply: unknown) => AiUse<Area> | undefined,
+	usageOf: (reply: unknown) => Metered<Area>,
 ): Promise<unknown> {
 	const send = async () => {
 		try {
@@ -87,8 +87,7 @@ export async function postFoundry(
 	} catch {
 		throw failure(codes.failed, 'the reply was not JSON');
 	}
-	const use = usageOf(reply);
-	if (use) await deps.meter?.(use);
+	await deps.meter?.(usageOf(reply));
 	return reply;
 }
 

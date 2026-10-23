@@ -20,6 +20,8 @@ export type FakeFoundry = {
 	 * answers a prompt it refuses, or with `as: 'finish'`, as a 200 chat reply the filter stopped part way.
 	 */
 	refuseNext(count: number, on?: Kind, as?: RefusedAs): void;
+	/** The next `count` image calls, or chat calls when `on` says so, answer 200 with a good answer and no `usage`. */
+	omitUsageNext(count: number, on?: Kind): void;
 	/** The next `count` image calls answer 429 and ask to be tried again at once. */
 	rateLimitNext(count: number): void;
 	/** The next chat calls for a Time Detectives round answer with these, in order, instead of the Lindisfarne round. */
@@ -122,11 +124,19 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 	const calls: FoundryCall[] = [];
 	const failing = { images: { count: 0, status: 500 }, chat: { count: 0, status: 500 } };
 	const refusing: Record<Kind, { count: number; as: RefusedAs }> = { images: { count: 0, as: 'error' }, chat: { count: 0, as: 'error' } };
+	const omitting: Record<Kind, number> = { images: 0, chat: 0 };
 	let limiting = 0;
 	let held: { arrive(): void; released: Promise<void> } | null = null;
 	const roundReplies: unknown[] = [];
 	const scenePromptReplies: string[][] = [];
 	const png = (bytes: Uint8Array, imageTokens: number) => ({ data: [{ b64_json: Buffer.from(bytes).toString('base64') }], usage: imageUsage(imageTokens) });
+	/** A good reply, without its usage when the test asked for that. */
+	const reporting = <T extends { usage: unknown }>(kind: Kind, reply: T): T | Omit<T, 'usage'> => {
+		if (omitting[kind] <= 0) return reply;
+		omitting[kind] -= 1;
+		const { usage: _usage, ...rest } = reply;
+		return rest;
+	};
 
 	const server = createServer(async (req, res) => {
 		const chunks: Buffer[] = [];
@@ -161,7 +171,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			if (fault()) return;
 			const schema = (asJson?.['response_format'] as { json_schema?: { name?: string } } | undefined)?.json_schema?.name;
 			const content = schema === 'round' ? (roundReplies.shift() ?? VIKING_ROUND) : schema === 'titles' ? { titles: TITLES } : { prompts: scenePromptReplies.shift() ?? SCENE_PROMPTS, titles: TITLES };
-			return json(200, { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }], usage: CHAT_USAGE });
+			return json(200, reporting('chat', { model: 'gpt-5.4-mini-2026-03-17', choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(content) } }], usage: CHAT_USAGE }));
 		}
 		if (held) {
 			const hold = held;
@@ -175,8 +185,8 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 			return;
 		}
 		if (fault()) return;
-		if (path.endsWith('/images/edits')) return json(200, png(lineArt(), 300));
-		if (path.endsWith('/images/generations')) return json(200, png(scene(), 0));
+		if (path.endsWith('/images/edits')) return json(200, reporting('images', png(lineArt(), 300)));
+		if (path.endsWith('/images/generations')) return json(200, reporting('images', png(scene(), 0)));
 		return json(404, { error: 'not found' });
 	});
 	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));
@@ -189,6 +199,9 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		},
 		refuseNext(count, on = 'images', as = 'error') {
 			refusing[on] = { count, as };
+		},
+		omitUsageNext(count, on = 'images') {
+			omitting[on] = count;
 		},
 		rateLimitNext(count) {
 			limiting = count;

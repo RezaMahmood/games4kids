@@ -458,6 +458,21 @@ test('a 500 bills nothing and the queue\'s retry bills only the step it repeats'
 	assert.deepEqual(await s.ledger(), sorted([`scene-prompts ${job.id} ${COST.chat}`, ...Array(3).fill(`scene ${job.id} ${COST.scene}`)]), 'four requests answered, one failed, and the prompts were not paid for twice');
 });
 
+test('a reply with no usage finishes the job, bills nothing for it, and reports each one unmetered', async () => {
+	const s = await setup();
+	foundry.omitUsageNext(1, 'chat');
+	foundry.omitUsageNext(1);
+	const before = s.exceptions.length;
+	const job = (await s.asAdmin('POST', 'jobs', { json: { source: 'description', description: 'a fox', quality: 'standard' } })).data as { id: string };
+	await s.settled();
+	assert.equal(statusOf(await s.asAdmin('GET', `jobs/${job.id}`)), 'done');
+	assert.deepEqual(await s.ledger(), sorted(Array(2).fill(`scene ${job.id} ${COST.scene}`)), 'only the two pictures that reported usage are billed');
+	const reports = s.exceptions.slice(before).map(String);
+	assert.equal(reports.length, 2);
+	assert.equal(reports.filter((line) => line.includes(`drawpad scene-prompts call to gpt-5.4-mini for ${job.id} was billed but reported no usage`)).length, 1);
+	assert.equal(reports.filter((line) => line.includes(`drawpad scene call to gpt-image-1-mini for ${job.id} was billed but reported no usage`)).length, 1);
+});
+
 test('a ledger that cannot be written neither fails nor retries a job, and reports each lost entry', async () => {
 	const s = await setup();
 	s.faults.ledger = () => true;

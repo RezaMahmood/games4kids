@@ -1,4 +1,4 @@
-import { chatUse, imageUse, type AiUse, type AreaOf, type BilledAs, type ChatTokens, type ImageTokens } from '@g4k/sdk';
+import { chatUse, imageUse, type Meter, type Metered, type AreaOf, type BilledAs, type ChatTokens, type ImageTokens } from '@g4k/sdk';
 import type manifest from '../../manifest.ts';
 
 export type Area = AreaOf<typeof manifest>;
@@ -36,8 +36,8 @@ export type FoundryDeps = {
 	token: () => Promise<string>;
 	sleep?: (ms: number) => Promise<void>;
 	timeoutMs?: number;
-	/** Hears the tokens of every reply that reported them, billed whether or not the answer is usable. */
-	meter?: (use: AiUse<Area>) => Promise<void>;
+	/** Hears every 2xx reply, billed whether or not the answer is usable: its tokens, or why it has none. */
+	meter?: Meter<Area>;
 };
 
 const retryDelayMs = (res: Response) => {
@@ -53,7 +53,7 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
  * the per-minute limit. Each request, body included, is given up after REQUEST_TIMEOUT_MS, so a hung call fails the attempt.
  * A 2xx reply's usage is metered before the caller checks the answer, since an unusable answer is billed too.
  */
-async function postFoundry(deps: FoundryDeps, path: string, body: object, usageOf: (reply: unknown) => AiUse<Area> | undefined): Promise<unknown> {
+async function postFoundry(deps: FoundryDeps, path: string, body: object, usageOf: (reply: unknown) => Metered<Area>): Promise<unknown> {
 	const send = async () => {
 		const signal = AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
 		try {
@@ -81,8 +81,7 @@ async function postFoundry(deps: FoundryDeps, path: string, body: object, usageO
 	} catch {
 		throw new AiFailure(true, 'the reply was not JSON');
 	}
-	const use = usageOf(reply);
-	if (use) await deps.meter?.(use);
+	await deps.meter?.(usageOf(reply));
 	return reply;
 }
 
