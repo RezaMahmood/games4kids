@@ -29,10 +29,10 @@ test.beforeAll(async ({ browser }, testInfo) => {
 	await admin.getByRole('button', { name: 'New topic' }).click();
 	await admin.getByLabel('Title', { exact: true }).fill(TOPIC);
 	await admin.getByRole('button', { name: 'Save topic' }).click();
-	await admin.getByRole('link', { name: TOPIC }).click();
+	await expect(admin.locator('#topic-heading')).toHaveText(TOPIC);
 	await admin.getByRole('button', { name: 'Draft with AI' }).click();
 	await expect(admin.locator('#rounds .badge.draft')).toBeVisible();
-	await admin.getByRole('link', { name: 'The raid on Lindisfarne' }).click();
+	await admin.getByRole('link', { name: 'The raid on Lindisfarne', exact: true }).click();
 	await expect(admin.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
 	await admin.getByRole('button', { name: 'Publish', exact: true }).click();
 	await expect(admin.locator('#round-badge')).toHaveText('Published');

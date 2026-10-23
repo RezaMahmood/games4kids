@@ -23,14 +23,14 @@ test('an admin drafts a round with the AI, edits it and publishes it, and a chil
 		await admin.getByRole('button', { name: 'New topic' }).click();
 		await admin.getByLabel('Title', { exact: true }).fill(TOPIC);
 		await admin.getByRole('button', { name: 'Save topic' }).click();
-		await admin.getByRole('link', { name: TOPIC }).click();
+		await expect(admin.locator('#topic-heading')).toHaveText(TOPIC);
 		await admin.getByLabel('What should it be about? (optional)').fill('Lindisfarne');
 		await admin.getByRole('button', { name: 'Draft with AI' }).click();
 		await expect(admin.locator('#rounds .badge.draft')).toBeVisible();
 	});
 
 	await test.step('the admin changes a hint and publishes the round', async () => {
-		await admin.getByRole('link', { name: 'The raid on Lindisfarne' }).click();
+		await admin.getByRole('link', { name: 'The raid on Lindisfarne', exact: true }).click();
 		await expect(admin.locator('#r-picture')).toHaveAttribute('src', /^blob:/);
 		await admin.locator('#q-where-hint').fill(HINT);
 		await admin.getByRole('button', { name: 'Save', exact: true }).click();
