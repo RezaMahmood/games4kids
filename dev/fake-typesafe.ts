@@ -50,7 +50,7 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		}
 		const values = bad.count > 0 ? bad.values : {};
 		if (bad.count > 0) bad.count -= 1;
-		return json(200, { model: 'jev-latest', answers: Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id])])), usage: { input_tokens: 1, output_tokens: 1 } });
+		return json(200, { model: 'jev-latest', answers: Object.fromEntries(ids.map((id) => [id, answerOf(id, values[id])])), usage: { input_tokens: 2000, output_tokens: 40 } });
 	});
 	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));
 	const { port } = server.address() as { port: number };
