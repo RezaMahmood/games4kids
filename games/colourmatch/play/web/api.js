@@ -2,7 +2,7 @@ import { parseTuning } from './rules.js';
 
 /**
  * @typedef {{ tuningId: string, tuning: Record<string, number> }} Start
- * @typedef {{ gameId: string, score: number, roundsReached: number, correct: number, turns: number, bestToday: number }} Saved
+ * @typedef {{ gameId: string, score: number, roundsReached: number, correct: number, turns: number, savedAt: string, bestToday: number }} Saved
  * @typedef {{ name: string, me: boolean, points: number[], total: number }} BoardLine
  * @typedef {{ optedIn: false } | { optedIn: true, days: string[], children: BoardLine[] }} Board
  */

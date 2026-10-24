@@ -2,7 +2,6 @@ import { definePlayApi, HttpError } from '@g4k/sdk';
 import {
 	buildBoard,
 	daysEndingAt,
-	gameKey,
 	localDate,
 	parseBoardInput,
 	parseDayQuery,
@@ -51,11 +50,12 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				 * daily best, so a save whose best failed to write is put right by the retry.
 				 */
 				async run({ caller, params, body, now }) {
-					const parsed = parseGameLog(params['gameId'], body, now);
+					const parsed = parseGameLog(params['gameId'], body);
 					if (!parsed.ok) throw invalid(parsed.problems);
 					const log = parsed.value;
-					const saved = (await store.savedGame(caller.userId, gameKey(log))) ?? (await saveNew(caller.userId, log, now));
-					const bestToday = await store.recordDailyBest(caller.userId, localDate(now, caller.timeZone), { points: saved.score, gameId: saved.gameId });
+					const saved = (await store.savedGame(caller.userId, log.gameId)) ?? (await saveNew(caller.userId, log, now));
+					const day = localDate(new Date(saved.savedAt), caller.timeZone);
+					const bestToday = await store.recordDailyBest(caller.userId, day, { points: saved.score, gameId: saved.gameId });
 					return { status: 200, json: { ...saved, bestToday } };
 				},
 			},

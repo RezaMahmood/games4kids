@@ -16,9 +16,10 @@ import { newObjectId, NOW, seedAdmin, seedPlayer, world } from './support/world.
 const idp = await fakeIdp();
 const colourmatch = gameId('colourmatch');
 const TODAY = NOW.toISOString().slice(0, 10);
+const MONTH = TODAY.slice(0, 7);
 const STARTED = new Date(NOW.getTime() - 60_000).toISOString();
 
-type Saved = { gameId: string; score: number; roundsReached: number; correct: number; turns: number; bestToday: number };
+type Saved = { gameId: string; score: number; roundsReached: number; correct: number; turns: number; savedAt: string; bestToday: number };
 type Tunings = { current: TuningVersion; versions: TuningVersion[] };
 type Record = { key: string; gameId: string; score: number; turns: number; mode: string; endReason: string; tuningId: string };
 type Board = { optedIn: boolean; days: string[]; children: { name: string; me: boolean; points: number[]; total: number }[] };
@@ -62,7 +63,7 @@ async function setup() {
 	const account = w.accounts.open(colourmatch);
 	/** What the server would make of the log under `tuning`, worked out here so a test states the score it expects. */
 	const expected = (wire: WireLog, id: string, tuning = DEFAULT_TUNING) => {
-		const log = parseGameLog(id, wire, clock.at);
+		const log = parseGameLog(id, wire);
 		assert.ok(log.ok, log.ok ? '' : log.problems.join('; '));
 		const replayed = replayGame(tuning, log.value);
 		assert.ok(replayed.ok, replayed.ok ? '' : replayed.problems.join('; '));
@@ -106,7 +107,7 @@ test('the server scores a saved game itself, writes its blob and its row, and re
 	const want = s.expected(wire, id);
 	const saved = await s.asAda('PUT', `games/${id}`, { json: wire });
 	assert.equal(saved.status, 200, JSON.stringify(saved.data));
-	assert.deepEqual(saved.data, { gameId: id, score: want.score, roundsReached: 2, correct: 6, turns: 9, bestToday: want.score });
+	assert.deepEqual(saved.data, { gameId: id, score: want.score, roundsReached: 2, correct: 6, turns: 9, savedAt: NOW.toISOString(), bestToday: want.score });
 	assert.ok(want.score > 500, `six right answers in rounds 1 and 2 score hundreds, got ${want.score}`);
 
 	const rows = await s.games.inPartition(s.ada.userId);
@@ -116,8 +117,8 @@ test('the server scores a saved game itself, writes its blob and its row, and re
 	assert.deepEqual([row['gameId'], row['score'], row['mode'], row['endReason'], row['tuningId'], row['turns'], row['correct'], row['roundsReached'], row['savedAt'], row['startedAt']], [id, want.score, 'normal', 'mistakes', 'default', 9, 6, 2, NOW.toISOString(), STARTED]);
 	assert.deepEqual([row['longestStreak'], row['timeouts'], row['hiddenMs'], row['pointer'], row['viewport']], [6, 0, 0, 'touch', '390x844']);
 	assert.equal(typeof row['medianCongruentMs'], 'number');
-	assert.ok(row.rowKey.endsWith(`-${id}`));
-	const blob = await s.blobs.get(`${s.ada.userId}/${STARTED.slice(0, 7)}/${id}.json`);
+	assert.equal(row.rowKey, id);
+	const blob = await s.blobs.get(`${s.ada.userId}/${MONTH}/${id}.json`);
 	assert.ok(blob && blob !== 'not-modified', 'the blob is at <userId>/<yyyy-mm>/<gameId>.json');
 	assert.equal(blob.contentType, 'application/json');
 	const stored = JSON.parse(new TextDecoder().decode(blob.bytes)) as { turns: { correct: boolean; points: number; round: number }[]; savedAt: string };
@@ -133,8 +134,27 @@ test('the server scores a saved game itself, writes its blob and its row, and re
 	const unknown = await s.asAda('PUT', `games/${randomUUID()}`, { json: { ...wire, tuningId: 'gone' } });
 	assert.deepEqual([unknown.status, codeOf(unknown)], [404, 'unknown_tuning']);
 	assert.equal((await s.games.inPartition(s.ada.userId)).length, 1, 'nothing refused was saved');
-	assert.deepEqual(await s.blobs.list(''), [`${s.ada.userId}/${STARTED.slice(0, 7)}/${id}.json`]);
+	assert.deepEqual(await s.blobs.list(''), [`${s.ada.userId}/${MONTH}/${id}.json`]);
 	assert.deepEqual(s.exceptions, []);
+});
+
+test('a device whose clock is years out saves its games, and the server files and orders them by its own time', async () => {
+	const s = await setup();
+	const past = randomUUID();
+	const pastWire = game(15, 5, { startedAt: '2019-03-01T08:00:00.000Z' });
+	assert.equal((await s.asAda('PUT', `games/${past}`, { json: pastWire })).status, 200);
+	s.clock.at = new Date(NOW.getTime() + 60_000);
+	const future = randomUUID();
+	assert.equal((await s.asAda('PUT', `games/${future}`, { json: game(16, 5, { startedAt: '2031-12-31T23:00:00.000Z' }) })).status, 200);
+	s.clock.at = new Date(NOW.getTime() + 2 * 24 * 60 * 60 * 1000);
+	const retry = await s.asAda('PUT', `games/${past}`, { json: pastWire });
+	assert.deepEqual([retry.status, (retry.data as Saved).gameId], [200, past], 'a retry days later finds the game it saved');
+
+	const listed = (await s.asAdmin('GET', `children/${s.ada.userId}/games`)).data as { games: (Record & { startedAt: string; savedAt: string })[] };
+	assert.deepEqual(listed.games.map((g) => [g.gameId, g.startedAt]), [[future, '2031-12-31T23:00:00.000Z'], [past, '2019-03-01T08:00:00.000Z']], 'newest saved first, the device time kept as told');
+	assert.deepEqual([...(await s.blobs.list(""))].sort(), [`${s.ada.userId}/${MONTH}/${past}.json`, `${s.ada.userId}/${MONTH}/${future}.json`].sort());
+	assert.equal(((await s.asAdmin('GET', `children/${s.ada.userId}/games/${listed.games[1]?.key}`)).data as { gameId: string }).gameId, past);
+	assert.deepEqual((await s.board.inPartition(`day-${s.ada.userId}`)).map((row) => row.rowKey), [TODAY], 'both games count on the day the server saved them');
 });
 
 test('a game is marked under the tuning it names, even after the admin saves another', async () => {

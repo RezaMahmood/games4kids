@@ -177,7 +177,7 @@ Every table, container, and queue has one writer. The manifest declares it, `Sto
 | timedetectives | `attempts`, `board` | each child's finished rounds, and who switched the board on | player app | none |
 | timedetectives | `drafts` queue | rounds for the AI to write and draw | admin app | none |
 | colourmatch | `tuning` | every version of the game's settings, one row per save, newest first; a game names the version it was played under | admin app | player app reads (the current one at start, the named one at save) |
-| colourmatch | `games` table and container | one summary row per game, and the whole log with the server's mark on each word at `<userId>/<yyyy-mm>/<gameId>.json`, both written once | player app | admin app reads (metrics, CSV) |
+| colourmatch | `games` table and container | one summary row per game keyed by its gameId, and the whole log with the server's mark on each word at `<userId>/<yyyy-mm>/<gameId>.json` by the month the server first saved it, both written once | player app | admin app reads (metrics, CSV) |
 | colourmatch | `board` | who switched the board on, and each child's best game per local day in `day-<userId>` | player app | none |
 
 Review state moves out of `submissions` into `reviews`, keyed by submission id, so a review never makes the admin app a second writer. Deleting on the Review tab becomes a `discarded` review that hides the submission. Its image stays in the player-owned container at a few kilobytes each (guess).

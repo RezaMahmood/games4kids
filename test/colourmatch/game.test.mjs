@@ -9,7 +9,6 @@ import { DEVICE, seeded } from './support.ts';
 const T = DEFAULT_TUNING;
 const GAME_ID = '0b5f6c7a-1111-4222-8333-444455556666';
 const STARTED = '2026-10-19T19:59:00.000Z';
-const NOW = new Date('2026-10-19T20:00:00Z');
 
 const begin = (mode = 'normal') => startGame({ mode, tuningId: 'default', tuning: T, startedAt: STARTED, now: 1000 });
 const rightIndex = (state) => state.word.squares.indexOf(rightColour(state.game.mode, state.word));
@@ -17,7 +16,7 @@ const at = (state, index, ms) => tap(state, { index, x: 0.5, y: 0.5, pointer: 't
 
 /** The server's verdict on the page's log. */
 function serverSays(state) {
-  const log = parseGameLog(GAME_ID, toLog(state, DEVICE), NOW);
+  const log = parseGameLog(GAME_ID, toLog(state, DEVICE));
   assert.ok(log.ok, log.ok ? '' : log.problems.join('; '));
   const replayed = replayGame(T, log.value);
   assert.ok(replayed.ok, replayed.ok ? '' : replayed.problems.join('; '));

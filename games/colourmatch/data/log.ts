@@ -103,8 +103,11 @@ function parseDevice(raw: unknown): Parsed<Device> {
 	return { ok: true, value: { pointer, width, height, dpr, orientation: found, userAgent } };
 }
 
-/** The log as the page sends it, with each turn packed as a list. The game id comes from the route. */
-export function parseGameLog(gameId: string | undefined, raw: unknown, now: Date): Parsed<GameLog> {
+/**
+ * The log as the page sends it, with each turn packed as a list. The game id comes from the route. `startedAt` is the
+ * device's clock, kept as told: a wrong clock must not stop a game saving, so the server files games by its own time.
+ */
+export function parseGameLog(gameId: string | undefined, raw: unknown): Parsed<GameLog> {
 	const problems: string[] = [];
 	if (gameId === undefined || !GUID.test(gameId)) problems.push('gameId must be a GUID');
 	if (!isRecord(raw)) return { ok: false, problems: [...problems, 'the log must be an object'] };
@@ -112,7 +115,7 @@ export function parseGameLog(gameId: string | undefined, raw: unknown, now: Date
 	if (!isMode(mode)) problems.push('mode must be normal or hard');
 	if (typeof tuningId !== 'string' || !TUNING_ID.test(tuningId)) problems.push('tuningId must name a tuning');
 	const started = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
-	if (Number.isNaN(started) || Math.abs(started - now.getTime()) > 24 * 60 * 60 * 1000) problems.push('startedAt must be an ISO time within a day of now');
+	if (Number.isNaN(started)) problems.push('startedAt must be an ISO time');
 	if (!END_REASONS.some((reason) => reason === endReason)) problems.push('endReason must be mistakes, clock or left');
 	if (!isCount(hiddenMs)) problems.push('hiddenMs must be a whole number of ms');
 	const parsedDevice = parseDevice(device);

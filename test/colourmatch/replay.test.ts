@@ -5,11 +5,10 @@ import { MAX_JSON_BYTES } from '@g4k/host';
 import { DEFAULT_TUNING, parseGameLog, replayGame, turnPoints, type GameLog } from '../../games/colourmatch/data/index.ts';
 import { seeded, simulateGame, type WireLog } from './support.ts';
 
-const NOW = new Date('2026-10-19T20:00:00Z');
 const T = DEFAULT_TUNING;
 
 function parsed(wire: WireLog, gameId = randomUUID()): GameLog {
-	const log = parseGameLog(gameId, wire, NOW);
+	const log = parseGameLog(gameId, wire);
 	if (!log.ok) throw new Error(log.problems.join('; '));
 	return log.value;
 }
@@ -21,7 +20,7 @@ function replayed(wire: WireLog) {
 }
 
 const problemsOf = (wire: unknown, gameId?: string) => {
-	const log = parseGameLog(gameId ?? randomUUID(), wire, NOW);
+	const log = parseGameLog(gameId ?? randomUUID(), wire);
 	if (!log.ok) return log.problems;
 	const result = replayGame(T, log.value);
 	return result.ok ? [] : result.problems;
@@ -80,7 +79,8 @@ test('a log that is not a log, or names what the palette does not have, is refus
 	assert.deepEqual(problemsOf(good, 'not-a-guid'), ['gameId must be a GUID']);
 	assert.deepEqual(problemsOf({ ...good, mode: 'extreme' }), ['mode must be normal or hard']);
 	assert.deepEqual(problemsOf({ ...good, tuningId: 'has spaces' }), ['tuningId must name a tuning']);
-	assert.deepEqual(problemsOf({ ...good, startedAt: '2020-01-01T00:00:00Z' }), ['startedAt must be an ISO time within a day of now']);
+	assert.deepEqual(problemsOf({ ...good, startedAt: '2020-01-01T00:00:00Z' }), [], 'a device with a wrong clock can still save');
+	assert.deepEqual(problemsOf({ ...good, startedAt: 'yesterday' }), ['startedAt must be an ISO time']);
 	assert.deepEqual(problemsOf({ ...good, endReason: 'bored' }), ['endReason must be mistakes, clock or left']);
 	assert.deepEqual(problemsOf({ ...good, turns: [] }), ['turns must be a list of 1 to 2000 turns']);
 	assert.deepEqual(problemsOf({ ...good, device: { ...good.device, pointer: 'finger' } }), ['device.pointer must be touch, mouse or pen']);
@@ -89,7 +89,7 @@ test('a log that is not a log, or names what the palette does not have, is refus
 	assert.deepEqual(problemsOf({ ...good, turns: [[...first.slice(0, 2), 'teal', ...first.slice(3)] as never, ...rest] }), ['turns[0] colours must be from the palette']);
 	assert.deepEqual(problemsOf({ ...good, turns: [[...first.slice(0, 8), 7, ...first.slice(9)] as never, ...rest] }), ['turns[0] answer must be a square 0 to 3, ms, a tap position 0 to 1 and a pointer type']);
 	assert.deepEqual(problemsOf({ ...good, turns: [first.slice(0, 14) as never, ...rest] }), ['turns[0] must be a list of 15 values']);
-	assert.equal(parseGameLog(randomUUID(), null, NOW).ok, false);
+	assert.equal(parseGameLog(randomUUID(), null).ok, false);
 });
 
 test('a log that could not come from a game played by the rules is refused', () => {
