@@ -7,6 +7,9 @@ import { parseTuning } from './rules.js';
  * @typedef {{ optedIn: false } | { optedIn: true, days: string[], children: BoardLine[] }} Board
  */
 
+/** Browsers refuse a keepalive request whose body would take their in-flight keepalive bytes past 64 KB. */
+export const KEEPALIVE_MAX_BYTES = 60_000;
+
 const strange = (what) => new Error(`The server sent ${what} this game does not understand.`);
 const isText = (value) => typeof value === 'string';
 
@@ -40,8 +43,11 @@ export function createApi(client) {
   return {
     /** The settings a new game plays under, and their id for the log. */
     start: async () => parseStart(await client.get('start')),
-    /** Saves a finished game once per gameId. `keepalive` lets the request outlive a page the child is leaving. */
-    save: async (gameId, log, keepalive = false) => parseSaved(await client.put(`games/${id(gameId)}`, log, keepalive ? { keepalive: true } : undefined)),
+    /** Saves a finished game once per gameId, as keepalive when it fits, so the save outlives a page the child is leaving. */
+    save: async (gameId, log) => {
+      const fits = new TextEncoder().encode(JSON.stringify(log)).byteLength < KEEPALIVE_MAX_BYTES;
+      return parseSaved(await client.put(`games/${id(gameId)}`, log, fits ? { keepalive: true } : undefined));
+    },
     board: async (day) => parseBoard(await client.get('board', { day })),
     setBoard: (on) => client.put('board/me', { on }),
   };

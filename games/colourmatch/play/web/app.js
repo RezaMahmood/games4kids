@@ -193,12 +193,12 @@ function finish() {
 }
 
 /** Sends the game once per gameId. The server's score is the one that counts, so the screen shows it when it arrives. */
-async function save(keepalive = false) {
+async function save() {
   const current = play;
   if (!current || current.saved) return current?.saved;
   say('over-status', 'Saving your score…');
   $('over-retry').hidden = true;
-  current.saved = api.save(current.gameId, toLog(current.state, current.device), keepalive).then((saved) => {
+  current.saved = api.save(current.gameId, toLog(current.state, current.device)).then((saved) => {
     if (play !== current) return;
     $('over-score').textContent = String(saved.score);
     $('over-best').textContent = `Your best today is ${saved.bestToday}.`;
@@ -233,7 +233,6 @@ window.addEventListener('pagehide', () => {
   clearTimeout(play.timer);
   clearInterval(play.timer);
   play.state = left;
-  void save(true);
   finish();
 });
 
