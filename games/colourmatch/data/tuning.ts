@@ -44,10 +44,13 @@ export function parseTuning(raw: unknown): Parsed<Tuning> {
 		else if (spec.integer && !Number.isInteger(value)) problems.push(`${name} must be a whole number`);
 		else tuning[name] = value;
 	}
-	if (problems.length > 0) return { ok: false, problems };
-	const value = tuning as Tuning;
-	if (value.maxTurns < value.firstTurns) problems.push('maxTurns must be at least firstTurns');
-	if (value.minSecondsPerTurn > value.firstSecondsPerTurn) problems.push('minSecondsPerTurn must be at most firstSecondsPerTurn');
-	if (value.startChance > value.maxChance) problems.push('startChance must be at most maxChance');
-	return problems.length > 0 ? { ok: false, problems } : { ok: true, value };
+	const atMost = (low: TuningField, high: TuningField) => {
+		const a = tuning[low];
+		const b = tuning[high];
+		if (a !== undefined && b !== undefined && a > b) problems.push(`${low} must be at most ${high}`);
+	};
+	atMost('firstTurns', 'maxTurns');
+	atMost('minSecondsPerTurn', 'firstSecondsPerTurn');
+	atMost('startChance', 'maxChance');
+	return problems.length > 0 ? { ok: false, problems } : { ok: true, value: tuning as Tuning };
 }

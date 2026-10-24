@@ -66,8 +66,9 @@ test('a tuning must have every field as a number inside its bounds, whole where 
 	assert.deepEqual(problemsOf({ openingTurns: 2.5 }), ['openingTurns must be a whole number']);
 	assert.deepEqual(problemsOf({ decay: 1.5 }), ['decay must be between 0.5 and 1']);
 	assert.deepEqual(problemsOf({ basePoints: 'lots' }), ['basePoints must be a number']);
-	assert.deepEqual(problemsOf({ maxTurns: 3 }), ['maxTurns must be at least firstTurns']);
+	assert.deepEqual(problemsOf({ maxTurns: 3 }), ['firstTurns must be at most maxTurns']);
 	assert.deepEqual(problemsOf({ minSecondsPerTurn: 5 }), ['minSecondsPerTurn must be at most firstSecondsPerTurn']);
+	assert.deepEqual(problemsOf({ decay: 2, maxTurns: 1 }), ['decay must be between 0.5 and 1', 'firstTurns must be at most maxTurns'], 'a bad field does not hide a cross-field problem');
 	assert.deepEqual(problemsOf({ startChance: 0.9 }), ['startChance must be at most maxChance']);
 	const { hardMultiplier: _dropped, ...missing } = DEFAULT_TUNING;
 	assert.deepEqual(parseTuning(missing), { ok: false, problems: ['hardMultiplier must be a number'] });

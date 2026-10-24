@@ -6,10 +6,10 @@ export const BOARD_DAYS = 7;
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_PROBLEM = "day must be the device's date as YYYY-MM-DD, within a day of today";
 
-/** A child who switched the board on. `since` is when, and only games saved from then on count. */
+/** A child who switched the board on. `since` is when, and their days count from that one on. */
 export type BoardEntry = { userId: string; name: string; timeZone: string; since: string };
-/** A child's best single game on one of their local days, and when that game was saved. */
-export type DailyBest = { day: string; points: number; at: string };
+/** A child's best single game on one of their local days. */
+export type DailyBest = { day: string; points: number };
 export type BoardChild = BoardEntry & { bests: readonly DailyBest[] };
 export type BoardLine = { name: string; me: boolean; points: number[]; total: number };
 export type Board = { days: string[]; children: BoardLine[] };
@@ -42,11 +42,15 @@ export function parseBoardInput(body: unknown): Parsed<boolean> {
 	return typeof on === 'boolean' ? { ok: true, value: on } : { ok: false, problems: ['on must be true or false'] };
 }
 
-/** Each child's daily bests over the days, counted from when they switched the board on. The result never carries a userId. */
+/**
+ * Each child's daily bests over the days. A child counts from the day they switched the board on, that whole day
+ * included, since a day's best is one number and cannot be split at the switch. The result never carries a userId.
+ */
 export function buildBoard(input: { days: string[]; viewerId: string; children: readonly BoardChild[] }): Board {
 	const lines = input.children
 		.map((child) => {
-			const points = input.days.map((day) => child.bests.find((best) => best.day === day && best.at >= child.since)?.points ?? 0);
+			const from = localDate(new Date(child.since), child.timeZone);
+			const points = input.days.map((day) => (day >= from ? (child.bests.find((best) => best.day === day)?.points ?? 0) : 0));
 			return { userId: child.userId, name: child.name, me: child.userId === input.viewerId, points, total: points.reduce((sum, p) => sum + p, 0) };
 		})
 		.filter((line) => line.total > 0)

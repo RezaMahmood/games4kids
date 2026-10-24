@@ -23,7 +23,7 @@ export type StoredGame = Omit<GameLog, 'turns'> & { userId: string; savedAt: str
 type TuningRow = { partitionKey: string; rowKey: string; tuning: string; savedAt: string };
 type GameRow = { partitionKey: string; rowKey: string; gameId: string; savedAt: string } & Omit<Summary, 'medianCongruentMs' | 'medianIncongruentMs'> & { medianCongruentMs?: number; medianIncongruentMs?: number };
 type BoardRow = { partitionKey: string; rowKey: string; name: string; timeZone: string; since: string };
-type DailyBestRow = { partitionKey: string; rowKey: string; points: number; gameId: string; at: string };
+type DailyBestRow = { partitionKey: string; rowKey: string; points: number; gameId: string };
 
 /** Newest first, so the first row in the partition is the current tuning. */
 const tuningKey = (savedAt: Date, id: string) => `${invertedTime(savedAt.getTime())}-${id}`;
@@ -64,7 +64,7 @@ export type PlayStore = {
 	/** Writes the blob, then the row, so a row always has its blob. A game already saved keeps what was saved first. */
 	saveGame(userId: string, log: GameLog, replayed: Replayed, savedAt: Date): Promise<SavedGame>;
 	/** Raises the child's best for the day when `points` beats it, and answers the best after. */
-	recordDailyBest(userId: string, day: string, best: { points: number; gameId: string; at: string }): Promise<number>;
+	recordDailyBest(userId: string, day: string, best: { points: number; gameId: string }): Promise<number>;
 	dailyBests(userId: string, days: readonly string[]): Promise<DailyBest[]>;
 	boardEntries(): Promise<BoardEntry[]>;
 	/** A child already on the board keeps their first `since`, so a repeat changes nothing. */
@@ -124,7 +124,7 @@ export function playStore(storage: StorageFor<ColourMatch, 'play'>): PlayStore {
 		},
 		async dailyBests(userId, days) {
 			const rows = await Promise.all(days.map((day) => board.get<DailyBestRow>(dayPartition(userId), day)));
-			return rows.flatMap((row) => (row ? [{ day: row.rowKey, points: row.points, at: row.at }] : []));
+			return rows.flatMap((row) => (row ? [{ day: row.rowKey, points: row.points }] : []));
 		},
 		boardEntries: async () => (await board.inPartition<BoardRow>(BOARD)).map(toBoardEntry),
 		async optIn({ userId, name, timeZone, since }) {

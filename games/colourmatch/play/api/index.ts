@@ -54,7 +54,7 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 					const replayed = replayGame(tuning, log);
 					if (!replayed.ok) throw invalid(replayed.problems);
 					const saved = await store.saveGame(caller.userId, log, replayed.value, now);
-					const bestToday = await store.recordDailyBest(caller.userId, day, { points: saved.score, gameId: saved.gameId, at: now.toISOString() });
+					const bestToday = await store.recordDailyBest(caller.userId, day, { points: saved.score, gameId: saved.gameId });
 					return reply(saved, bestToday);
 				},
 			},

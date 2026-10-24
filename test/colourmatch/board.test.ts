@@ -5,7 +5,7 @@ import { buildBoard, daysEndingAt, type BoardChild, type DailyBest } from '../..
 const DAYS = daysEndingAt('2026-10-19');
 const BEGINNING = '2026-10-01T00:00:00.000Z';
 
-const best = (day: string, points: number, at = `${day}T10:00:00.000Z`): DailyBest => ({ day, points, at });
+const best = (day: string, points: number): DailyBest => ({ day, points });
 const child = (userId: string, bests: DailyBest[], extra: Partial<BoardChild> = {}): BoardChild => ({ userId, name: userId.toUpperCase(), timeZone: 'UTC', since: BEGINNING, bests, ...extra });
 const board = (children: BoardChild[], viewerId = 'ada') => buildBoard({ days: DAYS, viewerId, children });
 
@@ -15,11 +15,13 @@ test('each day shows the child\'s best game that day, and the week is the sum of
 	assert.equal(ada?.total, 570);
 });
 
-test('a best saved before the child switched the board on does not count, and a child with no points is not listed', () => {
+test('a child counts from the day they switched the board on, that day included, and a child with no points is not listed', () => {
 	const since = '2026-10-19T12:00:00.000Z';
-	const [ada] = board([child('ada', [best('2026-10-18', 300), best('2026-10-19', 90, '2026-10-19T13:00:00.000Z')], { since })]).children;
+	const [ada] = board([child('ada', [best('2026-10-18', 300), best('2026-10-19', 90)], { since })]).children;
 	assert.equal(ada?.total, 90);
 	assert.deepEqual(board([child('bea', [best('2026-10-18', 300)], { since })]).children, []);
+	const [cy] = board([child('cy', [best('2026-10-18', 300)], { since: '2026-10-18T23:30:00.000Z', timeZone: 'Pacific/Auckland' })]).children;
+	assert.equal(cy, undefined, 'in Auckland the switch was on the 19th');
 });
 
 test('children sort by total then name, the viewer is marked, and no user id is ever returned', () => {
