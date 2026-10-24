@@ -17,10 +17,12 @@ export const SUMMARY_COLUMNS = [
 	'longestStreak', 'medianCongruentMs', 'medianIncongruentMs', 'timeouts', 'hiddenMs', 'pointer', 'viewport',
 ] as const;
 
+/** Text a spreadsheet would read as a formula, such as a child's name, gets a leading quote so it stays text. */
 const csvCell = (value: unknown): string => {
 	if (value === null || value === undefined) return '';
-	const text = String(value);
-	return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+	const formula = typeof value === 'string' && /^[=+\-@\t\r]/.test(value);
+	const text = formula ? `'${value}` : String(value);
+	return formula || /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
 export function summariesCsv(games: readonly GameRecord[], names: ReadonlyMap<string, string>): string {

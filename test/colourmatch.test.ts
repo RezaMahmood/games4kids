@@ -236,6 +236,15 @@ test('the admin sees each child by name, their games newest first with the turns
 	assert.ok(cells.every((c) => c.length === SUMMARY_COLUMNS.length));
 });
 
+test('a name a spreadsheet would read as a formula is written to the CSV as text', async () => {
+	const s = await setup();
+	const names = ['=HYPERLINK("http://x","y")', '+1', '-1', '@SUM(A1)', '\tTab', '\rReturn'];
+	for (const [i, name] of names.entries()) await s.as((await s.child(name)).token)('PUT', `games/${randomUUID()}`, { json: game(40 + i, 3) });
+	const csv = new TextDecoder().decode((await s.asAdmin('GET', 'summaries.csv')).body as Uint8Array);
+	const cells = csv.trimEnd().split('\r\n').slice(1).map((line) => /^[^,]*,("(?:[^"]|"")*"|[^,]*)/.exec(line)?.[1]);
+	assert.deepEqual(cells.sort(), ['"\'=HYPERLINK(""http://x"",""y"")"', '"\'+1"', '"\'-1"', '"\'@SUM(A1)"', '"\'\tTab"', '"\'\rReturn"'].sort());
+});
+
 test('a games token opens no admin route, and the admin token opens no play route', async () => {
 	const s = await setup();
 	for (const path of ['tuning', 'children', `children/${s.ada.userId}/games`, 'summaries.csv']) {
