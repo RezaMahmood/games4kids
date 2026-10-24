@@ -1,9 +1,9 @@
 import type { ReadTable, StorageFor, Stored } from '@g4k/sdk';
 import type manifest from '../manifest.ts';
 import type { BoardEntry, DailyBest } from './board.ts';
-import type { GameLog, LoggedTurn } from './log.ts';
+import type { GameLog } from './log.ts';
 import { invertedTime } from './parse.ts';
-import type { Replayed, Summary, TurnMark } from './replay.ts';
+import type { MarkedTurn, Replayed, Summary } from './replay.ts';
 import { DEFAULT_TUNING, DEFAULT_TUNING_ID, parseTuning, type Tuning } from './tuning.ts';
 
 type ColourMatch = typeof manifest;
@@ -18,7 +18,7 @@ export type SavedGame = { gameId: string; score: number; roundsReached: number; 
 /** A game's summary row as the admin lists it. `key` finds its blob again. */
 export type GameRecord = Summary & { key: string; gameId: string; userId: string; savedAt: string };
 /** The blob: the whole log with the server's mark on every turn, written once. */
-export type StoredGame = Omit<GameLog, 'turns'> & { userId: string; savedAt: string; turns: readonly (LoggedTurn & TurnMark)[] };
+export type StoredGame = Omit<GameLog, 'turns'> & { userId: string; savedAt: string; turns: readonly MarkedTurn[] };
 
 type TuningRow = { partitionKey: string; rowKey: string; tuning: string; savedAt: string };
 type GameRow = { partitionKey: string; rowKey: string; gameId: string; savedAt: string } & Omit<Summary, 'medianCongruentMs' | 'medianIncongruentMs'> & { medianCongruentMs?: number; medianIncongruentMs?: number };
@@ -91,8 +91,8 @@ export function playStore(storage: StorageFor<ColourMatch, 'play'>): PlayStore {
 			const row = await games.get<GameRow>(userId, key);
 			return row && toSaved(row);
 		},
-		async saveGame(userId, log, { marks, summary }, savedAt) {
-			const stored: StoredGame = { ...log, userId, savedAt: savedAt.toISOString(), turns: log.turns.map((turn, i) => ({ ...turn, ...(marks[i] ?? { correct: false, points: 0, congruent: turn.word === turn.ink }) })) };
+		async saveGame(userId, log, { turns, summary }, savedAt) {
+			const stored: StoredGame = { ...log, userId, savedAt: savedAt.toISOString(), turns };
 			await blobs.put(blobPath(userId, log), new TextEncoder().encode(JSON.stringify(stored)), 'application/json');
 			const { medianCongruentMs, medianIncongruentMs, ...rest } = summary;
 			const row: GameRow = {

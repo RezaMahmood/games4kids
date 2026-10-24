@@ -7,6 +7,7 @@ import type { Tuning } from './tuning.ts';
 
 /** What the server worked out about one logged word. */
 export type TurnMark = { readonly correct: boolean; readonly points: number; readonly congruent: boolean };
+export type MarkedTurn = LoggedTurn & TurnMark;
 
 /** The per-game row the admin reads. Every number here is the server's, derived from the turns and the tuning they were played under. */
 export type Summary = {
@@ -32,7 +33,7 @@ export type Summary = {
 	readonly startedAt: string;
 };
 
-export type Replayed = { readonly marks: readonly TurnMark[]; readonly summary: Summary };
+export type Replayed = { readonly turns: readonly MarkedTurn[]; readonly summary: Summary };
 
 /** The order the words must come in: each round's words from 0, then the next round. */
 function checkSequence(tuning: Tuning, turns: readonly LoggedTurn[], problems: string[]): void {
@@ -100,29 +101,29 @@ export function replayGame(tuning: Tuning, log: GameLog): Parsed<Replayed> {
 	checkSequence(tuning, log.turns, problems);
 	checkSquares(tuning, log.turns, problems);
 	checkClock(tuning, log, problems);
-	const marks = log.turns.map((turn): TurnMark => {
+	const marked = log.turns.map((turn): MarkedTurn => {
 		const correct = turn.answer !== null && turn.squares[turn.answer.tapped] === rightColour(log.mode, turn);
 		const points = correct && turn.answer ? turnPoints(tuning, log.mode, turn.round, turn.answer.answerMs) : 0;
-		return { correct, points, congruent: isCongruent(turn) };
+		return { ...turn, correct, points, congruent: isCongruent(turn) };
 	});
-	checkMistakes(tuning, log, marks, problems);
+	checkMistakes(tuning, log, marked, problems);
 	if (problems.length > 0) return { ok: false, problems };
-	const correctMs = (congruent: boolean) => log.turns.flatMap((turn, i) => (marks[i]?.correct && turn.answer && marks[i]?.congruent === congruent ? [turn.answer.answerMs] : []));
-	const correct = marks.filter((mark) => mark.correct).length;
+	const correctMs = (congruent: boolean) => marked.flatMap((turn) => (turn.correct && turn.answer && turn.congruent === congruent ? [turn.answer.answerMs] : []));
+	const correct = marked.filter((turn) => turn.correct).length;
 	return {
 		ok: true,
 		value: {
-			marks,
+			turns: marked,
 			summary: {
 				mode: log.mode,
 				tuningId: log.tuningId,
 				endReason: log.endReason,
-				score: marks.reduce((sum, mark) => sum + mark.points, 0),
+				score: marked.reduce((sum, turn) => sum + turn.points, 0),
 				roundsReached: log.turns.at(-1)?.round ?? 0,
 				turns: log.turns.length,
 				correct,
 				accuracy: correct / log.turns.length,
-				longestStreak: longestRun(marks),
+				longestStreak: longestRun(marked),
 				medianCongruentMs: median(correctMs(true)),
 				medianIncongruentMs: median(correctMs(false)),
 				timeouts: log.turns.filter((turn) => turn.answer === null).length,

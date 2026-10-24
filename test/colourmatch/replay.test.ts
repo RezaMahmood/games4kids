@@ -29,7 +29,7 @@ const problemsOf = (wire: unknown, gameId?: string) => {
 
 test('a game of 8 right answers then 3 mistakes scores each right word by its round and speed, and the summary counts what happened', () => {
 	const wire = simulateGame({ tuning: T, mode: 'normal', rng: seeded(1), turns: 11, endReason: 'mistakes', answerMs: (i) => 1000 + i * 100 });
-	const { marks, summary } = replayed(wire);
+	const { turns: marks, summary } = replayed(wire);
 	assert.deepEqual(marks.map((m) => m.correct), [true, true, true, true, true, true, true, true, false, false, false]);
 	const expected = [...Array(5).keys()].map((i) => turnPoints(T, 'normal', 1, 1000 + i * 100)).concat([5, 6, 7].map((i) => turnPoints(T, 'normal', 2, 1000 + i * 100)));
 	assert.deepEqual(marks.map((m) => m.points), [...expected, 0, 0, 0]);
@@ -45,7 +45,7 @@ test('a game of 8 right answers then 3 mistakes scores each right word by its ro
 });
 
 test('hard mode marks the ink and pays half again, and a game the clock ended counts its timeout', () => {
-	const { marks, summary } = replayed(simulateGame({ tuning: T, mode: 'hard', rng: seeded(2), turns: 7, endReason: 'clock', answerMs: 0 }));
+	const { turns: marks, summary } = replayed(simulateGame({ tuning: T, mode: 'hard', rng: seeded(2), turns: 7, endReason: 'clock', answerMs: 0 }));
 	assert.deepEqual(marks.map((m) => m.points), [150, 150, 150, 150, 150, 188, 0]);
 	assert.deepEqual([summary.timeouts, summary.correct, summary.score, summary.roundsReached], [1, 6, 938, 2]);
 });
