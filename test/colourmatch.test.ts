@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { adminModule, createAdminApp, createPlayerApp, type App } from '@g4k/host';
+import { adminModule, createAdminApp, createPlayerApp, type Accounts, type App } from '@g4k/host';
 import { createAdminApi, SUMMARY_COLUMNS } from '../games/colourmatch/admin/api/index.ts';
 import { DEFAULT_TUNING, replayGame, parseGameLog, type TuningVersion } from '../games/colourmatch/data/index.ts';
 import manifest from '../games/colourmatch/manifest.ts';
@@ -26,7 +26,21 @@ type Board = { optedIn: boolean; days: string[]; children: { name: string; me: b
 async function setup() {
 	const w = world();
 	const clock = { at: NOW };
-	const common = { telemetry: w.telemetry, now: () => clock.at, accounts: w.accounts, tokens: async (service: string) => `tok-${service}` };
+	/** Says whether the next write to the board table throws. */
+	const faults = { board: () => false };
+	const accounts: Accounts = {
+		open(owner) {
+			const account = w.accounts.open(owner);
+			return {
+				...account,
+				table(name) {
+					const table = account.table(name);
+					return owner === colourmatch && name === 'board' ? { ...table, insertIfAbsent: (row) => (faults.board() ? Promise.reject(new Error('storage is down')) : table.insertIfAbsent(row)) } : table;
+				},
+			};
+		},
+	};
+	const common = { telemetry: w.telemetry, now: () => clock.at, accounts, tokens: async (service: string) => `tok-${service}` };
 	const player = createPlayerApp({ ...common, issuers: [idp.games], manifest, create: createPlayApi, portal: w.reader, env: {} });
 	const admin = createAdminApp({
 		...common,
@@ -54,7 +68,7 @@ async function setup() {
 		assert.ok(replayed.ok, replayed.ok ? '' : replayed.problems.join('; '));
 		return replayed.value.summary;
 	};
-	return { w, clock, child, as, asAda: as(ada.token), asAdmin, adminToken, ada, admin: admin as App, games: account.table('games'), blobs: account.container('games'), board: account.table('board'), expected, exceptions: w.telemetry.exceptions };
+	return { w, clock, faults, child, as, asAda: as(ada.token), asAdmin, adminToken, ada, admin: admin as App, games: account.table('games'), blobs: account.container('games'), board: account.table('board'), expected, exceptions: w.telemetry.exceptions };
 }
 
 const game = (seed: number, turns: number, extra: Partial<Parameters<typeof simulateGame>[0]> = {}) =>
@@ -146,6 +160,21 @@ test('saving the same game again answers with what was saved first and writes no
 	assert.deepEqual(again.data, first, 'the faster repeat changes nothing');
 	assert.equal((await s.games.inPartition(s.ada.userId)).length, 1);
 	assert.equal((await s.blobs.list('')).length, 1);
+});
+
+test('a save whose daily best failed to write is put right by the retry, which still counts the game once', async () => {
+	const s = await setup();
+	const id = randomUUID();
+	const wire = game(14, 7);
+	s.faults.board = () => true;
+	assert.equal((await s.asAda('PUT', `games/${id}`, { json: wire })).status, 500);
+	s.faults.board = () => false;
+	const retry = await s.asAda('PUT', `games/${id}`, { json: wire });
+	const score = s.expected(wire, id).score;
+	assert.ok(score > 0);
+	assert.deepEqual([retry.status, (retry.data as Saved).score, (retry.data as Saved).bestToday], [200, score, score]);
+	assert.equal((await s.board.get(`day-${s.ada.userId}`, TODAY))?.['points'], score);
+	assert.equal((await s.games.inPartition(s.ada.userId)).length, 1);
 });
 
 test('a day on the board is the child\'s best single game that day, the week adds the days up, and the board counts from the day of the switch', async () => {

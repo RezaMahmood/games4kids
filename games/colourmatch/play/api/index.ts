@@ -9,6 +9,7 @@ import {
 	parseGameLog,
 	playStore,
 	replayGame,
+	type GameLog,
 	type SavedGame,
 } from '../../data/index.ts';
 import manifest from '../../manifest.ts';
@@ -18,7 +19,13 @@ const invalid = (problems: readonly string[]) => new HttpError(400, 'invalid', '
 export const createPlayApi = definePlayApi(manifest, (platform) => {
 	const store = playStore(platform);
 
-	const reply = (saved: SavedGame, bestToday: number) => ({ status: 200 as const, json: { ...saved, bestToday } });
+	async function saveNew(userId: string, log: GameLog, now: Date): Promise<SavedGame> {
+		const tuning = await store.tuning(log.tuningId);
+		if (!tuning) throw new HttpError(404, 'unknown_tuning', 'This game was played under settings the server does not know.');
+		const replayed = replayGame(tuning, log);
+		if (!replayed.ok) throw invalid(replayed.problems);
+		return store.saveGame(userId, log, replayed.value, now);
+	}
 
 	return {
 		routes: [
@@ -40,22 +47,16 @@ export const createPlayApi = definePlayApi(manifest, (platform) => {
 				body: 'json',
 				/**
 				 * Marks the whole game again from its turns and the tuning it names, so no score comes from the page. A game
-				 * already saved is answered with what was saved first, whatever the repeat says.
+				 * already saved is answered with what was saved first, whatever the repeat says. The repeat still records the
+				 * daily best, so a save whose best failed to write is put right by the retry.
 				 */
 				async run({ caller, params, body, now }) {
 					const parsed = parseGameLog(params['gameId'], body, now);
 					if (!parsed.ok) throw invalid(parsed.problems);
 					const log = parsed.value;
-					const day = localDate(now, caller.timeZone);
-					const repeat = await store.savedGame(caller.userId, gameKey(log));
-					if (repeat) return reply(repeat, (await store.dailyBests(caller.userId, [day]))[0]?.points ?? 0);
-					const tuning = await store.tuning(log.tuningId);
-					if (!tuning) throw new HttpError(404, 'unknown_tuning', 'This game was played under settings the server does not know.');
-					const replayed = replayGame(tuning, log);
-					if (!replayed.ok) throw invalid(replayed.problems);
-					const saved = await store.saveGame(caller.userId, log, replayed.value, now);
-					const bestToday = await store.recordDailyBest(caller.userId, day, { points: saved.score, gameId: saved.gameId });
-					return reply(saved, bestToday);
+					const saved = (await store.savedGame(caller.userId, gameKey(log))) ?? (await saveNew(caller.userId, log, now));
+					const bestToday = await store.recordDailyBest(caller.userId, localDate(now, caller.timeZone), { points: saved.score, gameId: saved.gameId });
+					return { status: 200, json: { ...saved, bestToday } };
 				},
 			},
 			{
