@@ -68,7 +68,7 @@ export async function startFakeTypeSafe(options: { readonly port?: number } = {}
 		}
 		return json(200, { model: 'jev-latest', answers, usage: { input_tokens: 2000, output_tokens: 40 } });
 	});
-	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));
+	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, '127.0.0.1', resolve)));
 	const { port } = server.address() as { port: number };
 	return {
 		origin: `http://localhost:${port}`,

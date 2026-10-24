@@ -95,7 +95,7 @@ export async function startSite(options: SiteOptions): Promise<Site> {
 		const body = dynamic === undefined && file ? await readFile(file) : json(dynamic);
 		res.writeHead(200, { ...headers, 'content-type': TYPES[extname(file ?? '.json')] ?? 'application/octet-stream' }).end(body);
 	});
-	await new Promise<void>((resolveListen, reject) => (server.once('error', reject), server.listen(options.port, 'localhost', resolveListen)));
+	await new Promise<void>((resolveListen, reject) => (server.once('error', reject), server.listen(options.port, '127.0.0.1', resolveListen)));
 	const { port } = server.address() as { port: number };
 	return { origin: `http://localhost:${port}`, close: () => new Promise<void>((done) => (server.close(() => done()), server.closeAllConnections())) };
 }
