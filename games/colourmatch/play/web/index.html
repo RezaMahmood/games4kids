@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Colour Match</title>
+  <meta name="theme-color" content="#1F2430">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="/shared/tokens.css">
+  <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body aria-busy="true">
+  <portal-bar></portal-bar>
+  <div id="app" inert>
+    <main id="start-screen" class="screen" aria-labelledby="start-heading">
+      <h1 id="start-heading" tabindex="-1">Colour Match</h1>
+      <p class="lead">A colour word appears over four squares. Tap the right square before the clock runs out.</p>
+      <div class="modes">
+        <button id="play-normal" type="button" class="mode mode-normal">
+          <span class="mode-title">Normal</span>
+          <span class="mode-how">Tap the colour the word <em>says</em>.</span>
+        </button>
+        <button id="play-hard" type="button" class="mode mode-hard">
+          <span class="mode-title">Hard</span>
+          <span class="mode-how">Tap the colour the word is <em>written in</em>. Points ×<span id="rule-hard">1.5</span>.</span>
+        </button>
+      </div>
+      <p id="rule-end" class="note">3 mistakes in a row, or a round clock at zero, ends the game.</p>
+      <p id="start-status" class="status" role="alert" hidden></p>
+      <button id="board-open" type="button" class="quiet">Friends board</button>
+    </main>
+
+    <section id="game-screen" class="screen game" hidden aria-labelledby="game-heading" data-phase="roundIntro">
+      <h2 id="game-heading" class="visually-hidden" tabindex="-1">Playing</h2>
+      <div class="hud" aria-live="off">
+        <span class="hud-item">Round <strong id="hud-round">1</strong></span>
+        <span class="hud-item hud-clock" aria-label="Seconds left"><strong id="hud-clock">0</strong><span class="hud-unit">s</span></span>
+        <span class="hud-item">Score <strong id="hud-score">0</strong></span>
+        <span id="hud-mistakes" class="hud-item hud-mistakes" role="img" aria-label="No mistakes in a row"></span>
+      </div>
+      <div class="stage">
+        <div id="word-panel" class="word-panel">
+          <p id="word" class="word" aria-live="assertive" aria-atomic="true"></p>
+        </div>
+        <div id="squares" class="squares"></div>
+        <div id="round-intro" class="round-intro" role="status" aria-live="polite">
+          <p id="round-intro-heading" class="round-intro-heading"></p>
+          <p id="round-intro-detail" class="round-intro-detail"></p>
+        </div>
+        <p id="flash" class="flash" aria-live="assertive"></p>
+      </div>
+    </section>
+
+    <section id="over-screen" class="screen" hidden aria-labelledby="over-heading">
+      <div class="result-hero">
+        <p class="eyebrow">Game over</p>
+        <h2 id="over-heading" tabindex="-1"><span id="over-score"></span> points</h2>
+        <p id="over-why" class="note"></p>
+      </div>
+      <p id="over-rounds" class="today"></p>
+      <p id="over-best" class="today"></p>
+      <p id="over-status" class="status" role="status" hidden></p>
+      <button id="over-retry" type="button" class="quiet" hidden>Try saving again</button>
+      <section id="board" class="board" aria-labelledby="board-heading">
+        <h2 id="board-heading" tabindex="-1">Friends board</h2>
+        <button id="board-switch" type="button" class="switch" role="switch" aria-checked="false" hidden>
+          <span class="switch-track" aria-hidden="true"></span>
+          <span>Show my scores on the board</span>
+        </button>
+        <p id="board-explain" class="note" hidden>Turn this on to see how your friends are doing, and to show them your scores. Only children who turn it on can be seen, and you can turn it off whenever you like.</p>
+        <p id="board-status" class="status" role="status" hidden></p>
+        <table id="board-table" hidden>
+          <thead><tr><th scope="col">Name</th><th scope="col">Today</th><th scope="col">This week</th></tr></thead>
+          <tbody id="board-rows"></tbody>
+        </table>
+      </section>
+      <button id="again" type="button" class="primary big">Play again</button>
+      <button id="over-home" type="button" class="quiet">Choose a mode</button>
+    </section>
+
+    <section id="board-screen" class="screen" hidden>
+      <button id="board-back" type="button" class="quiet">Back</button>
+    </section>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
