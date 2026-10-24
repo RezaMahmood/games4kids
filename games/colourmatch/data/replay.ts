@@ -72,9 +72,11 @@ function checkClock(tuning: Tuning, log: GameLog, problems: string[]): void {
 	if (log.endReason === 'clock' && log.turns.at(-1)?.answer !== null) problems.push('a game the clock ended ends on a word the clock ran out on');
 }
 
-function checkMistakes(tuning: Tuning, log: GameLog, marks: readonly TurnMark[], problems: string[]): void {
+/** A timeout is not a mistake: the clock running out ends the game by the clock, whatever came before it. */
+function checkMistakes(tuning: Tuning, log: GameLog, marks: readonly MarkedTurn[], problems: string[]): void {
 	let streak = 0;
 	for (const [index, mark] of marks.entries()) {
+		if (mark.answer === null) continue;
 		streak = mark.correct ? 0 : streak + 1;
 		if (streak >= tuning.maxMistakes && index !== marks.length - 1) problems.push(`turns[${index}] was the ${tuning.maxMistakes}th mistake in a row, which ends the game`);
 	}

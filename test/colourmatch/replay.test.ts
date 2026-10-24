@@ -50,6 +50,13 @@ test('hard mode marks the ink and pays half again, and a game the clock ended co
 	assert.deepEqual([summary.timeouts, summary.correct, summary.score, summary.roundsReached], [1, 6, 938, 2]);
 });
 
+test('two wrong taps and then the clock running out is a game the clock ended, since a timeout is not a mistake', () => {
+	const wire = simulateGame({ tuning: T, mode: 'normal', rng: seeded(7), turns: 6, endReason: 'clock', wrongAt: (i) => i === 3 || i === 4 });
+	const { turns: marks, summary } = replayed(wire);
+	assert.deepEqual(marks.map((m) => m.correct), [true, true, true, false, false, false]);
+	assert.deepEqual([summary.endReason, summary.timeouts, summary.correct], ['clock', 1, 3]);
+});
+
 test('the medians split by whether the ink matched the word, which is the Stroop cost', () => {
 	const wire = simulateGame({ tuning: T, mode: 'normal', rng: seeded(3), turns: 40, endReason: 'left', answerMs: (i) => 500 + (i % 3) * 100 });
 	const log = parsed(wire);

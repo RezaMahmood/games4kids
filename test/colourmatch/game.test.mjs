@@ -85,6 +85,20 @@ test('the round clock counts only while a word is on screen, pauses while the pa
   assert.deepEqual([server.timeouts, server.hiddenMs, server.turns], [1, 5000, 2]);
 });
 
+test('two wrong taps and then the clock running out end the game by the clock, and the server takes the page\'s log', () => {
+  const rng = seeded(5);
+  let state = advance(begin(), rng, 1000);
+  for (let i = 0; i < 2; i++) {
+    state = at(state, (rightIndex(state) + 1) % 4, 900);
+    assert.equal(state.kind, 'feedback');
+    state = advance(state, rng, 10_000 + i * 2000);
+  }
+  state = clockOut(state);
+  assert.deepEqual([state.kind, state.reason, state.game.mistakes], ['over', 'clock', 2]);
+  const server = serverSays(state);
+  assert.deepEqual([server.endReason, server.timeouts, server.correct, server.turns], ['clock', 1, 0, 3]);
+});
+
 test('leaving mid-game ends it as left when there is a word to save, and a game with no words has nothing to save', () => {
   const rng = seeded(4);
   const intro = begin();
