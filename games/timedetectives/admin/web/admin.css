@@ -33,7 +33,14 @@ label .note { font-weight: 400; }
 .card .note { margin: 0; }
 .card-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--color-ink); }
 .meta, .cost { color: var(--color-muted); }
-.round-card { grid-template-columns: 120px 1fr auto; align-items: center; gap: var(--space-sm); }
+.round-card { grid-template-columns: 44px 120px 1fr auto; align-items: center; gap: var(--space-sm); }
+.pick { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: 0; }
+.pick input, .pick-all input { width: 28px; min-height: 0; height: 28px; padding: 0; accent-color: var(--color-primary); }
+#bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-md); }
+.pick-all { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; }
+#bulk-bar .actions { margin: 0; align-items: center; }
+#bulk-confirm { margin: 0; }
+#bulk-confirm-text { margin: 0; font-weight: 700; color: var(--color-danger); }
 .thumb { width: 120px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 12px; background: var(--color-desk); }
 .round-body { display: grid; gap: 4px; }
 .round-body p { margin: 0; }
@@ -82,7 +89,8 @@ fieldset.question legend { padding: 0 6px; font-family: var(--font-display); fon
 #status[data-tone="error"] { border-color: var(--color-danger); color: var(--color-danger); }
 
 @media (max-width: 560px) {
-  .round-card { grid-template-columns: 1fr; }
+  .round-card { grid-template-columns: 44px 1fr; }
+  .round-card > :not(.pick) { grid-column: 1 / -1; }
   .round-card > .button { justify-self: start; }
   .thumb { width: 100%; }
 }
