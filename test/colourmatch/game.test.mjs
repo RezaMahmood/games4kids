@@ -99,6 +99,18 @@ test('two wrong taps and then the clock running out end the game by the clock, a
   assert.deepEqual([server.endReason, server.timeouts, server.correct, server.turns], ['clock', 1, 0, 3]);
 });
 
+test('a word dealt while the page is hidden waits with its clock stopped until the child is back', () => {
+  const rng = seeded(6);
+  let state = advance(begin(), rng, 1000);
+  state = at(state, rightIndex(state), 1000);
+  assert.equal(state.kind, 'feedback');
+  state = advance(state, rng, 3000, true);
+  assert.equal(clockLeftAt(state, 60_000), 19_000, 'the clock does not run while the child is away');
+  state = unhide(state, 60_000);
+  assert.equal(clockLeftAt(state, 61_000), 18_000);
+  assert.equal(state.game.hiddenMs, 57_000);
+});
+
 test('leaving mid-game ends it as left when there is a word to save, and a game with no words has nothing to save', () => {
   const rng = seeded(4);
   const intro = begin();

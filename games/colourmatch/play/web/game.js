@@ -17,15 +17,18 @@ export function startGame({ mode, tuningId, tuning, startedAt, now }) {
   return { kind: 'roundIntro', game: { mode, tuningId, tuning, startedAt, startedNow: now, round: 1, turn: 0, turnInGame: 0, clockLeftMs: roundClockMs(tuning, 1), score: 0, correct: 0, mistakes: 0, recentCorrectMs: [], turns: [], hiddenMs: 0 } };
 }
 
-/** From the round intro or a flash to the next word, or to the next round's intro once the round's words are done. */
-export function advance(state, rng, now) {
+/**
+ * From the round intro or a flash to the next word, or to the next round's intro once the round's words are done. A word
+ * dealt while the page is `hidden` starts with its clock stopped, as if hidden the moment it appeared.
+ */
+export function advance(state, rng, now, hidden = false) {
   const { game } = state;
   if (state.kind === 'feedback' && game.turn >= turnsIn(game.tuning, game.round)) {
     const round = game.round + 1;
     return { kind: 'roundIntro', game: { ...game, round, turn: 0, clockLeftMs: roundClockMs(game.tuning, round) } };
   }
   const word = makeTurn(game.tuning, { round: game.round, turnInGame: game.turnInGame, recentCorrectMs: game.recentCorrectMs }, rng);
-  return { kind: 'showing', game, word, shownAtNow: now, hiddenAtNow: null };
+  return { kind: 'showing', game, word, shownAtNow: now, hiddenAtNow: hidden ? now : null };
 }
 
 const logged = (state, answer, clockLeftMs) => ({

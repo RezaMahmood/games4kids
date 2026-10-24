@@ -137,8 +137,9 @@ function become(state) {
   play.state = state;
   if (state.kind === 'over') return finish();
   renderGame(state);
-  if (state.kind === 'roundIntro') play.timer = setTimeout(() => become(advance(play.state, Math.random, now())), ROUND_INTRO_MS);
-  else if (state.kind === 'feedback') play.timer = setTimeout(() => become(advance(play.state, Math.random, now())), FLASH_MS[state.outcome]);
+  const next = () => become(advance(play.state, Math.random, now(), document.visibilityState === 'hidden'));
+  if (state.kind === 'roundIntro') play.timer = setTimeout(next, ROUND_INTRO_MS);
+  else if (state.kind === 'feedback') play.timer = setTimeout(next, FLASH_MS[state.outcome]);
   else if (state.kind === 'showing') {
     play.timer = setInterval(() => {
       if (play.state.kind !== 'showing') return;
