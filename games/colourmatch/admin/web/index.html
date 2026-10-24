@@ -6,11 +6,82 @@
   <title>Colour Match Admin</title>
   <link rel="stylesheet" href="/shared/tokens.css">
   <link rel="stylesheet" href="/shared/shell.css">
+  <link rel="stylesheet" href="admin.css">
 </head>
 <body aria-busy="true">
   <admin-bar></admin-bar>
   <div id="app" inert>
-    <main><h1>Colour Match</h1></main>
+    <header class="top">
+      <h1 id="heading" tabindex="-1">Colour Match</h1>
+      <nav class="tabs" aria-label="Admin sections">
+        <a href="#settings" data-tab="settings">Settings</a>
+        <a href="#metrics" data-tab="metrics">Metrics</a>
+      </nav>
+    </header>
+    <main>
+      <p id="status" class="status" role="status" hidden></p>
+
+      <section id="tab-settings" data-tab="settings" aria-labelledby="settings-heading">
+        <h2 id="settings-heading">Settings</h2>
+        <p class="note">Every save makes a new version. Each game records the version it was played under, so old games keep their rules and you can compare versions.</p>
+        <p id="current-version" class="note"></p>
+        <div class="settings-layout">
+          <form id="tuning-form" class="panel" novalidate>
+            <h3>Values</h3>
+            <div id="fields" class="fields"></div>
+            <ul id="tuning-problems" class="problems" hidden></ul>
+            <div class="actions">
+              <button id="t-save" type="submit" class="primary">Save as a new version</button>
+              <button id="t-reset" type="button">Back to the defaults</button>
+            </div>
+          </form>
+          <section class="panel" aria-labelledby="preview-heading">
+            <h3 id="preview-heading">The first 12 rounds</h3>
+            <p class="note">Worked out from the values on the left as you type.</p>
+            <table id="preview" class="data">
+              <thead><tr><th scope="col">Round</th><th scope="col">Words</th><th scope="col">Seconds a word</th><th scope="col">Round clock</th><th scope="col">Points ×</th></tr></thead>
+              <tbody id="preview-rows"></tbody>
+            </table>
+          </section>
+        </div>
+        <h3>Versions</h3>
+        <ol id="versions" class="versions"></ol>
+        <p id="versions-empty" class="note" hidden>No saved versions. Children play under the defaults.</p>
+      </section>
+
+      <section id="tab-metrics" data-tab="metrics" aria-labelledby="metrics-heading" hidden>
+        <div class="row">
+          <h2 id="metrics-heading">Metrics</h2>
+          <button id="csv" type="button">Download every summary as CSV</button>
+        </div>
+        <label class="inline">Child
+          <select id="child"><option value="">Choose a child</option></select>
+        </label>
+        <p id="games-empty" class="note" hidden>No games yet.</p>
+        <div class="scroll">
+          <table id="games" class="data" hidden>
+            <thead><tr>
+              <th scope="col">Saved</th><th scope="col">Mode</th><th scope="col">Score</th><th scope="col">Rounds</th><th scope="col">Words</th><th scope="col">Right</th>
+              <th scope="col">Best run</th><th scope="col" title="Median ms of right answers where the ink matched the word">Match ms</th><th scope="col" title="Median ms of right answers where the ink differed">Clash ms</th>
+              <th scope="col">Timeouts</th><th scope="col">Ended by</th><th scope="col">Device</th><th scope="col">Version</th><th scope="col"><span class="visually-hidden">Turns</span></th>
+            </tr></thead>
+            <tbody id="game-rows"></tbody>
+          </table>
+        </div>
+        <section id="turns-view" class="panel" aria-labelledby="turns-heading" hidden>
+          <div class="row">
+            <h3 id="turns-heading" tabindex="-1"></h3>
+            <button id="turns-close" type="button">Close</button>
+          </div>
+          <div class="scroll">
+            <table id="turns" class="data">
+              <thead><tr><th scope="col">Round</th><th scope="col">Word</th><th scope="col">Ink</th><th scope="col">Tapped</th><th scope="col">Right?</th><th scope="col">Answer ms</th><th scope="col">Points</th><th scope="col">Clock left</th></tr></thead>
+              <tbody id="turn-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
   </div>
   <script type="module" src="app.js"></script>
 </body>
