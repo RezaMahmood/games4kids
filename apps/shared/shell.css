@@ -146,26 +146,6 @@ a {
 	text-underline-offset: 0.2em;
 }
 
-.g4k-bar.admin {
-	background: var(--color-admin-bar);
-	color: #fff;
-}
-
-.g4k-bar.admin .brand,
-.g4k-bar.admin .who,
-.g4k-bar.admin a {
-	color: #fff;
-}
-
-.g4k-bar.admin .g4k-button.quiet {
-	border-color: #fff;
-	color: #fff;
-}
-
-.g4k-bar.admin .g4k-button.quiet:hover {
-	background: var(--color-ink-soft);
-}
-
 body[aria-busy="true"]::before {
 	content: "";
 	position: fixed;
@@ -208,51 +188,236 @@ body[aria-busy="true"]::after {
 	}
 }
 
-/*
- * On a phone the brand and Sign out share the first row and the links sit in three columns below, so every game stays in view; the email goes.
- * A grid rather than wrapped text, so the bar's height follows the number of links and not the width of each machine's fonts.
- * Sign out is placed on the bar itself, not in the grid, so a link can never land under it.
- */
+/* The admin bar: Members and Costs links, a Games menu, and an account menu. */
+.g4k-bar.admin {
+	position: relative;
+	z-index: 20;
+	background: var(--color-admin-bar);
+	color: #fff;
+	flex-wrap: nowrap;
+	min-height: 0;
+	padding-block: var(--space-xs);
+}
+
+.g4k-bar.admin a,
+.g4k-bar.admin .brand {
+	color: #fff;
+}
+
+.g4k-bar.admin .brand {
+	margin-right: var(--space-sm);
+	font-size: var(--size-lead);
+}
+
+.g4k-bar.admin nav a,
+.g4k-bar.admin .menu-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: var(--touch-min);
+	padding: 0 var(--space-sm);
+	border-radius: var(--radius-control);
+	text-decoration: none;
+	font: inherit;
+	font-weight: 700;
+	color: #fff;
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.g4k-bar.admin nav a:hover,
+.g4k-bar.admin .menu-toggle:hover {
+	background: var(--color-ink-soft);
+}
+
+.g4k-bar.admin nav a[aria-current],
+.g4k-bar.admin .menu.holds-current > .menu-toggle {
+	background: #fff;
+	color: var(--color-ink);
+}
+
+.g4k-bar.admin .menu-toggle[aria-expanded="true"] {
+	background: var(--color-ink-soft);
+	color: #fff;
+}
+
+.g4k-bar.admin :focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.g4k-bar.admin .caret {
+	width: 0.45rem;
+	height: 0.45rem;
+	border: solid currentColor;
+	border-width: 0 2px 2px 0;
+	transform: translateY(-2px) rotate(45deg);
+}
+
+.g4k-bar.admin [aria-expanded="true"] .caret {
+	transform: translateY(2px) rotate(-135deg);
+}
+
+.g4k-bar.admin .menu {
+	position: relative;
+}
+
+.g4k-bar.admin .menu-panel {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: 0;
+	min-width: 16rem;
+	padding: var(--space-xs);
+	background: var(--color-surface);
+	color: var(--color-ink);
+	border: 2px solid var(--color-line);
+	border-radius: var(--radius-control);
+	box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+}
+
+.g4k-bar.admin .menu-panel.end {
+	left: auto;
+	right: 0;
+}
+
+.g4k-bar.admin .menu-panel[hidden] {
+	display: none;
+}
+
+.g4k-bar.admin .menu-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.g4k-bar.admin .menu-panel a {
+	display: flex;
+	align-items: center;
+	min-height: var(--touch-min);
+	padding: 0 var(--space-sm);
+	border-radius: 10px;
+	color: var(--color-ink);
+	background: transparent;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.g4k-bar.admin .menu-panel a:hover {
+	background: var(--color-primary-tint);
+}
+
+.g4k-bar.admin .menu-panel a[aria-current="page"] {
+	background: var(--color-primary-tint);
+	color: var(--color-primary-pressed);
+	box-shadow: inset 4px 0 0 var(--color-primary);
+}
+
+.g4k-bar.admin .menu-heading {
+	margin: var(--space-xs) var(--space-sm) 2px;
+	padding-top: var(--space-xs);
+	border-top: 1px solid var(--color-line);
+	font-size: var(--size-caption);
+	color: var(--color-muted);
+}
+
+.g4k-bar.admin .menu-note {
+	margin: var(--space-xs) var(--space-sm) var(--space-sm);
+	font-size: var(--size-caption);
+	color: var(--color-muted);
+	overflow-wrap: anywhere;
+}
+
+.g4k-bar.admin .menu-note strong {
+	color: var(--color-ink);
+}
+
+.g4k-bar.admin .menu-panel .g4k-button {
+	width: 100%;
+	min-height: var(--touch-min);
+}
+
+.g4k-bar.admin > .menu {
+	margin-left: auto;
+}
+
+.g4k-bar.admin .menu-toggle[data-menu-toggle="account"] {
+	padding: 0 4px;
+	min-width: var(--touch-min);
+	justify-content: center;
+}
+
+.g4k-bar.admin .avatar {
+	display: inline-grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: var(--color-accent);
+	color: var(--color-ink);
+	font-weight: 700;
+}
+
+.g4k-bar.admin nav {
+	flex-wrap: nowrap;
+	gap: 4px;
+}
+
 @media (max-width: 600px) {
 	.g4k-bar.admin {
-		position: relative;
+		flex-wrap: wrap;
+		padding: var(--space-xs) var(--space-sm);
 		row-gap: 0;
-		padding-block: var(--space-xs);
 	}
 
 	.g4k-bar.admin .brand {
-		flex: 0 0 auto;
-		min-height: var(--touch-min);
 		font-size: var(--size-body);
+		min-height: var(--touch-min);
 	}
 
 	.g4k-bar.admin nav {
+		order: 3;
+		flex: 1 0 100%;
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
-		flex: 1 0 100%;
-		align-items: stretch;
-		gap: 0 var(--space-sm);
+		gap: 4px;
 	}
 
-	.g4k-bar.admin nav a {
-		display: flex;
-		align-items: center;
-		min-height: var(--touch-min);
+	.g4k-bar.admin nav a,
+	.g4k-bar.admin nav .menu-toggle {
+		justify-content: center;
+		width: 100%;
+		padding: 0 6px;
 		font-size: var(--size-caption);
-		line-height: 1.2;
-		overflow-wrap: anywhere;
 	}
 
-	.g4k-bar.admin .g4k-button {
+	.g4k-bar.admin nav .menu {
+		position: static;
+	}
+
+	.g4k-bar.admin nav .menu-panel,
+	.g4k-bar.admin > .menu .menu-panel {
 		position: absolute;
-		margin: 0;
-		top: var(--space-xs);
-		min-height: var(--touch-min);
-		right: var(--space-md);
-		white-space: nowrap;
+		left: var(--space-sm);
+		right: var(--space-sm);
+		top: calc(100% + 4px);
+		min-width: 0;
 	}
 
-	.g4k-bar.admin .who {
-		display: none;
+	.g4k-bar.admin > .menu {
+		position: static;
 	}
+
+	.g4k-bar.admin .menu-panel a {
+		justify-content: flex-start;
+		width: auto;
+		padding: 0 var(--space-sm);
+		font-size: var(--size-body);
+	}
+}
+
+.g4k-bar.admin .menu-panel > .menu-heading:first-child {
+	border-top: 0;
+	padding-top: 0;
 }

@@ -411,11 +411,11 @@ button[aria-disabled='true'] {
 
 .game {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto 11rem;
+	grid-template-columns: minmax(0, 1fr) auto auto 8rem;
 	align-items: center;
 	gap: var(--space-xs) var(--space-sm);
 	min-height: var(--touch-default);
-	padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
+	padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md);
 }
 
 .game .title {
@@ -430,6 +430,19 @@ button[aria-disabled='true'] {
 	padding: 0 var(--space-sm);
 }
 
+/* A game with no admin pages has no Open admin link, so its toggle is placed in the last column to line up with the others. */
+.game > .g4k-button:last-child {
+	grid-column: -2;
+}
+
+.game .open-admin {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
 .badge.paused {
 	background: var(--color-accent);
 	color: var(--color-ink);
@@ -437,11 +450,24 @@ button[aria-disabled='true'] {
 
 @media (max-width: 30rem) {
 	.game {
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	}
 
-	.game .g4k-button {
+	.game .title {
+		grid-column: 1;
+	}
+
+	.game .g4k-button,
+	.game > .g4k-button:last-child {
 		grid-column: 1 / -1;
+	}
+
+	.game .open-admin + .g4k-button {
+		grid-column: 2;
+	}
+
+	.game .open-admin {
+		grid-column: 1;
 	}
 }
 

@@ -1,4 +1,4 @@
-import { expect, type Browser, type Page } from '@playwright/test';
+import { expect, type Browser, type Locator, type Page } from '@playwright/test';
 import { REAL_PORT_BASE } from './ports.ts';
 
 export const GAMES = `http://localhost:${REAL_PORT_BASE}`;
@@ -20,6 +20,14 @@ export async function pageReady(page: Page): Promise<void> {
 export async function adminReady(page: Page): Promise<void> {
 	await expect(page.locator('admin-bar .g4k-bar')).toBeVisible();
 	await pageReady(page);
+}
+
+/** Opens a menu in the admin bar by its button's name and returns its panel. */
+export async function openBarMenu(page: Page, name: string): Promise<Locator> {
+	const toggle = page.locator('admin-bar').getByRole('button', { name: new RegExp(`^${name}`) });
+	await toggle.click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	return page.locator(`#${await toggle.getAttribute('aria-controls')}`);
 }
 
 /** The fake popup asks for credentials again, as prompt=login does. */

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, GAMES, pageReady, signInAtFakeEntra } from './support.ts';
+import { ADMIN, ADMIN_EMAIL, adminReady, answerPopups, GAMES, openBarMenu, pageReady, signInAtFakeEntra } from './support.ts';
 
 const RUN = Date.now().toString(36);
 const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, ignoreHTTPSErrors: true };
@@ -13,6 +13,24 @@ async function expectNoSideways(page: Page): Promise<void> {
 async function expectFillsScreen(sheet: Locator): Promise<void> {
 	const box = await sheet.boundingBox();
 	expect(box, 'the sheet covers the phone screen').toEqual({ x: 0, y: 0, width: 390, height: 844 });
+}
+
+/** Every control showing in the bar is whole in view, a full touch target, clear of the others, and the bar leaves the page in view. A closed menu's links do not show, so they are not asked to. */
+async function expectBarControlsFit(bar: Locator, width: number): Promise<number> {
+	const boxes = await bar.locator('a, button').evaluateAll((elements) => elements.map((element) => ({ name: element.textContent ?? '', ...element.getBoundingClientRect().toJSON() })).filter(({ width: w }) => w > 0));
+	expect(boxes.length, 'brand, Members, Costs, Games and the account button').toBeGreaterThanOrEqual(5);
+	for (const [i, a] of boxes.entries()) {
+		expect(Math.min(a.width, a.height), `${a.name} is a touch target`).toBeGreaterThanOrEqual(44);
+		expect(a.left, `${a.name} starts inside the screen`).toBeGreaterThanOrEqual(0);
+		expect(a.right, `${a.name} ends inside the screen`).toBeLessThanOrEqual(width);
+		for (const b of boxes.slice(i + 1)) {
+			const apart = a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
+			expect(apart, `${a.name} and ${b.name} do not overlap`).toBe(true);
+		}
+	}
+	const height = (await bar.boundingBox())!.height;
+	expect(height, 'the bar leaves the page in view').toBeLessThanOrEqual(160);
+	return height;
 }
 
 async function expectTouchSized(controls: Locator): Promise<void> {
@@ -71,20 +89,24 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 		await expectTouchSized(admin.getByRole('searchbox'));
 	});
 
-	await test.step('the admin bar shows every link and Sign out in full', async () => {
+	await test.step('the admin bar shows each of its controls in full, and the Games menu shows every game link within reach', async () => {
 		await admin.evaluate(() => window.scrollTo(0, 0));
 		const bar = admin.locator('admin-bar .g4k-bar');
-		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
-		await expect(bar.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'the bar stays short enough to leave the page in view').toBeLessThanOrEqual(160);
+		await expectBarControlsFit(bar, 390);
+		const panel = await openBarMenu(admin, 'Games');
+		const links = panel.getByRole('link');
+		expect(await links.count(), 'the pause page and at least one game').toBeGreaterThan(1);
+		for (const link of await links.all()) await expect(link).toBeInViewport({ ratio: 1 });
+		await expectTouchSized(links);
 		await expectNoSideways(admin);
+		await admin.keyboard.press('Escape');
+		await expect(panel).toBeHidden();
 	});
 
 	await test.step('the admin bar keeps its height when a machine draws the words wider', async () => {
 		const bar = admin.locator('admin-bar .g4k-bar');
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = '0.12em'));
-		for (const link of await bar.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
-		expect((await bar.boundingBox())!.height, 'wider fonts do not add a row').toBeLessThanOrEqual(160);
+		await expectBarControlsFit(bar, 390);
 		await expectNoSideways(admin);
 		await bar.evaluate((element) => ((element as HTMLElement).style.letterSpacing = ''));
 	});
@@ -156,27 +178,24 @@ test('on a phone, every admin outcome shows in view and neither site scrolls sid
 });
 
 for (const width of [320, 390, 430]) {
-	test(`at ${width}px the admin bar's controls never overlap and each is a full touch target`, async ({ browser }) => {
+	test(`at ${width}px the admin bar's controls never overlap, each is a full touch target, and the Games menu fits`, async ({ browser }) => {
 		const context = await browser.newContext({ ...PHONE, viewport: { width, height: 844 } });
 		const page = await context.newPage();
 		await page.goto(`${ADMIN}/costs/`);
 		await signInAtFakeEntra(page, ADMIN_EMAIL);
 		await adminReady(page);
 		const bar = page.locator('admin-bar .g4k-bar');
-		const controls = bar.locator('a, button');
-		const boxes = await controls.evaluateAll((elements) => elements.map((element) => ({ name: element.textContent ?? '', ...element.getBoundingClientRect().toJSON() })));
-		expect(boxes.length, 'brand, every link and Sign out').toBeGreaterThanOrEqual(5);
-		for (const [i, a] of boxes.entries()) {
-			expect(Math.min(a.width, a.height), `${a.name} is a touch target`).toBeGreaterThanOrEqual(44);
-			for (const b of boxes.slice(i + 1)) {
-				const apart = a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
-				expect(apart, `${a.name} and ${b.name} do not overlap`).toBe(true);
-			}
-		}
-		for (const control of await controls.all()) await expect(control).toBeInViewport({ ratio: 1 });
-		const height = (await bar.boundingBox())!.height;
+		for (const control of await bar.locator('a, button').filter({ visible: true }).all()) await expect(control).toBeInViewport({ ratio: 1 });
+		const height = await expectBarControlsFit(bar, width);
 		console.log(`admin bar at ${width}px is ${height}px tall`);
-		expect(height, 'the bar leaves the page in view').toBeLessThanOrEqual(160);
+		const panel = await openBarMenu(page, 'Games');
+		for (const link of await panel.getByRole('link').all()) await expect(link).toBeInViewport({ ratio: 1 });
+		await expectTouchSized(panel.getByRole('link'));
+		await page.keyboard.press('Escape');
+		const account = await openBarMenu(page, 'Account');
+		await expect(account.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
+		await expectTouchSized(account.getByRole('button', { name: 'Sign out' }));
+		await page.keyboard.press('Escape');
 		expect(await page.evaluate(() => document.documentElement.scrollWidth), 'nothing scrolls sideways').toBeLessThanOrEqual(width);
 		if (process.env['G4K_SHOTS']) await page.screenshot({ path: `${process.env['G4K_SHOTS']}/admin-bar-${width}.png` });
 		await context.close();
