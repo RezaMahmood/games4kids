@@ -186,17 +186,17 @@ function finish() {
   $('over-why').textContent = `${game.mode === 'hard' ? 'Hard mode. ' : ''}${WHY[state.reason](game)}`;
   $('over-rounds').textContent = `You reached round ${game.round} and got ${plural(game.correct, 'word')} right.`;
   $('over-best').textContent = '';
-  say('over-status', game.turns.length === 0 ? '' : 'Saving your score…');
   $('over-screen').insertBefore($('board'), $('again'));
   show('over-screen');
-  if (game.turns.length > 0) void save();
-  else loadBoard();
+  void save();
 }
 
 /** Sends the game once per gameId. The server's score is the one that counts, so the screen shows it when it arrives. */
 async function save(keepalive = false) {
   const current = play;
   if (!current || current.saved) return current?.saved;
+  say('over-status', 'Saving your score…');
+  $('over-retry').hidden = true;
   current.saved = api.save(current.gameId, toLog(current.state, current.device), keepalive).then((saved) => {
     if (play !== current) return;
     $('over-score').textContent = String(saved.score);
@@ -207,7 +207,8 @@ async function save(keepalive = false) {
     if (play !== current) return;
     current.saved = null;
     say('over-status', `${err.message} Your score was not saved.`);
-    loadBoard();
+    $('over-retry').hidden = false;
+    $('over-retry').focus();
   });
   return current.saved;
 }
@@ -303,6 +304,7 @@ for (const mode of ['normal', 'hard']) {
   $(`play-${mode}`).addEventListener('click', () => start(mode, pointer ?? pointerOf({})));
 }
 $('again').addEventListener('click', () => start(play?.state.game.mode ?? 'normal', play?.device.pointer ?? pointerOf({})));
+$('over-retry').addEventListener('click', () => save());
 $('over-home').addEventListener('click', home);
 $('board-open').addEventListener('click', openBoard);
 $('board-back').addEventListener('click', home);

@@ -10,8 +10,8 @@ test.describe.configure({ mode: 'serial' });
 let admin: Page;
 let kid: Page;
 let problems: string[];
-/** Games the child finished, as [mode, words played], oldest first, so the admin's table can be checked against them. */
-const played: [string, number][] = [];
+/** Games the child finished, as [mode, words played, words right], oldest first, so the admin's table can be checked against them. */
+const played: [string, number, number][] = [];
 
 test.beforeAll(async ({ browser }, testInfo) => {
 	testInfo.setTimeout(180_000);
@@ -93,7 +93,7 @@ for (const width of [390, 820]) {
 		await expect(kid.locator('#over-best')).toHaveText(/^Your best today is \d+\.$/);
 		await expect(kid.locator('#over-score')).toHaveText(String(score));
 		await shot(kid, `over-${width}`);
-		played.push(['normal', 8]);
+		played.push(['normal', 8, 5]);
 	});
 }
 
@@ -109,7 +109,26 @@ test('in hard mode the ink is the answer, and the game is scored half again', as
 	}
 	await expect(kid.locator('#over-why')).toHaveText('Hard mode. 3 mistakes in a row.');
 	await expect(kid.locator('#over-best')).toHaveText(/^Your best today is \d+\.$/);
-	played.push(['hard', 4]);
+	played.push(['hard', 4, 1]);
+});
+
+test('a save the server refuses leaves the score unsaved with a way to try again, and the retry saves the same game once', async () => {
+	await home(390);
+	let fail = true;
+	await kid.route('**/api/g/colourmatch/games/*', (route) => (fail ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'storage_down', message: 'The scores are away.' }) }) : route.continue()));
+	await kid.getByRole('button', { name: /^Normal/ }).click();
+	for (let i = 0; i < 3; i++) await tapWrong(await nextWord('normal'));
+	await expect(kid.locator('#over-status')).toHaveText('The scores are away. Your score was not saved.');
+	await expect(kid.getByRole('button', { name: 'Try saving again' })).toBeFocused();
+	fail = false;
+	const saved = kid.waitForResponse((res) => res.request().method() === 'PUT' && /\/games\/[0-9a-f-]{36}$/.test(res.url()));
+	await kid.getByRole('button', { name: 'Try saving again' }).click();
+	expect((await saved).status()).toBe(200);
+	await expect(kid.locator('#over-status')).toBeHidden();
+	await expect(kid.locator('#over-best')).toHaveText(/^Your best today is \d+\.$/);
+	await expect(kid.getByRole('button', { name: 'Try saving again' })).toBeHidden();
+	await kid.unroute('**/api/g/colourmatch/games/*');
+	played.push(['normal', 3, 0]);
 });
 
 test('the child can switch the board on from the game over screen and sees their best today on it', async () => {
@@ -142,7 +161,7 @@ for (const { width, options } of [
 		await rows.first().getByRole('button', { name: /^Turns/ }).click();
 		await expect(page.locator('#turns-heading')).toContainText(`${KID}, ${played.at(-1)?.[0]} mode`);
 		await expect(page.locator('#turn-rows tr')).toHaveCount(played.at(-1)?.[1] ?? 0);
-		await expect(page.locator('#turn-rows tr').first().locator('td').nth(4)).toHaveText('Yes');
+		await expect(page.locator('#turn-rows tr td.right')).toHaveCount(played.at(-1)?.[2] ?? 0);
 		await expect(page.locator('#turn-rows tr').last().locator('td').nth(4)).toHaveText('No');
 		await shot(page, `admin-turns-${width}`);
 		await page.context().close();

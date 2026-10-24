@@ -28,6 +28,7 @@ button:disabled { cursor: default; }
 .primary.big { display: block; width: 100%; max-width: 420px; min-height: var(--touch-primary); margin: var(--space-lg) auto 0; font-size: 24px; }
 .quiet { border: 2px solid var(--color-line); background: var(--color-surface); color: var(--color-primary); }
 #over-home, #board-open { display: block; margin: var(--space-md) auto 0; }
+#over-retry { margin-top: var(--space-xs); }
 
 .modes { display: grid; gap: 16px; margin-bottom: var(--space-md); }
 .mode { display: grid; gap: 6px; width: 100%; min-height: 110px; padding: 16px var(--space-md); border: 0; border-radius: var(--radius-card); color: #fff; text-align: left; box-shadow: 0 6px 0 rgba(31, 36, 48, 0.3); }
