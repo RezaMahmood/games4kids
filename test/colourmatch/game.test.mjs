@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_TUNING, parseGameLog, replayGame, roundClockMs, turnsIn } from '../../games/colourmatch/data/index.ts';
 import { advance, clockLeftAt, clockOut, hide, leave, startGame, tap, toLog, unhide } from '../../games/colourmatch/play/web/game.js';
+import { KEEPALIVE_MAX_BYTES } from '../../games/colourmatch/play/web/api.js';
 import { rightColour } from '../../games/colourmatch/play/web/rules.js';
 import { DEVICE, seeded } from './support.ts';
 
@@ -122,4 +123,22 @@ test('leaving mid-game ends it as left when there is a word to save, and a game 
   assert.deepEqual([left.kind, left.reason], ['over', 'left']);
   assert.equal(serverSays(left).endReason, 'left');
   assert.equal(leave(left), left);
+});
+
+test('a 600 word game with taps anywhere on the squares and a 300 character user agent fits a keepalive save', () => {
+  const rng = seeded(9);
+  let now = 1000;
+  let state = begin();
+  while (state.game.turns.length < 600) {
+    now += state.kind === 'roundIntro' ? 1500 : 400;
+    state = advance(state, rng, now);
+    if (state.kind !== 'showing') continue;
+    now += 400 + Math.floor(rng() * 600);
+    state = tap(state, { index: rightIndex(state), x: rng(), y: rng(), pointer: 'touch' }, now);
+  }
+  const log = toLog(state, { ...DEVICE, userAgent: 'x'.repeat(300) });
+  const bytes = new TextEncoder().encode(JSON.stringify(log)).byteLength;
+  assert.ok(bytes < KEEPALIVE_MAX_BYTES, `${bytes} bytes`);
+  assert.equal(state.game.turns.at(-1)[11], Math.round(state.game.turns.at(-1)[11] * 1000) / 1000, 'the tap position keeps 3 decimals');
+  assert.equal(serverSays({ ...state, kind: 'over', reason: 'left' }).turns, 600);
 });

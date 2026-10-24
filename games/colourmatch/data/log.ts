@@ -50,12 +50,14 @@ export type GameLog = {
 export const MAX_TURNS = 2000;
 export const MAX_USER_AGENT = 300;
 
-/** The 15 slots of a packed turn, in order. The page packs them the same way (play/web/rules.js). */
+/** The 15 slots of a packed turn, in order. The page packs them the same way (play/web/rules.js), the tap position to 3 decimals. */
 export type PackedTurn = readonly [number, number, string, string, string, string, string, string, number | null, number, number | null, number | null, number | null, string | null, number];
+
+const thousandths = (n: number) => Math.round(n * 1000) / 1000;
 
 export const packTurn = ({ round, turn, word, ink, squares, answer, shownAtMs, clockLeftMs }: LoggedTurn): PackedTurn => [
 	round, turn, word, ink, squares[0], squares[1], squares[2], squares[3],
-	answer?.tapped ?? null, shownAtMs, answer?.answerMs ?? null, answer?.x ?? null, answer?.y ?? null, answer?.pointer ?? null, clockLeftMs,
+	answer?.tapped ?? null, shownAtMs, answer?.answerMs ?? null, answer ? thousandths(answer.x) : null, answer ? thousandths(answer.y) : null, answer?.pointer ?? null, clockLeftMs,
 ];
 
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;

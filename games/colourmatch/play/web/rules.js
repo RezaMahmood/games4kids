@@ -112,8 +112,10 @@ export function turnPoints(tuning, mode, round, answerMs) {
   return Math.round(tuning.basePoints * speed * roundMultiplier(tuning, round) * (mode === 'hard' ? tuning.hardMultiplier : 1));
 }
 
-/** The 15 slots of a turn as the server reads them. */
+const thousandths = (n) => Math.round(n * 1000) / 1000;
+
+/** The 15 slots of a turn as the server reads them. The tap position keeps 3 decimals, so a long game fits a keepalive request. */
 export const packTurn = ({ round, turn, word, ink, squares, answer, shownAtMs, clockLeftMs }) => [
   round, turn, word, ink, squares[0], squares[1], squares[2], squares[3],
-  answer?.tapped ?? null, shownAtMs, answer?.answerMs ?? null, answer?.x ?? null, answer?.y ?? null, answer?.pointer ?? null, clockLeftMs,
+  answer?.tapped ?? null, shownAtMs, answer?.answerMs ?? null, answer ? thousandths(answer.x) : null, answer ? thousandths(answer.y) : null, answer?.pointer ?? null, clockLeftMs,
 ];

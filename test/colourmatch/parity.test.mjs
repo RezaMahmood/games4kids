@@ -53,10 +53,11 @@ test('the page deals the same words as the server from the same random numbers',
 });
 
 test('the page packs a turn into the 15 slots the server reads', () => {
-  const turn = { round: 2, turn: 3, word: 'red', ink: 'blue', squares: ['red', 'blue', 'pink', 'brown'], answer: { tapped: 1, answerMs: 876, x: 0.25, y: 0.75, pointer: 'touch' }, shownAtMs: 12_345, clockLeftMs: 9_000 };
+  const turn = { round: 2, turn: 3, word: 'red', ink: 'blue', squares: ['red', 'blue', 'pink', 'brown'], answer: { tapped: 1, answerMs: 876, x: 0.2549999, y: 0.7512345, pointer: 'touch' }, shownAtMs: 12_345, clockLeftMs: 9_000 };
   assert.deepEqual(page.packTurn(turn), server.packTurn(turn));
   const timedOut = { ...turn, answer: null, clockLeftMs: 0 };
   assert.deepEqual(page.packTurn(timedOut), server.packTurn(timedOut));
+  assert.deepEqual(page.packTurn(turn).slice(11, 13), [0.255, 0.751]);
   assert.equal(page.packTurn(turn).length, 15);
 });
 
