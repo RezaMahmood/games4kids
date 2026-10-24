@@ -4,16 +4,21 @@
 //   node tools/e2e.mjs --linux [playwright args]   in the Playwright Linux image, the run a push needs
 //   node tools/e2e.mjs --check                     exits 2 unless HEAD's tree has a passing Linux run
 //
-// A full Linux run (no test filter) on a clean tree records HEAD's tree hash in the worktree's git dir. --check is
+// A full Linux run (no test filter) on a clean tree records a hash of HEAD's files in the worktree's git dir. --check is
 // what the Claude Code hook in .claude/settings.json runs before git push and gh pr create. Linux is the one that
 // counts because its fonts draw wider than macOS fonts, and a layout that fits on a Mac can overflow there.
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 const root = git('rev-parse', '--show-toplevel');
 const stampFile = git('rev-parse', '--path-format=absolute', '--git-path', 'g4k-e2e-passed');
-const tree = () => git('rev-parse', 'HEAD^{tree}');
+/** HEAD's files without the Markdown, so a docs-only commit keeps the run that came before it. */
+const tree = () =>
+	createHash('sha256')
+		.update(git('ls-tree', '-r', 'HEAD').split('\n').filter((line) => !line.endsWith('.md')).join('\n'))
+		.digest('hex');
 const clean = () => git('status', '--porcelain', '--untracked-files=normal') === '';
 
 const args = process.argv.slice(2);
@@ -59,7 +64,7 @@ if (linux) {
 
 if (status === 0 && linux && testedTree && tree() === testedTree && clean()) {
 	appendFileSync(stampFile, `${testedTree}\n`);
-	console.log(`e2e: recorded a passing Linux run for tree ${testedTree.slice(0, 12)}`);
+	console.log(`e2e: recorded a passing Linux run for ${testedTree.slice(0, 12)}`);
 } else if (status === 0 && linux && !testedTree) {
 	console.log('e2e: passed, but a filtered run or uncommitted changes record nothing for the push check.');
 }

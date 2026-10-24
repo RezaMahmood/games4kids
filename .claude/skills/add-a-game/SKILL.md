@@ -54,7 +54,7 @@ Gen writes the catalogs, the registered ids, the admin module list, the per-game
 
 - A missing icon shows a broken image on home. Nothing tests it.
 - A missing required admin setting stops the whole admin app, so every game's admin pages and the members page go down with it.
-- Each game with an admin part appears in the admin bar's Games menu and gets an Open admin link on the Pause and resume games page, both from the catalog. The bar itself does not grow with the number of games. `test/e2e/phone.spec.ts` still caps the bar at 160px on a phone and checks that every game link in the open Games menu is in view and tappable, so run `npm run e2e` early. CI's Linux fonts draw wider than macOS fonts, so a layout that passes locally can fail there.
+- Each game with an admin part appears in the admin bar's Games menu and gets an Open admin link on the Pause and resume games page, both from the catalog. The bar itself does not grow with the number of games. `test/e2e/phone.spec.ts` still caps the bar at 160px on a phone and checks that every game link in the open Games menu is in view and tappable, so run `npm run e2e:linux` early. Linux fonts draw wider than macOS fonts, so a layout that passes in `npm run e2e` on a Mac can fail in Linux.
 - A play part that imports from another game's folder passes lint, `tsc -b`, and the tests, then fails in Azure. A player app's zip holds only `games/<id>/` (`appPlan` in `tools/package-app.ts`).
 
 ## After the merge
@@ -69,5 +69,5 @@ Then tell the owner to:
 ## Verify before the PR
 
 1. Run `npm ci --ignore-scripts && npm run gen && npm run lint && npx tsc -b && npm test`.
-2. Run `npm run e2e`.
+2. Commit, then run `npm run e2e:linux`. CI does not run the browser tests, and the push is refused until this passes.
 3. Start `npm run dev`. Sign in to the admin site with the email it prints. Add a child with the new game ticked and sync them. Sign in to the games site as that child and play the game through. With an admin part, use each admin screen. With a worker, create a job and watch it finish, because the dev stack runs queue messages in process.
