@@ -1,0 +1,3 @@
+#!/bin/sh
+# CI does not run the browser tests, so a push needs a passing `npm run e2e:linux` on each commit it sends.
+exec node "$(git rev-parse --show-toplevel)/tools/e2e.mjs" --pre-push

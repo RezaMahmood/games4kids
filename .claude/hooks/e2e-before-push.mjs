@@ -1,11 +1,9 @@
-// Blocks Claude's git push and gh pr create until `npm run e2e:linux` has passed on the commit, because CI no longer runs the browser tests.
+// .githooks/pre-push holds the real check. This makes sure git will run it before Claude pushes or opens a PR.
 import { spawnSync } from 'node:child_process';
 
 const input = JSON.parse(await new Response(process.stdin).text());
-const command = String(input.tool_input?.command ?? '');
-if (!/\bgit\s+push\b|\bgh\s+pr\s+create\b/.test(command) || /\bgit\s+push\b.*(--delete|\s:\S)/.test(command)) process.exit(0);
-const cwd = /^\s*cd\s+("[^"]+"|'[^']+'|\S+)\s*&&/.exec(command)?.[1].replace(/^["']|["']$/g, '') ?? input.cwd;
-const check = spawnSync('node', [new URL('../../tools/e2e.mjs', import.meta.url).pathname, '--check'], { cwd, encoding: 'utf8' });
-if (check.status === 0) process.exit(0);
-process.stderr.write(check.stderr || check.stdout || 'The browser-test check could not run.');
+if (!/\bgit\b.*\bpush\b|\bgh\s+pr\s+create\b/.test(String(input.tool_input?.command ?? ''))) process.exit(0);
+const hooksPath = spawnSync('git', ['config', 'core.hooksPath'], { cwd: input.cwd, encoding: 'utf8' }).stdout.trim();
+if (hooksPath === '.githooks') process.exit(0);
+process.stderr.write('Git is not set to run .githooks/pre-push, which refuses commits whose browser tests have not passed. Run `npm run e2e:linux` with no arguments on a clean tree. It sets core.hooksPath once it passes.');
 process.exit(2);
