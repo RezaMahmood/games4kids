@@ -23,10 +23,10 @@
         </button>
         <button id="play-hard" type="button" class="mode mode-hard">
           <span class="mode-title">Hard</span>
-          <span class="mode-how">Tap the colour the word is <em>written in</em>. Points ×1.5.</span>
+          <span class="mode-how">Tap the colour the word is <em>written in</em>. Points ×<span id="rule-hard">1.5</span>.</span>
         </button>
       </div>
-      <p class="note">Three mistakes in a row, or a round clock at zero, ends the game.</p>
+      <p id="rule-end" class="note">3 mistakes in a row, or a round clock at zero, ends the game.</p>
       <p id="start-status" class="status" role="alert" hidden></p>
       <button id="board-open" type="button" class="quiet">Friends board</button>
     </main>

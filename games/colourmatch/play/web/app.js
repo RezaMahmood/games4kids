@@ -157,6 +157,12 @@ function onTap(index, button, event, pointer) {
   become(tap(play.state, { index, x, y, pointer }, now()));
 }
 
+/** The start screen's rules, in the numbers the admin set. */
+function describeRules(tuning) {
+  $('rule-hard').textContent = String(tuning.hardMultiplier);
+  $('rule-end').textContent = `${tuning.maxMistakes === 1 ? 'A mistake' : `${tuning.maxMistakes} mistakes in a row`}, or a round clock at zero, ends the game.`;
+}
+
 async function start(mode, pointer) {
   say('start-status', '');
   let settings;
@@ -166,6 +172,7 @@ async function start(mode, pointer) {
     say('start-status', err.message);
     return;
   }
+  describeRules(settings.tuning);
   play = { state: startGame({ mode, ...settings, startedAt: new Date().toISOString(), now: now() }), gameId: crypto.randomUUID(), device: deviceInfo(pointer), timer: 0, saved: null };
   show('game-screen');
   become(play.state);
@@ -310,4 +317,9 @@ $('board-open').addEventListener('click', openBoard);
 $('board-back').addEventListener('click', home);
 $('board-switch').addEventListener('click', toggleBoard);
 
+try {
+  describeRules((await api.start()).tuning);
+} catch (err) {
+  say('start-status', err.message);
+}
 ready();

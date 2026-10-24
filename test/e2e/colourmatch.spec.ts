@@ -193,6 +193,8 @@ test('the admin saves a new settings version with a live preview, a bad value is
 	await admin.getByRole('button', { name: 'Save as a new version' }).click();
 	await expect(admin.locator('#versions li')).toHaveCount(0);
 	await admin.getByLabel(/^Most words in a round/).fill('10');
+	await admin.getByLabel(/^Points multiplier in hard mode/).fill('2');
+	await admin.getByLabel(/^Mistakes in a row that end the game/).fill('4');
 	await expect(admin.locator('#tuning-problems')).toBeHidden();
 	await admin.getByRole('button', { name: 'Save as a new version' }).click();
 	await expect(admin.getByRole('status')).toContainText('Saved.');
@@ -201,6 +203,8 @@ test('the admin saves a new settings version with a live preview, a bad value is
 	await shot(admin, 'admin-settings');
 
 	await home(390);
+	await expect(kid.getByRole('button', { name: /^Hard/ })).toContainText('Points ×2.');
+	await expect(kid.locator('#rule-end')).toHaveText('4 mistakes in a row, or a round clock at zero, ends the game.');
 	await kid.getByRole('button', { name: /^Normal/ }).click();
 	await expect(kid.locator('#round-intro-detail')).toHaveText('5 words, 25 seconds');
 });
