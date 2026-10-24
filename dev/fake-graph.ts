@@ -136,6 +136,6 @@ export async function startFakeGraph(options: FakeGraphOptions & { readonly port
 		res.writeHead(reply.status, Object.fromEntries(reply.headers));
 		res.end(Buffer.from(await reply.arrayBuffer()));
 	});
-	await new Promise<void>((resolve) => server.listen(options.port, 'localhost', resolve));
+	await new Promise<void>((resolve) => server.listen(options.port, '127.0.0.1', resolve));
 	return { ...fake, origin, close: () => new Promise<void>((resolve) => (server.close(() => resolve()), server.closeAllConnections())) };
 }

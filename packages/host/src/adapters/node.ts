@@ -69,7 +69,7 @@ export async function serveWithNode(apps: readonly App[], options: NodeServerOpt
 		}
 		write(res, app ? await app.handle(request) : notFound(), cors);
 	});
-	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port, 'localhost', resolve)));
+	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port, '127.0.0.1', resolve)));
 	const { port } = server.address() as { port: number };
 	return {
 		origin: `http://localhost:${port}`,

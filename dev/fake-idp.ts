@@ -275,8 +275,8 @@ export async function startFakeIdp(options: FakeIdpOptions) {
 	const https = createHttpsServer(selfSignedCert(), (req, res) => void handle(req, res, false));
 	const http = createHttpServer((req, res) => void handle(req, res, true));
 	await Promise.all([
-		new Promise<void>((resolve) => https.listen(options.httpsPort, 'localhost', resolve)),
-		new Promise<void>((resolve) => http.listen(options.httpPort, 'localhost', resolve)),
+		new Promise<void>((resolve) => https.listen(options.httpsPort, '127.0.0.1', resolve)),
+		new Promise<void>((resolve) => http.listen(options.httpPort, '127.0.0.1', resolve)),
 	]);
 	const close = (server: typeof https | typeof http) => new Promise<void>((resolve) => (server.close(() => resolve()), server.closeAllConnections()));
 	return {

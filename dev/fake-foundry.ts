@@ -197,7 +197,7 @@ export async function startFakeFoundry(options: { readonly port?: number } = {})
 		if (path.endsWith('/images/generations')) return json(200, reporting('images', png(scene(), 0)));
 		return json(404, { error: 'not found' });
 	});
-	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, 'localhost', resolve)));
+	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(options.port ?? 0, '127.0.0.1', resolve)));
 	const { port } = server.address() as { port: number };
 	return {
 		origin: `http://localhost:${port}`,

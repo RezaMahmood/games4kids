@@ -45,7 +45,7 @@ export async function startFakeVision({ port = 0 }: { port?: number } = {}): Pro
 		const readResult = { blocks: line.length > 0 ? [{ lines: [{ text: words.map((word) => word.text).join(' '), words: line }] }] : [] };
 		res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ readResult }));
 	});
-	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(port, 'localhost', resolve)));
+	await new Promise<void>((resolve, reject) => (server.once('error', reject), server.listen(port, '127.0.0.1', resolve)));
 	const bound = (server.address() as { port: number }).port;
 
 	return {

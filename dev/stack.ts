@@ -101,7 +101,7 @@ async function startIngestion(port: number, allowed: readonly string[], events: 
 		}
 		res.writeHead(404, cors).end();
 	});
-	await new Promise<void>((resolve) => server.listen(port, 'localhost', resolve));
+	await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
 	return { close: () => new Promise<void>((resolve) => (server.close(() => resolve()), server.closeAllConnections())) };
 }
 
