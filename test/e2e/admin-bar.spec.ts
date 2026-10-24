@@ -27,7 +27,7 @@ test('the admin bar keeps Games and the account in menus that work by keyboard a
 
 	await test.step('a click outside closes a menu, and opening the account menu closes Games', async () => {
 		await openBarMenu(page, 'Games');
-		await page.getByRole('heading', { name: 'Members' }).click();
+		await page.mouse.click(10, page.viewportSize()!.height - 10);
 		await expect(gamesButton).toHaveAttribute('aria-expanded', 'false');
 		await openBarMenu(page, 'Games');
 		const account = await openBarMenu(page, 'Account');
