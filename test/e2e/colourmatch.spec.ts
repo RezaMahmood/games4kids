@@ -112,6 +112,25 @@ test('in hard mode the ink is the answer, and the game is scored half again', as
 	played.push(['hard', 4, 1]);
 });
 
+for (const { width, height } of [{ width: 844, height: 390 }, { width: 1024, height: 768 }]) {
+	test(`at ${width}x${height} landscape, the word and all four squares fit on screen, and only the main button answers`, async () => {
+		await kid.setViewportSize({ width, height });
+		await kid.goto(`${GAMES}/g/colourmatch/`);
+		await pageReady(kid);
+		await kid.getByRole('button', { name: /^Normal/ }).click();
+		const right = await nextWord('normal');
+		await expect(word()).toBeInViewport({ ratio: 1 });
+		for (const square of await kid.locator('.square').all()) await expect(square).toBeInViewport({ ratio: 1 });
+		await shot(kid, `game-${width}x${height}`);
+		await kid.locator(`.square:not([data-colour="${right}"])`).first().click({ button: 'right' });
+		await expect(kid.locator('#hud-mistakes'), 'a right click is not an answer').toHaveAttribute('aria-label', 'No mistakes in a row');
+		await tapWrong(right);
+		for (let i = 0; i < 2; i++) await tapWrong(await nextWord('normal'));
+		await expect(kid.locator('#over-best')).toHaveText(/^Your best today is \d+\.$/);
+		played.push(['normal', 3, 0]);
+	});
+}
+
 test('a save the server refuses leaves the score unsaved with a way to try again, and the retry saves the same game once', async () => {
 	await home(390);
 	let fail = true;

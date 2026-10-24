@@ -100,6 +100,17 @@ button:disabled { cursor: default; }
   20%, 60% { transform: translateX(-8px); }
   40%, 80% { transform: translateX(8px); }
 }
+/*
+ * A phone held sideways is too short for the bar, the word and the squares, so the game takes the whole viewport (app.js
+ * scrolls it into view) and puts the word beside squares as tall as the space under the HUD. app.js holds the same query.
+ */
+@media (orientation: landscape) and (max-height: 600px) {
+  .game { height: 100dvh; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .stage { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); }
+  .word-panel { min-height: 0; }
+  .word { font-size: clamp(32px, 9vw, 112px); }
+  .squares { width: auto; height: 100%; min-width: 0; }
+}
 @media (max-width: 480px) {
   #over-score { font-size: 72px; }
   .hud strong { font-size: 20px; }

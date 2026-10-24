@@ -17,10 +17,14 @@ function h(tag, props = {}, ...children) {
   return node;
 }
 
+/** style.css lays the game out side by side under this query, and the game takes the whole viewport. */
+const SHORT_LANDSCAPE = matchMedia('(orientation: landscape) and (max-height: 600px)');
+
 /** Shows one screen and moves focus to its heading, so a keyboard or screen reader user starts at the top of it. */
 function show(screen, heading = $(screen).querySelector('h1, h2')) {
   for (const id of SCREENS) $(id).hidden = id !== screen;
-  window.scrollTo(0, 0);
+  if (screen === 'game-screen' && SHORT_LANDSCAPE.matches) $(screen).scrollIntoView();
+  else window.scrollTo(0, 0);
   heading.focus({ preventScroll: true });
 }
 
@@ -61,7 +65,7 @@ const squareButtons = [0, 1, 2, 3].map((index) => {
   const button = h('button', { type: 'button', className: 'square' });
   button.dataset.index = String(index);
   button.addEventListener('pointerdown', (event) => {
-    if (!event.isPrimary) return;
+    if (!event.isPrimary || event.button !== 0) return;
     onTap(index, button, event, pointerOf(event));
   });
   // A keyboard press reaches a button as a click with no pointer. A pointer's click was already handled on pointerdown.
